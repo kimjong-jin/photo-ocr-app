@@ -234,9 +234,6 @@ Specific Instructions for JSON Output and Data Extraction:
     let criticalErrorOccurred = null;
 
     try {
-      if (!process.env.API_KEY) {
-        throw new Error("API_KEY environment variable is not set. This application cannot function without it. Please ensure it is configured in your execution environment.");
-      }
 
       // Process ALL selected images for text extraction
       for (let i = 0; i < selectedImages.length; i++) {
