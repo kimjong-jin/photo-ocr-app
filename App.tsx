@@ -289,6 +289,12 @@ Specific Instructions for JSON Output and Data Extraction:
           }
         });
         const deduplicatedData = Array.from(uniqueEntriesMap.values());
+        deduplicatedData.sort((a, b) => {
+        const timeA = new Date(a.time).getTime();
+        const timeB = new Date(b.time).getTime();
+        return timeA - timeB;
+      });
+
         setAggregatedOcrText(JSON.stringify(deduplicatedData, null, 2));
         if(batchHadError) {
             setProcessingError("Some images could not be processed or returned no data. Results shown are from successfully processed images.");
