@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-// import './index.css'; // ❌ index.css 파일이 없다면 이 줄은 주석처리하거나 삭제해야 합니다
+import ApiKeyChecker from './components/ApiKeyChecke'; // Corrected import path if needed, assuming ApiKeyChecke.tsx
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -11,6 +11,8 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <ApiKeyChecker>
+      <App />
+    </ApiKeyChecker>
   </React.StrictMode>
 );
