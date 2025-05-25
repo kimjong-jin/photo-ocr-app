@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { ActionButton } from './ActionButton';
 import { Spinner } from './Spinner'; 
@@ -8,7 +7,6 @@ interface OcrControlsProps {
   onClear: () => void;
   isExtractDisabled: boolean;
   isClearDisabled: boolean;
-  // Navigation props re-introduced
   onPreviousImage?: () => void;
   onNextImage?: () => void;
   isPreviousDisabled?: boolean;
@@ -18,6 +16,10 @@ interface OcrControlsProps {
   onDownloadStampedImages?: () => void;
   isDownloadStampedDisabled?: boolean;
   isDownloadingStamped?: boolean;
+  // Props for Claydox API placeholder
+  onSendToClaydox?: () => void;
+  isClaydoxDisabled?: boolean;
+  isSendingToClaydox?: boolean;
 }
 
 const SparklesIcon: React.FC = () => (
@@ -50,13 +52,18 @@ const DownloadIcon: React.FC = () => (
   </svg>
 );
 
+const SendIcon: React.FC = () => ( // Icon for Claydox button
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+  </svg>
+);
+
 
 export const OcrControls: React.FC<OcrControlsProps> = ({ 
   onExtract, 
   onClear, 
   isExtractDisabled, 
   isClearDisabled,
-  // Navigation props
   onPreviousImage,
   onNextImage,
   isPreviousDisabled,
@@ -65,7 +72,10 @@ export const OcrControls: React.FC<OcrControlsProps> = ({
   totalImages,
   onDownloadStampedImages,
   isDownloadStampedDisabled,
-  isDownloadingStamped
+  isDownloadingStamped,
+  onSendToClaydox,      // New prop
+  isClaydoxDisabled,    // New prop
+  isSendingToClaydox    // New prop
 }) => {
   const showNavigation = typeof totalImages === 'number' && totalImages > 1 && typeof currentImageIndex === 'number' && currentImageIndex !== -1;
 
@@ -96,7 +106,7 @@ export const OcrControls: React.FC<OcrControlsProps> = ({
           </ActionButton>
         </div>
       )}
-      <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <ActionButton 
           onClick={onExtract} 
           disabled={isExtractDisabled}
@@ -119,6 +129,20 @@ export const OcrControls: React.FC<OcrControlsProps> = ({
           </ActionButton>
         )}
       </div>
+      {/* Claydox API Placeholder Button */}
+      {onSendToClaydox && (
+         <ActionButton
+            onClick={onSendToClaydox}
+            disabled={isClaydoxDisabled}
+            icon={isSendingToClaydox ? <Spinner size="sm" /> : <SendIcon />}
+            fullWidth
+            variant="secondary" // Or another appropriate variant
+            className="bg-teal-600 hover:bg-teal-500 focus:ring-teal-500" // Example custom styling
+            aria-label="Send data to Claydox API (Placeholder)"
+        >
+            {isSendingToClaydox ? 'Sending...' : 'Send to Claydox (Placeholder)'}
+        </ActionButton>
+      )}
       <ActionButton 
         onClick={onClear} 
         disabled={isClearDisabled} 
