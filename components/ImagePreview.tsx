@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface ImagePreviewProps {
@@ -8,9 +7,11 @@ interface ImagePreviewProps {
   receiptNumber?: string;
   siteLocation?: string;
   inspectionStartDate?: string;
+  item?: string; 
+  // Removed site1, site2 props
   showOverlay?: boolean;
   totalSelectedImages?: number;
-  currentImageIndex?: number; // Re-introduced
+  currentImageIndex?: number;
 }
 
 export const ImagePreview: React.FC<ImagePreviewProps> = ({ 
@@ -20,9 +21,11 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   receiptNumber,
   siteLocation,
   inspectionStartDate,
+  item, 
+  // Destructured site1, site2 removed
   showOverlay,
   totalSelectedImages,
-  currentImageIndex, // Re-introduced
+  currentImageIndex,
 }) => {
   if (!imageBase64) return null;
 
@@ -41,9 +44,10 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
           <div className="absolute top-2 right-2 bg-black/70 text-white text-xs p-2 rounded-md shadow-lg">
            {receiptNumber && <p><strong>접수번호:</strong> {receiptNumber}</p>}
            {siteLocation && <p><strong>현장:</strong> {siteLocation}</p>}
+           {item && <p><strong>항목:</strong> {item}</p>} 
            {inspectionStartDate && <p><strong>검사시작일:</strong> {inspectionStartDate}</p>}
+           {/* Removed site1, site2 display */}
           </div>
-
         )}
         <div className="text-center mt-2">
             {fileName && (
@@ -57,7 +61,6 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
             </p>
             )}
             {typeof totalSelectedImages === 'number' && totalSelectedImages > 1 && (typeof currentImageIndex !== 'number' || currentImageIndex === -1) && (
-                 // Fallback if currentImageIndex isn't properly set yet but we know there are multiple images
                 <p className="text-xs text-sky-400">{totalSelectedImages} images selected</p>
             )}
         </div>
