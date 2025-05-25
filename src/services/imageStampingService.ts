@@ -1,3 +1,4 @@
+
 export const generateStampedImage = (
   base64Image: string,
   mimeType: string,

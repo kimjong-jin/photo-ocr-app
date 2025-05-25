@@ -9,4 +9,4 @@ import React, { useRef } from 'react';
 // To make this a valid module, we export an empty object.
 // The original React and useRef imports are kept in case they were intended
 // for future non-JSX utility functions in this file, though they are currently unused.
-export {}
+export {};

@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Header } from './components/Header';
 import { ImageInput, ImageInfo } from './components/ImageInput';
@@ -225,7 +226,7 @@ Specific Instructions for JSON Output and Data Extraction:
     let batchHadError = false;
     let criticalErrorOccurred: string | null = null;
     try {
-      if (!process.env.API_KEY) throw new Error("API_KEY environment variable is not set.");if (!import.meta.env.VITE_API_KEY) throw new Error("API Key is not set. Check environment variables.");
+      if (!process.env.API_KEY) throw new Error("API_KEY environment variable is not set.");
       const imageProcessingPromises = selectedImages.map(async (currentImage) => {
         try {
           const currentPrompt = generatePromptForProAnalysis(receiptNumber, siteLocation, selectedItem);

@@ -1,3 +1,5 @@
+
+
 import React from 'react';
 import { Spinner } from './Spinner';
 import { ExtractedEntry } from '../App'; // Import ExtractedEntry type
