@@ -1,8 +1,7 @@
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import './index.css'; // 👈 이 줄을 꼭 추가하세요!
+// import './index.css'; // ❌ index.css 파일이 없다면 이 줄은 주석처리하거나 삭제해야 합니다
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
