@@ -31,7 +31,7 @@ const App: React.FC = () => {
 
   const [receiptNumber, setReceiptNumber] = useState<string>('');
   const [siteLocation, setSiteLocation] = useState<string>('');
-  const [inspectionStartDate, setInspectionStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [inspectionStartDate, setInspectionStartDate] = useState<string>('');
 
   const [areContextFieldsValid, setAreContextFieldsValid] = useState<boolean>(false);
   const [rangeDifferenceResults, setRangeDifferenceResults] = useState<AppRangeResults | null>(null);
