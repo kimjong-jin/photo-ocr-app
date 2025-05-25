@@ -42,9 +42,3 @@ export const ActionButton: React.FC<ActionButtonProps> = ({
     </button>
   );
 };
-    >
-      {icon && <span className="w-5 h-5">{icon}</span>}
-      <span>{children}</span>
-    </button>
-  );
-};
