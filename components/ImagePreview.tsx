@@ -38,14 +38,12 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
           className="max-w-full max-h-96 mx-auto rounded-md object-contain" 
         />
         {showOverlay && (
-          <div 
-            className="absolute top-2 right-2 bg-black/70 text-white text-xs p-2 rounded-md shadow-lg"
-            aria-label="Image context overlay"
-          >
-            {receiptNumber && <p><strong>접수번호:</strong> {receiptNumber}</p>}
-            {siteLocation && <p><strong>현장:</strong> {siteLocation}</p>}
-            {inspectionStartDate && <p><strong>검사시작일:</strong> {inspectionStartDate}</p>}
+          <div className="absolute top-2 right-2 bg-black/70 text-white text-xs p-2 rounded-md shadow-lg">
+           {receiptNumber && <p><strong>접수번호:</strong> {receiptNumber}</p>}
+           {siteLocation && <p><strong>현장:</strong> {siteLocation}</p>}
+           {inspectionStartDate && <p><strong>검사시작일:</strong> {inspectionStartDate}</p>}
           </div>
+
         )}
         <div className="text-center mt-2">
             {fileName && (
