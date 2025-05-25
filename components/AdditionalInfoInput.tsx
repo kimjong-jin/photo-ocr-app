@@ -1,6 +1,6 @@
 import React from 'react';
 
-interface AdditionalInfoInputProps {
+interface AnalysisContextFormProps {
   receiptNumber: string;
   onReceiptNumberChange: (value: string) => void;
   siteLocation: string;
@@ -10,7 +10,7 @@ interface AdditionalInfoInputProps {
   disabled?: boolean;
 }
 
-const AdditionalInfoInput: React.FC<AdditionalInfoInputProps> = ({
+const AnalysisContextForm: React.FC<AnalysisContextFormProps> = ({
   receiptNumber,
   onReceiptNumberChange,
   siteLocation,
@@ -29,7 +29,7 @@ const AdditionalInfoInput: React.FC<AdditionalInfoInputProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
           <div>
             <label htmlFor="receipt-number" className="block text-sm font-medium text-slate-300 mb-1">
-              접수번호
+              접수번호 <span className="text-red-400">*</span>
             </label>
             <input
               type="text"
@@ -38,6 +38,7 @@ const AdditionalInfoInput: React.FC<AdditionalInfoInputProps> = ({
               value={receiptNumber}
               onChange={(e) => onReceiptNumberChange(e.target.value)}
               disabled={disabled}
+              required
               className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 text-slate-100 text-sm placeholder-slate-400 transition-colors duration-150 ease-in-out disabled:opacity-60"
               placeholder="예: R2023001"
             />
@@ -45,7 +46,7 @@ const AdditionalInfoInput: React.FC<AdditionalInfoInputProps> = ({
 
           <div>
             <label htmlFor="site-location" className="block text-sm font-medium text-slate-300 mb-1">
-              현장
+              현장 <span className="text-red-400">*</span>
             </label>
             <input
               type="text"
@@ -54,6 +55,7 @@ const AdditionalInfoInput: React.FC<AdditionalInfoInputProps> = ({
               value={siteLocation}
               onChange={(e) => onSiteLocationChange(e.target.value)}
               disabled={disabled}
+              required
               className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 text-slate-100 text-sm placeholder-slate-400 transition-colors duration-150 ease-in-out disabled:opacity-60"
               placeholder="예: 강남 수질 측정소"
             />
@@ -76,11 +78,12 @@ const AdditionalInfoInput: React.FC<AdditionalInfoInputProps> = ({
         </div>
 
         <p className="mt-1 text-xs text-slate-400">
-          접수번호와 현장명, 검사 시작일은 선택 사항입니다.
+          접수번호와 현장명은 필수 입력 항목입니다. 이 정보들은 이미지 분석 시 사용되며, 다음 분석 시에도 유지됩니다. 검사 시작일은 선택 사항입니다.
         </p>
       </div>
     </div>
   );
 };
 
-export default AdditionalInfoInput;
+export { AnalysisContextForm as AdditionalInfoInput };
+export default AnalysisContextForm;
