@@ -7,9 +7,9 @@ let ai: GoogleGenAI | null = null;
 const getGenAIClient = (): GoogleGenAI => {
   const apiKey = import.meta.env.VITE_API_KEY;
   if (!apiKey) {
-    console.error("API_KEY environment variable is not set.");
+    console.error("VITE_API_KEY environment variable is not set.");
     throw new Error(
-      "Gemini API Key is not configured. Please set the API_KEY environment variable."
+      "Gemini API Key is not configured. Please set the VITE_API_KEY environment variable."
     );
   }
   if (!ai) {
