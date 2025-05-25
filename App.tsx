@@ -225,7 +225,7 @@ Specific Instructions for JSON Output and Data Extraction:
     let batchHadError = false;
     let criticalErrorOccurred: string | null = null;
     try {
-      if (!process.env.API_KEY) throw new Error("API_KEY environment variable is not set.");
+      if (!process.env.API_KEY) throw new Error("API_KEY environment variable is not set.");if (!import.meta.env.VITE_API_KEY) throw new Error("API Key is not set. Check environment variables.");
       const imageProcessingPromises = selectedImages.map(async (currentImage) => {
         try {
           const currentPrompt = generatePromptForProAnalysis(receiptNumber, siteLocation, selectedItem);
