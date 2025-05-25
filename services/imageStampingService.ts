@@ -1,29 +1,11 @@
-
-export const dataURLtoBlob = (dataurl: string): Blob => {
-  const arr = dataurl.split(',');
-  if (arr.length < 2) {
-    throw new Error('Invalid data URL');
-  }
-  const mimeMatch = arr[0].match(/:(.*?);/);
-  if (!mimeMatch || mimeMatch.length < 2) {
-    throw new Error('Could not parse MIME type from data URL');
-  }
-  const mime = mimeMatch[1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n);
-  }
-  return new Blob([u8arr], { type: mime });
-};
-
 export const generateStampedImage = (
-  originalImageBase64: string,
+  base64Image: string,
   mimeType: string,
   receiptNumber: string,
   siteLocation: string,
-  inspectionStartDate: string
+  inspectionDate: string,
+  item: string
+  // Removed site1, site2 parameters
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -34,117 +16,93 @@ export const generateStampedImage = (
       const ctx = canvas.getContext('2d');
 
       if (!ctx) {
-        reject(new Error('Failed to get 2D context from canvas'));
+        reject(new Error('Failed to get 2D context from canvas.'));
         return;
       }
 
-      // Draw original image
       ctx.drawImage(img, 0, 0);
 
-      // --- Context Stamping logic (Top-Right) ---
-      const mainPadding = Math.max(10, Math.min(img.width, img.height) * 0.015); 
-      let mainFontSize = Math.max(12, Math.min(img.width, img.height) * 0.025); 
-      mainFontSize = Math.min(mainFontSize, 48); // Cap main font size
+      const fontSize = Math.max(16, Math.min(img.width / 35, img.height / 25));
+      ctx.font = `bold ${fontSize}px Arial, sans-serif`;
       
-      ctx.font = `bold ${mainFontSize}px Arial, sans-serif`;
-      
-      const mainTextLines = [];
-      if (receiptNumber) mainTextLines.push(`접수번호: ${receiptNumber}`);
-      if (siteLocation) mainTextLines.push(`현장: ${siteLocation}`);
-      if (inspectionStartDate) mainTextLines.push(`검사시작일: ${inspectionStartDate}`);
+      const textLines: string[] = [];
+      if (receiptNumber && receiptNumber.trim() !== '') textLines.push(`접수번호: ${receiptNumber}`);
+      if (siteLocation && siteLocation.trim() !== '') textLines.push(`현장: ${siteLocation}`);
+      if (item && item.trim() !== '') textLines.push(`항목: ${item}`); 
+      if (inspectionDate && inspectionDate.trim() !== '') textLines.push(`검사시작일: ${inspectionDate}`);
+      // Removed site1, site2 logic
 
-      if (mainTextLines.length > 0) {
-        const mainLineHeight = mainFontSize * 1.3;
-        const mainTextMetrics = mainTextLines.map(line => ctx.measureText(line));
-        const mainMaxWidth = Math.max(...mainTextMetrics.map(m => m.width));
-        
-        const mainRectHeight = (mainLineHeight * mainTextLines.length) + (mainPadding * 1.5);
-        const mainRectWidth = mainMaxWidth + (mainPadding * 2);
-        
-        const mainRectX = canvas.width - mainRectWidth - mainPadding;
-        const mainRectY = mainPadding;
-
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; 
-        ctx.beginPath();
-        if (typeof ctx.roundRect === 'function') {
-            ctx.roundRect(mainRectX, mainRectY, mainRectWidth, mainRectHeight, 8);
-        } else { 
-            ctx.rect(mainRectX, mainRectY, mainRectWidth, mainRectHeight);
-        }
-        ctx.fill();
-        
-        ctx.fillStyle = 'white';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-
-        mainTextLines.forEach((line, index) => {
-          ctx.fillText(line, mainRectX + mainPadding, mainRectY + (mainPadding / 2) + (index * mainLineHeight));
-        });
+      if (textLines.length === 0) {
+        resolve(canvas.toDataURL(mimeType));
+        return;
       }
-      // --- End Context Stamping logic ---
-
-      // --- KTL Mark Stamping logic (Bottom-Left) ---
-      ctx.save(); // Isolate KTL drawing context
-
-      const ktlText = "KTL";
-      let ktlFontSize = Math.max(10, mainFontSize * 0.75); 
-      ktlFontSize = Math.min(ktlFontSize, 32); 
       
-      const ktlPadding = Math.max(6, ktlFontSize * 0.25);
-
-      ctx.font = `bold ${ktlFontSize}px Arial, sans-serif`;
-      const ktlTextMetrics = ctx.measureText(ktlText);
+      const padding = fontSize * 0.5;
+      const lineHeight = fontSize * 1.4;
       
-      const ktlRectWidth = ktlTextMetrics.width + (ktlPadding * 2);
-      const ktlRectHeight = ktlFontSize + (ktlPadding * 2); 
+      let maxTextWidth = 0;
+      textLines.forEach(line => {
+          const metrics = ctx.measureText(line);
+          if (metrics.width > maxTextWidth) {
+              maxTextWidth = metrics.width;
+          }
+      });
       
-      const ktlRectX = mainPadding; 
-      let ktlRectY = canvas.height - ktlRectHeight - mainPadding;
+      const textBlockWidth = maxTextWidth + (padding * 2);
+      const textBlockHeight = (textLines.length * lineHeight) - (lineHeight - fontSize) + padding; 
 
-      if (ktlRectY < mainPadding) {
-        ktlRectY = mainPadding;
-      }
-      if (ktlRectY + ktlRectHeight > canvas.height - mainPadding) {
-          ktlRectY = canvas.height - mainPadding - ktlRectHeight;
-      }
-      if (ktlRectY < mainPadding) ktlRectY = mainPadding;
-
-      console.log("[KTL Mark Debug] Canvas Width:", canvas.width, "Height:", canvas.height);
-      console.log("[KTL Mark Debug] Main Padding:", mainPadding);
-      console.log("[KTL Mark Debug] KTL Font Size:", ktlFontSize, "Padding:", ktlPadding);
-      console.log("[KTL Mark Debug] KTL Rect X:", ktlRectX, "Y:", ktlRectY, "Width:", ktlRectWidth, "Height:", ktlRectHeight);
+      const rectX = padding / 2;
+      const rectY = canvas.height - textBlockHeight - (padding / 2);
       
-      // Draw background rectangle for KTL mark (DEBUG COLORS)
-      const ktlBgColor = 'rgba(255, 0, 255, 1)'; // Opaque Magenta
-      const ktlStrokeColor = 'rgba(255, 255, 0, 1)'; // Opaque Yellow
-      const ktlTextColor = 'rgba(0, 255, 0, 1)'; // Opaque Lime Green
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(rectX , rectY , textBlockWidth, textBlockHeight);
 
-      console.log("[KTL Mark Debug] Background Color:", ktlBgColor);
-      ctx.fillStyle = ktlBgColor;
-      ctx.fillRect(ktlRectX, ktlRectY, ktlRectWidth, ktlRectHeight);
+      ctx.fillStyle = 'white';
+      textLines.forEach((line, index) => {
+        const textY = rectY + (index * lineHeight) + fontSize + (padding / 2) - (lineHeight - fontSize) / 2;
+        ctx.fillText(line, rectX + padding, textY);
+      });
 
-      // Draw border for KTL mark (DEBUG)
-      console.log("[KTL Mark Debug] Stroke Color:", ktlStrokeColor);
-      ctx.strokeStyle = ktlStrokeColor;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(ktlRectX, ktlRectY, ktlRectWidth, ktlRectHeight);
-
-      // Draw KTL text (DEBUG COLORS)
-      console.log("[KTL Mark Debug] Text Color:", ktlTextColor);
-      ctx.fillStyle = ktlTextColor; 
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(ktlText, ktlRectX + ktlRectWidth / 2, ktlRectY + ktlRectHeight / 2);
-      
-      ctx.restore(); // Restore drawing context
-      // --- End KTL Mark Stamping logic ---
-
-      resolve(canvas.toDataURL('image/png')); 
+      resolve(canvas.toDataURL(mimeType));
     };
     img.onerror = (err) => {
-      console.error("Failed to load image for stamping:", err);
-      reject(new Error('Failed to load image for stamping'));
+      console.error("Error loading image for stamping:", err);
+      reject(new Error('Failed to load image for stamping. The image might be corrupt or in an unsupported format.'));
     };
-    img.src = `data:${mimeType};base64,${originalImageBase64}`;
+    try {
+        if (!base64Image.startsWith('data:')) {
+            img.src = `data:${mimeType};base64,${base64Image}`;
+        } else {
+            img.src = base64Image;
+        }
+    } catch (e) {
+        reject(new Error('Error setting image source for stamping. Invalid image data or MIME type.'));
+    }
   });
+};
+
+export const dataURLtoBlob = (dataurl: string): Blob => {
+  const arr = dataurl.split(',');
+  if (arr.length < 2) {
+    throw new Error('Invalid data URL format for blob conversion.');
+  }
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  if (!mimeMatch || mimeMatch.length < 2) {
+    throw new Error('Could not determine MIME type from data URL for blob conversion.');
+  }
+  const mime = mimeMatch[1];
+  let bstr;
+  try {
+    bstr = atob(arr[1]);
+  } catch (e) {
+    console.error("Failed to decode base64 string (atob):", e);
+    throw new Error("Invalid base64 data in data URL.");
+  }
+  
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new Blob([u8arr], { type: mime });
 };
