@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 // Defines the structure for statistics of a single range
