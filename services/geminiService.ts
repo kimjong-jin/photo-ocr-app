@@ -5,7 +5,7 @@ import { GoogleGenAI, GenerateContentResponse, Part, GenerateContentParameters }
 let ai: GoogleGenAI | null = null;
 
 const getGenAIClient = (): GoogleGenAI => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = import.meta.env.VITE_API_KEY;
   if (!apiKey) {
     console.error("API_KEY environment variable is not set.");
     throw new Error(
