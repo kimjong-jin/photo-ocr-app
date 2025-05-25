@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import ApiKeyChecker from './components/ApiKeyChecke'; // Corrected import path if needed, assuming ApiKeyChecke.tsx
+import ApiKeyChecker from './components/ApiKeyChecker';; // Corrected import path if needed, assuming ApiKeyChecke.tsx
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
