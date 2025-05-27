@@ -505,11 +505,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     let finalAggregatedTextToSet: string | null = null;
 
     try {
-      if (!process.env.VITE_API_KEY) {
-        criticalErrorOccurred = "VITE_API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
-        console.error('[App.tsx] handleExtractText: VITE_API_KEY environment variable is not set.');
-        throw new Error(criticalErrorOccurred);
-      }
+     if (!import.meta.env.VITE_API_KEY) {
+      criticalErrorOccurred = "VITE_API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
+      throw new Error(criticalErrorOccurred);
+    }
 
       console.log(`[App.tsx] Starting to process ${selectedImages.length} images with Gemini.`);
       const imageProcessingPromises = selectedImages.map(async (currentImage, index) => {
