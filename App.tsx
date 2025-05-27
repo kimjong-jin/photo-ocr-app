@@ -505,9 +505,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     let finalAggregatedTextToSet: string | null = null;
 
     try {
-      if (!process.env.API_KEY) {
-        criticalErrorOccurred = "API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
-        console.error('[App.tsx] handleExtractText: API_KEY environment variable is not set.');
+      if (!process.env.VITE_API_KEY) {
+        criticalErrorOccurred = "VITE_API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
+        console.error('[App.tsx] handleExtractText: VITE_API_KEY environment variable is not set.');
         throw new Error(criticalErrorOccurred);
       }
 
@@ -602,8 +602,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           console.error(`[App.tsx] Error processing image ${currentImage.file.name}:`, imgErr);
           console.error(`[App.tsx] String content that led to error for ${currentImage.file.name} (raw API: '${resultText !== ""}', processed: '${jsonStr !== "" && jsonStr !== resultText}'): \n---\n${attemptedJsonStringOnError}\n---`);
 
-          if (imgErr.message && (imgErr.message.includes("API_KEY") || imgErr.message.includes("API Key") || imgErr.message.includes("Quota exceeded") || imgErr.message.includes("Invalid Gemini API Key"))) {
-            criticalErrorOccurred = imgErr.message + " API 키 또는 할당량을 확인하세요.";
+          if (imgErr.message && (imgErr.message.includes("VITE_API_KEY") || imgErr.message.includes("VITE_API Key") || imgErr.message.includes("Quota exceeded") || imgErr.message.includes("Invalid Gemini VITE_API Key"))) {
+            criticalErrorOccurred = imgErr.message + " VITE_API 키 또는 할당량을 확인하세요.";
           }
 
           let reasonMessage = imgErr.message || `Failed to process image ${currentImage.file.name}`;
