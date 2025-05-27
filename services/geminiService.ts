@@ -6,11 +6,11 @@ import { GoogleGenAI, GenerateContentResponse, Part, GenerateContentParameters }
 let ai: GoogleGenAI | null = null;
 
 const getGenAIClient = (): GoogleGenAI => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = process.env.VITE_API_KEY;
   if (!apiKey) {
-    console.error("[geminiService] API_KEY environment variable is not set.");
+    console.error("[geminiService] VITE_API_KEY environment variable is not set.");
     throw new Error(
-      "Gemini API Key is not configured. Please set the API_KEY environment variable."
+      "Gemini API Key is not configured. Please set the VITE_API_KEY environment variable."
     );
   }
   if (!ai) {
@@ -61,7 +61,7 @@ export const extractTextFromImage = async (
   } catch (error: any) {
     console.error("[geminiService] Error calling Gemini API:", error);
     if (error.message && error.message.includes("API Key not valid")) {
-        throw new Error("Invalid Gemini API Key. Please check your API_KEY environment variable.");
+        throw new Error("Invalid Gemini API Key. Please check your VITE_API_KEY environment variable.");
     }
     if (error.message && error.message.includes("Quota exceeded")) {
         throw new Error("Gemini API quota exceeded. Please check your usage limits.");
