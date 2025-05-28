@@ -20,12 +20,11 @@ const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
-
 interface ApiKeyCheckerProps {
   children: React.ReactNode;
 }
 
-const API_KEY = process.env.API_KEY;
+const API_KEY = import.meta.env.VITE_API_KEY;
 
 const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ children }) => {
   if (!API_KEY) {
@@ -34,7 +33,7 @@ const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ children }) => {
         <AlertTriangleIcon />
         <h2 className="text-2xl font-bold mb-2 text-red-400">API 키 누락</h2>
         <p className="text-center max-w-md">
-          Google Gemini API 키가 구성되지 않았습니다. 실행 환경에 <code>API_KEY</code> 환경 변수가 설정되어 있는지 확인하세요.
+          Google Gemini API 키가 구성되지 않았습니다. 실행 환경에 <code>VITE_API_KEY</code> 환경 변수가 설정되어 있는지 확인하세요.
         </p>
         <p className="text-sm mt-4 text-slate-500">이 애플리케이션은 API 키 없이 작동할 수 없습니다.</p>
       </div>
