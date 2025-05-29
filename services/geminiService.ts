@@ -9,7 +9,7 @@ import {
 
 let ai: GoogleGenAI | null = null;
 
-// ✅ Vite에서는 import.meta.env 사용
+// ✅ Vite에서는 반드시 import.meta.env 사용
 const getGenAIClient = (): GoogleGenAI => {
   const apiKey = import.meta.env.VITE_API_KEY;
   if (!apiKey) {
@@ -52,11 +52,11 @@ export const extractTextFromImage = async (
       config: modelConfig,
     });
 
+    // ✅ 가장 안전한 텍스트 추출 방식
     const extractedText =
-      response.text ||
-      response.candidates?.[0]?.content?.parts?.[0]?.text ||
+      response?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
       "[응답에서 텍스트를 추출할 수 없습니다]";
-    
+
     console.log("[geminiService] Extracted Text:\n", extractedText);
     return extractedText;
 
