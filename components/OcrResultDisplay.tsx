@@ -175,13 +175,13 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                         <>
                             <col className="w-28" /> {/* TN Value */}
                             <col className="w-28" /> {/* TP Value */}
-                            <col className="w-40" /> {/* TN Identifier */}
-                            <col className="w-40" /> {/* TP Identifier */}
+                            <col className="w-20" /> {/* TN Identifier */}
+                            <col className="w-20" /> {/* TP Identifier */}
                         </>
                     ) : (
                         <>
                             <col className="w-28" /> {/* Value */}
-                            <col className="w-52" /> {/* Identifier */}
+                            <col className="w-28" /> {/* Identifier */}
                         </>
                     )}
                 </colgroup>
