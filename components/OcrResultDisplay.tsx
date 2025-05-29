@@ -167,7 +167,24 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
         )}
         {ocrData.length > 0 && (
             <div className="overflow-x-auto bg-slate-800 p-1 rounded-lg shadow-md border border-slate-700">
-            <table className="min-w-full divide-y divide-slate-700">
+            <table className="min-w-full divide-y divide-slate-700 table-fixed"> {/* Added table-fixed */}
+                <colgroup>
+                    <col className="w-12" /> {/* No. */}
+                    <col className={isTnTpMode ? "w-36" : "w-40"} /> {/* Time */}
+                    {isTnTpMode ? (
+                        <>
+                            <col className="w-28" /> {/* TN Value */}
+                            <col className="w-28" /> {/* TP Value */}
+                            <col className="w-44" /> {/* TN Identifier */}
+                            <col className="w-44" /> {/* TP Identifier */}
+                        </>
+                    ) : (
+                        <>
+                            <col className="w-32" /> {/* Value */}
+                            <col className="w-52" /> {/* Identifier */}
+                        </>
+                    )}
+                </colgroup>
                 <thead className="bg-slate-700/50">
                 <tr>
                     <th scope="col" className="px-2 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">No.</th>
@@ -185,7 +202,6 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                         <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">식별자</th>
                     </>
                     )}
-                    {/* Reorder column header removed */}
                 </tr>
                 </thead>
                 <tbody className="bg-slate-800 divide-y divide-slate-700">
@@ -196,7 +212,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     return (
                     <tr key={entry.id} className="hover:bg-slate-700/30 transition-colors duration-100">
                     <td className="px-2 py-2.5 whitespace-nowrap text-sm text-slate-400 text-center">{index + 1}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap">
+                    <td className="px-1 py-2.5 whitespace-nowrap"> {/* Reduced padding for time/value inputs */}
                         <input
                             type="text"
                             value={entry.time}
@@ -207,7 +223,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     </td>
                     {isTnTpMode ? (
                         <>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
+                        <td className="px-1 py-2.5 whitespace-nowrap">
                             <input // TN Value
                                 type="text"
                                 value={getDisplayValue(entry.value)}
@@ -216,7 +232,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                                 aria-label={`TN 값 입력 필드 ${index + 1}`}
                             />
                         </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
+                        <td className="px-1 py-2.5 whitespace-nowrap">
                             <input // TP Value
                                 type="text"
                                 value={getDisplayValue(entry.valueTP)}
@@ -225,7 +241,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                                 aria-label={`TP 값 입력 필드 ${index + 1}`}
                             />
                         </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap text-sm">
+                        <td className="px-2 py-2.5 whitespace-nowrap text-sm"> {/* Reduced padding for identifier selects */}
                             <select // TN Identifier
                             value={entry.identifier || ''}
                             onChange={(e) => onEntryIdentifierChange(entry.id, e.target.value)}
@@ -240,7 +256,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                             ))}
                             </select>
                         </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap text-sm">
+                        <td className="px-2 py-2.5 whitespace-nowrap text-sm">
                             <select // TP Identifier
                             value={entry.identifierTP || ''}
                             onChange={(e) => onEntryIdentifierTPChange(entry.id, e.target.value)}
@@ -258,7 +274,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                         </>
                     ) : (
                         <>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
+                        <td className="px-1 py-2.5 whitespace-nowrap">
                             <input // General Value
                                 type="text"
                                 value={getDisplayValue(entry.value)}
@@ -267,7 +283,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                                 aria-label={`값 입력 필드 ${index + 1}`}
                             />
                         </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap text-sm">
+                        <td className="px-2 py-2.5 whitespace-nowrap text-sm">
                             <select // General Identifier
                             value={entry.identifier || ''}
                             onChange={(e) => onEntryIdentifierChange(entry.id, e.target.value)}
@@ -284,7 +300,6 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                         </td>
                         </>
                     )}
-                    {/* Reorder buttons cell removed */}
                     </tr>
                 )})}
                 </tbody>
