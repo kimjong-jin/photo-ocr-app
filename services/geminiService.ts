@@ -1,23 +1,27 @@
+// geminiService.ts
 
-// Fix: Replaced deprecated GenerateContentRequest with GenerateContentParameters
-// Fix: Ensured correct import for GoogleGenAI
-import { GoogleGenAI, GenerateContentResponse, Part, GenerateContentParameters } from "@google/genai";
+import {
+  GoogleGenAI,
+  GenerateContentResponse,
+  Part,
+  GenerateContentParameters
+} from "@google/genai";
 
 let ai: GoogleGenAI | null = null;
 
+// Vite 환경에서는 import.meta.env 사용해야 함
 const getGenAIClient = (): GoogleGenAI => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = import.meta.env.VITE_API_KEY;
   if (!apiKey) {
-    console.error("[geminiService] API_KEY environment variable is not set.");
-    throw new Error(
-      "Gemini API Key is not configured. Please set the API_KEY environment variable."
-    );
+    console.error("[geminiService] VITE_API_KEY 환경 변수가 설정되지 않았습니다.");
+    throw new Error("Gemini API Key is not configured. Please set the VITE_API_KEY environment variable.");
   }
+
   if (!ai) {
-    // Fix: Use named apiKey parameter as per guidelines
     ai = new GoogleGenAI({ apiKey });
     console.log("[geminiService] GoogleGenAI client initialized.");
   }
+
   return ai;
 };
 
@@ -25,54 +29,49 @@ export const extractTextFromImage = async (
   imageBase64: string,
   mimeType: string,
   promptText: string,
-// Fix: Updated type hint to use GenerateContentParameters['config']
-  modelConfig?: GenerateContentParameters['config'] 
+  modelConfig?: GenerateContentParameters["config"]
 ): Promise<string> => {
   try {
     const client = getGenAIClient();
-    
+
     const imagePart: Part = {
       inlineData: {
-        mimeType: mimeType,
+        mimeType,
         data: imageBase64,
       },
     };
 
-    const textPart: Part = {
-      text: promptText,
-    };
+    const textPart: Part = { text: promptText };
 
-    // Fix: Use recommended model 'gemini-2.5-flash-preview-04-17'
-    const model = 'gemini-2.5-flash-preview-04-17'; 
-    console.log("[geminiService] Calling Gemini API with model:", model, "MIME Type:", mimeType, "Config:", modelConfig);
+    const model = "gemini-2.5-flash-preview-04-17";
+    console.log("[geminiService] Calling Gemini API with:", { model, mimeType, modelConfig });
 
-    // Fix: Use client.models.generateContent as per guidelines
     const response: GenerateContentResponse = await client.models.generateContent({
-      model: model,
-      contents: { parts: [textPart, imagePart] }, 
-      config: modelConfig, // Pass modelConfig to the API call
+      model,
+      contents: { parts: [textPart, imagePart] },
+      config: modelConfig,
     });
+
+    const extractedText =
+      response.text ||
+      response.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "[응답에서 텍스트를 추출할 수 없습니다]";
     
-    // Fix: Use response.text to extract text as per guidelines
-    const extractedText = response.text;
-    console.log("[geminiService] Raw response text from API:\n---\n", extractedText, "\n---");
+    console.log("[geminiService] Extracted Text:\n", extractedText);
     return extractedText;
 
   } catch (error: any) {
     console.error("[geminiService] Error calling Gemini API:", error);
-    if (error.message && error.message.includes("API Key not valid")) {
-        throw new Error("Invalid Gemini API Key. Please check your API_KEY environment variable.");
+
+    if (error.message?.includes("API Key not valid")) {
+      throw new Error("Invalid Gemini API Key. Please check your VITE_API_KEY environment variable.");
     }
-    if (error.message && error.message.includes("Quota exceeded")) {
-        throw new Error("Gemini API quota exceeded. Please check your usage limits.");
+
+    if (error.message?.includes("Quota exceeded")) {
+      throw new Error("Gemini API quota exceeded. Please check your usage limits.");
     }
-    // Consolidate error message for re-throw
-    let errorMessage = "An unknown error occurred while communicating with the Gemini API.";
-    if (error.message) {
-        errorMessage = error.message;
-    } else if (typeof error === 'object' && error !== null && error.toString) {
-        errorMessage = error.toString();
-    }
+
+    const errorMessage = error?.message || error?.toString() || "An unknown error occurred while communicating with the Gemini API.";
     throw new Error(errorMessage);
   }
 };
