@@ -170,18 +170,18 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
             <table className="min-w-full divide-y divide-slate-700 table-fixed">
                 <colgroup>
                     <col className="w-10" /> {/* No. */}
-                    <col className="w-32" /> {/* Time (same for both modes now) */}
+                    <col className="w-32" /> {/* Time */}
                     {isTnTpMode ? (
                         <>
-                            <col className="w-24" /> {/* TN Value */}
-                            <col className="w-24" /> {/* TP Value */}
-                            <col className="w-52" /> {/* TN Identifier */}
-                            <col className="w-52" /> {/* TP Identifier */}
+                            <col className="w-28" /> {/* TN Value */}
+                            <col className="w-28" /> {/* TP Value */}
+                            <col className="w-40" /> {/* TN Identifier */}
+                            <col className="w-40" /> {/* TP Identifier */}
                         </>
                     ) : (
                         <>
-                            <col className="w-24" /> {/* Value */}
-                            <col className="w-72" /> {/* Identifier */}
+                            <col className="w-28" /> {/* Value */}
+                            <col className="w-52" /> {/* Identifier */}
                         </>
                     )}
                 </colgroup>
