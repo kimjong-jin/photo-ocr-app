@@ -9,7 +9,7 @@ import {
 
 let ai: GoogleGenAI | null = null;
 
-// Vite 환경에서는 import.meta.env 사용해야 함
+// ✅ Vite에서는 import.meta.env 사용
 const getGenAIClient = (): GoogleGenAI => {
   const apiKey = import.meta.env.VITE_API_KEY;
   if (!apiKey) {
