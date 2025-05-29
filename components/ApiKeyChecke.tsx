@@ -25,7 +25,7 @@ interface ApiKeyCheckerProps {
 }
 
 // .env 파일 내에 존재해야 할 변수명: API_KEY
-const API_KEY = process.env.API_KEY;
+const API_KEY = import.meta.env.VITE_API_KEY
 
 const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ children }) => {
   if (!API_KEY) {
