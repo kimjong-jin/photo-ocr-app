@@ -167,21 +167,21 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
         )}
         {ocrData.length > 0 && (
             <div className="overflow-x-auto bg-slate-800 p-1 rounded-lg shadow-md border border-slate-700">
-            <table className="min-w-full divide-y divide-slate-700 table-fixed"> {/* Added table-fixed */}
+            <table className="min-w-full divide-y divide-slate-700 table-fixed">
                 <colgroup>
-                    <col className="w-12" /> {/* No. */}
-                    <col className={isTnTpMode ? "w-36" : "w-40"} /> {/* Time */}
+                    <col className="w-10" /> {/* No. */}
+                    <col className="w-32" /> {/* Time (same for both modes now) */}
                     {isTnTpMode ? (
                         <>
-                            <col className="w-28" /> {/* TN Value */}
-                            <col className="w-28" /> {/* TP Value */}
-                            <col className="w-44" /> {/* TN Identifier */}
-                            <col className="w-44" /> {/* TP Identifier */}
+                            <col className="w-24" /> {/* TN Value */}
+                            <col className="w-24" /> {/* TP Value */}
+                            <col className="w-52" /> {/* TN Identifier */}
+                            <col className="w-52" /> {/* TP Identifier */}
                         </>
                     ) : (
                         <>
-                            <col className="w-32" /> {/* Value */}
-                            <col className="w-52" /> {/* Identifier */}
+                            <col className="w-24" /> {/* Value */}
+                            <col className="w-72" /> {/* Identifier */}
                         </>
                     )}
                 </colgroup>
@@ -212,7 +212,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     return (
                     <tr key={entry.id} className="hover:bg-slate-700/30 transition-colors duration-100">
                     <td className="px-2 py-2.5 whitespace-nowrap text-sm text-slate-400 text-center">{index + 1}</td>
-                    <td className="px-1 py-2.5 whitespace-nowrap"> {/* Reduced padding for time/value inputs */}
+                    <td className="px-1 py-2.5 whitespace-nowrap">
                         <input
                             type="text"
                             value={entry.time}
@@ -241,7 +241,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                                 aria-label={`TP 값 입력 필드 ${index + 1}`}
                             />
                         </td>
-                        <td className="px-2 py-2.5 whitespace-nowrap text-sm"> {/* Reduced padding for identifier selects */}
+                        <td className="px-2 py-2.5 whitespace-nowrap text-sm"> 
                             <select // TN Identifier
                             value={entry.identifier || ''}
                             onChange={(e) => onEntryIdentifierChange(entry.id, e.target.value)}
