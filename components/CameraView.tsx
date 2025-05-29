@@ -46,16 +46,17 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture, onClose }) =>
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
-      if (videoRef.current.readyState >= videoRef.current.HAVE_METADATA) { // Avoid error if not loaded
-           videoRef.current.load(); // Clear video buffer
+      videoRef.current.onloadedmetadata = null; // Explicitly remove listener
+      if (videoRef.current.readyState >= videoRef.current.HAVE_METADATA) { 
+           videoRef.current.load(); 
       }
-      console.log("[CameraView] Video source cleared.");
+      console.log("[CameraView] Video source and metadata listener cleared.");
     }
   }, []);
 
   const startStream = useCallback(async (newDeviceId: string) => {
     console.log(`[CameraView] startStream called with deviceId: ${newDeviceId}`);
-    stopCurrentStream(); // Ensure previous stream is stopped before starting a new one
+    stopCurrentStream(); 
 
     let newIsFrontCameraValue = false;
     const selectedCamera = availableCameras.find(cam => cam.deviceId === newDeviceId);
@@ -76,18 +77,21 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture, onClose }) =>
       console.log("[CameraView] MediaStream obtained:", stream);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => { // Ensure metadata is loaded before playing
-          console.log("[CameraView] Video metadata loaded.");
-          if (videoRef.current) { // Double check ref
+        videoRef.current.onloadedmetadata = () => {
+          console.log("[CameraView] Video metadata loaded. Current video dimensions:", videoRef.current?.videoWidth, "x", videoRef.current?.videoHeight);
+          if (videoRef.current && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
             videoRef.current.play().catch(playError => {
               console.error("[CameraView] Error playing video stream:", playError);
               setCameraError(`비디오 스트림 재생에 실패했습니다: ${playError.message || "알 수 없는 재생 오류"}`);
-              stopCurrentStream(); // Stop stream if play fails
+              stopCurrentStream(); 
             });
+          } else {
+            console.warn("[CameraView] Metadata loaded, but video dimensions are 0 or invalid. Stream might be empty or corrupted.");
+            setCameraError("카메라 스트림은 유효하지만 비디오 데이터가 없거나 손상된 것 같습니다. 다른 카메라를 선택하거나 다시 시도해주세요.");
+            stopCurrentStream();
           }
         };
         streamRef.current = stream;
-        // setCurrentDeviceId(newDeviceId); // This is already handled by the calling effect or handler
         setIsFrontCamera(newIsFrontCameraValue);
       } else {
          console.warn("[CameraView] videoRef.current is null after obtaining stream. Stopping tracks and setting error.");
@@ -109,11 +113,9 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture, onClose }) =>
       setCameraError(detailedErrorMessage);
       stopCurrentStream();
     }
-    // Loading state is managed by the calling effect
-  }, [stopCurrentStream, availableCameras, setIsFrontCamera]); // Removed setters that are managed by calling effects
+  }, [stopCurrentStream, availableCameras, setIsFrontCamera]); 
 
 
-  // Effect 1: Fetch devices, set availableCameras, and set initial currentDeviceId. Runs once on mount.
   useEffect(() => {
     let didUnmount = false;
     setIsCameraLoading(true);
@@ -152,7 +154,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture, onClose }) =>
         } else {
           console.log("[CameraView] Effect 1: No specific rear camera found, using first video device:", videoDevices[0].label);
         }
-        if (!didUnmount) setCurrentDeviceId(initialDevId); // This will trigger Effect 2
+        if (!didUnmount) setCurrentDeviceId(initialDevId); 
 
       } catch (err: any) {
         console.error("[CameraView] Effect 1: Error enumerating devices:", err);
@@ -167,49 +169,45 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture, onClose }) =>
 
     return () => {
       didUnmount = true;
-      console.log("[CameraView] Effect 1: Unmount cleanup (not stopping stream here, global cleanup does).");
+      console.log("[CameraView] Effect 1: Unmount cleanup.");
     };
-  }, []); // Empty dependency array: runs once on mount
+  }, []); 
 
 
-  // Effect 2: Start stream when currentDeviceId changes.
   useEffect(() => {
     let didUnmount = false;
     if (currentDeviceId) {
       console.log(`[CameraView] Effect 2: currentDeviceId changed to ${currentDeviceId}. Starting stream.`);
-      setIsCameraLoading(true); // Set loading true before starting stream
-      setCameraError(null);     // Clear previous errors
+      setIsCameraLoading(true); 
+      setCameraError(null);     
 
       const doStartStream = async () => {
         await startStream(currentDeviceId);
         if (!didUnmount) {
-          setIsCameraLoading(false); // Set loading false after stream attempted to start
+          setIsCameraLoading(false); 
         }
       };
       doStartStream();
-    } else if (availableCameras.length > 0) { // currentDeviceId is undefined, but cameras are available (e.g. after error)
-        // This case might indicate an issue where currentDeviceId was cleared but shouldn't have been.
-        // For now, we just ensure loading is false if no device is selected.
+    } else if (availableCameras.length > 0) { 
         console.log("[CameraView] Effect 2: currentDeviceId is undefined, but cameras are available. Ensuring loading is false.");
         setIsCameraLoading(false);
     }
     return () => {
       didUnmount = true;
-      console.log("[CameraView] Effect 2: Unmount cleanup for currentDeviceId effect (not stopping stream here).");
+      console.log("[CameraView] Effect 2: Unmount cleanup for currentDeviceId effect.");
     };
-  }, [currentDeviceId, startStream, availableCameras.length]); // Depends on currentDeviceId and startStream callback
+  }, [currentDeviceId, startStream, availableCameras.length]); 
 
-  // Effect 3: Global stream cleanup on component unmount.
   useEffect(() => {
     return () => {
       console.log("[CameraView] Effect 3: Component unmounting. Stopping current stream.");
       stopCurrentStream();
     };
-  }, [stopCurrentStream]); // stopCurrentStream is stable
+  }, [stopCurrentStream]); 
 
 
   const handleCapture = useCallback(() => {
-    if (videoRef.current && videoRef.current.readyState >= videoRef.current.HAVE_METADATA && videoRef.current.videoWidth > 0) { 
+    if (videoRef.current && videoRef.current.readyState >= videoRef.current.HAVE_METADATA && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) { 
       const canvas = document.createElement('canvas');
       canvas.width = videoRef.current.videoWidth;
       canvas.height = videoRef.current.videoHeight;
@@ -236,7 +234,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture, onClose }) =>
         setCameraError("캡처를 위한 캔버스에서 2D 컨텍스트를 가져오는 데 실패했습니다.");
       }
     } else {
-        setCameraError("카메라가 준비되지 않았거나 비디오 스트림이 없거나 비디오 크기가 0입니다. 캡처할 수 없습니다.");
+        setCameraError("카메라가 준비되지 않았거나 비디오 스트림이 유효하지 않거나 비디오 크기가 0입니다. 캡처할 수 없습니다.");
     }
   }, [onCapture, isFrontCamera]);
 
@@ -247,7 +245,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture, onClose }) =>
     const nextIndex = (currentIndex + 1) % availableCameras.length;
     const nextDeviceId = availableCameras[nextIndex].deviceId;
     console.log(`[CameraView] Switching camera from ${currentDeviceId} to ${nextDeviceId}`);
-    setCurrentDeviceId(nextDeviceId); // This will trigger Effect 2 to restart the stream
+    setCurrentDeviceId(nextDeviceId); 
   }, [availableCameras, currentDeviceId, isCameraLoading]);
 
   return (
@@ -271,11 +269,11 @@ export const CameraView: React.FC<CameraViewProps> = ({ onCapture, onClose }) =>
                   `}
         playsInline 
         muted 
-        autoPlay // autoplay is important for some browsers after getUserMedia
+        autoPlay 
       />
       {!isCameraLoading && !cameraError && (
         <div className="grid grid-cols-1 gap-3 w-full sm:grid-cols-2">
-          <ActionButton onClick={handleCapture} icon={<CaptureIcon />} fullWidth disabled={!streamRef.current}>
+          <ActionButton onClick={handleCapture} icon={<CaptureIcon />} fullWidth disabled={!streamRef.current || !(videoRef.current && videoRef.current.readyState >= videoRef.current.HAVE_METADATA && videoRef.current.videoWidth > 0)}>
             촬영
           </ActionButton>
            {availableCameras.length > 1 && (
