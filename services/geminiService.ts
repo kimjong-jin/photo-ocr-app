@@ -1,16 +1,9 @@
-import {
-  GoogleGenAI,
-  GenerateContentResponse,
-  Part,
-  GenerateContentParameters
-} from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Part, GenerateContentParameters } from "@google/genai";
+import { v4 as uuidv4 } from "uuid";
 
-// 내부 캐싱된 Gemini 클라이언트 인스턴스
+/** Singleton 형태로 클라이언트 생성 */
 let ai: GoogleGenAI | null = null;
 
-/**
- * Gemini API 클라이언트를 초기화 및 반환
- */
 const getGenAIClient = (): GoogleGenAI => {
   const apiKey = import.meta.env.VITE_API_KEY;
   if (!apiKey) {
@@ -26,9 +19,7 @@ const getGenAIClient = (): GoogleGenAI => {
   return ai;
 };
 
-/**
- * 단일 이미지에서 텍스트 추출
- */
+/** 단일 이미지에서 텍스트 추출 */
 export const extractTextFromImage = async (
   imageBase64: string,
   mimeType: string,
@@ -72,55 +63,41 @@ export const extractTextFromImage = async (
   }
 };
 
-/**
- * 여러 이미지에서 텍스트 일괄 추출 및 JSON 결과 반환
- */
+/** 복수 이미지에서 분석된 데이터를 파싱하여 JSON 배열로 추출 */
 export const extractTextFromImagesWithGemini = async (
-  images: { base64: string; name: string; mimeType: string }[],
-  selectedItem: string,
-  receiptInfo: { receiptNumber: string; siteName: string; testItem: string },
-  stampImageDataUrl: string | null,
-  siteName: string
-): Promise<
-  {
-    id: string;
-    time: string;
-    value?: string;
-    valueTP?: string;
-  }[]
-> => {
-  const prompt = `
-아래 이미지는 ${receiptInfo.siteName}의 측정기 사진입니다.
-${selectedItem} 항목이며, 이미지에서 시간과 ${selectedItem === 'TN/TP' ? 'TN 및 TP 값' : '값'}을 추출해주세요.
-- 시간은 00:00 형식 문자열로 추출
-- 값은 숫자로 추출
-- 결과는 JSON 배열 형식으로 추출
-예: [{"time": "10:00", "value": "12.3"}, {"time": "10:30", "value": "14.1"}]
-`;
+  images: { base64: string; mimeType: string }[],
+  prompt: string,
+  modelConfig?: GenerateContentParameters['config']
+) => {
+  const results = [];
 
-  const allResults = [];
+  for (const [i, image] of images.entries()) {
+    console.log(`📤 [${i + 1}/${images.length}] Gemini에 이미지 전송 중...`);
+    const rawText = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
 
-  for (const image of images) {
     try {
-      const text = await extractTextFromImage(image.base64, image.mimeType, prompt);
-
-      const start = text.indexOf("[");
-      const end = text.lastIndexOf("]");
-      if (start !== -1 && end !== -1) {
-        const jsonString = text.substring(start, end + 1);
-        const parsed = JSON.parse(jsonString);
-        const withId = parsed.map((e: any) => ({
-          id: crypto.randomUUID(),
-          ...e,
-        }));
-        allResults.push(...withId);
-      } else {
-        console.warn("Gemini 응답에서 JSON 파싱 실패:\n", text);
+      // 예상 포맷: ```json\n[ ... ]\n```
+      const jsonTextMatch = rawText.match(/\[.*?\]/s);
+      if (!jsonTextMatch) {
+        throw new Error("JSON 포맷이 감지되지 않았습니다.");
       }
+
+      const parsed = JSON.parse(jsonTextMatch[0]);
+      if (!Array.isArray(parsed)) {
+        throw new Error("JSON 결과가 배열 형태가 아닙니다.");
+      }
+
+      const entries = parsed.map((entry: any) => ({
+        id: uuidv4(),
+        ...entry,
+      }));
+
+      results.push(...entries);
     } catch (err) {
-      console.error("이미지 분석 중 오류 발생:", err);
+      console.error("[geminiService] Gemini 응답에서 JSON 파싱 실패:", err);
+      throw new Error("Gemini 응답을 파싱할 수 없습니다. 응답 형식 또는 프롬프트를 확인하세요.");
     }
   }
 
-  return allResults;
+  return results;
 };
