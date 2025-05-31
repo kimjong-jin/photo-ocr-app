@@ -84,11 +84,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
       alert("'이동할 행 No.'를 입력해주세요.");
       return;
     }
-    // `newPositionInput` can be empty, `onReorderRows` in App.tsx will handle it.
     onReorderRows(rowToMoveInput, newPositionInput);
-    // Optionally clear inputs after action
-    // setRowToMoveInput('');
-    // setNewPositionInput('');
   }, [rowToMoveInput, newPositionInput, onReorderRows]);
 
   if (isLoading) {
@@ -148,7 +144,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
   };
 
   const isTnTpMode = selectedItem === "TN/TP";
-  const baseInputClassSmall = "w-full bg-slate-700 p-1.5 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400 text-slate-200";
+  const baseInputClassSmall = "w-full bg-slate-700 p-2 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400 text-slate-200";
   
   if (ocrData !== null) {
     return (
@@ -167,7 +163,6 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
             </ActionButton>
         </div>
 
-        {/* Row Reordering Controls */}
         {ocrData.length > 0 && (
           <div className="p-3 bg-slate-700/30 rounded-md border border-slate-600/50 space-y-3">
             <h4 className="text-md font-semibold text-slate-200 mb-1">행 순서 변경</h4>
@@ -177,11 +172,11 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                   이동할 행 No.:
                 </label>
                 <input
-                  type="text" // Changed type to text to allow ranges like "1-3"
+                  type="text"
                   id="row-to-move"
                   value={rowToMoveInput}
                   onChange={(e) => setRowToMoveInput(e.target.value)}
-                  placeholder="예: 5 또는 1-3" // Updated placeholder
+                  placeholder="예: 5 또는 1-3"
                   className={baseInputClassSmall}
                   aria-label="이동할 행의 현재 번호 또는 범위 (예: 5 또는 1-3)"
                 />
@@ -196,8 +191,6 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                   value={newPositionInput}
                   onChange={(e) => setNewPositionInput(e.target.value)}
                   placeholder="목표 No. (비우면 맨 뒤로)"
-                  // min="1" removed - validation handled in JS
-                  // max attribute removed - validation handled in JS
                   className={baseInputClassSmall}
                   aria-label="행을 이동시킬 새로운 위치 번호 (비우면 맨 뒤로)"
                 />
@@ -238,19 +231,19 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
             <div className="overflow-x-auto bg-slate-800 p-1 rounded-lg shadow-md border border-slate-700">
             <table className="min-w-full divide-y divide-slate-700 table-fixed">
                 <colgroup>
-                    <col className="w-5" /> {/* No. - Further Reduced width */}
-                    <col className="w-32" /> {/* Time */}
+                    <col className="w-12" /> {/* No. */}
+                    <col className="w-40" /> {/* Time */}
                     {isTnTpMode ? (
                         <>
-                            <col className="w-28" /> {/* TN Value */}
-                            <col className="w-28" /> {/* TP Value */}
-                            <col className="w-20" /> {/* TN Identifier */}
-                            <col className="w-20" /> {/* TP Identifier */}
+                            <col className="w-32" /> {/* TN Value */}
+                            <col className="w-32" /> {/* TP Value */}
+                            <col className="w-40" /> {/* TN Identifier */}
+                            <col className="w-40" /> {/* TP Identifier */}
                         </>
                     ) : (
                         <>
-                            <col className="w-28" /> {/* Value */}
-                            <col className="w-28" /> {/* Identifier */}
+                            <col className="w-32" /> {/* Value */}
+                            <col className="w-40" /> {/* Identifier */}
                         </>
                     )}
                 </colgroup>
@@ -262,26 +255,26 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     <>
                         <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">TN 값</th>
                         <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">TP 값</th>
-                        <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">TN 식별자</th>
-                        <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">TP 식별자</th>
+                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">TN 식별자</th>
+                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">TP 식별자</th>
                     </>
                     ) : (
                     <>
                         <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">값</th>
-                        <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">식별자</th>
+                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">식별자</th>
                     </>
                     )}
                 </tr>
                 </thead>
                 <tbody className="bg-slate-800 divide-y divide-slate-700">
                 {ocrData.map((entry, index) => {
-                    const baseInputClass = "w-full bg-slate-700 p-1.5 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500";
+                    const baseInputClass = "w-full bg-slate-700 p-2 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500";
                     const identifierSelectClass = (ident?: string) => `${baseInputClass} ${ident ? 'text-red-400 font-bold' : 'text-slate-200'}`;
 
                     return (
                     <tr key={entry.id} className="hover:bg-slate-700/30 transition-colors duration-100">
                     <td className="px-2 py-2.5 whitespace-nowrap text-sm text-slate-400 text-center">{index + 1}</td>
-                    <td className="px-1 py-2.5 whitespace-nowrap">
+                    <td className="px-2 py-2.5 whitespace-nowrap">
                         <input
                             type="text"
                             value={entry.time}
@@ -292,7 +285,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     </td>
                     {isTnTpMode ? (
                         <>
-                        <td className="px-1 py-2.5 whitespace-nowrap">
+                        <td className="px-2 py-2.5 whitespace-nowrap">
                             <input // TN Value
                                 type="text"
                                 value={getDisplayValue(entry.value)}
@@ -301,7 +294,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                                 aria-label={`TN 값 입력 필드 ${index + 1}`}
                             />
                         </td>
-                        <td className="px-1 py-2.5 whitespace-nowrap">
+                        <td className="px-2 py-2.5 whitespace-nowrap">
                             <input // TP Value
                                 type="text"
                                 value={getDisplayValue(entry.valueTP)}
@@ -343,7 +336,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                         </>
                     ) : (
                         <>
-                        <td className="px-1 py-2.5 whitespace-nowrap">
+                        <td className="px-2 py-2.5 whitespace-nowrap">
                             <input // General Value
                                 type="text"
                                 value={getDisplayValue(entry.value)}
@@ -392,7 +385,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                 <summary className="cursor-pointer text-sm font-medium text-sky-400 hover:text-sky-300">
                     KTL API 전송용 JSON 미리보기
                 </summary>
-                <pre className="mt-2 text-xs text-slate-300 bg-slate-800 p-3 rounded-md overflow-x-auto max-h-60">
+                <pre className="mt-2 text-xs text-slate-300 bg-slate-800 p-3 rounded-md overflow-x-auto max-h-60 border border-slate-700">
                     {ktlJsonToPreview}
                 </pre>
                  <ActionButton 
@@ -410,7 +403,6 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
     );
   }
   
-  // Fallback for ocrData === null (initial state before extraction)
   return (
     <div className="mt-6 p-6 bg-slate-700/50 rounded-lg shadow text-center">
       <p className="text-slate-400">
