@@ -591,9 +591,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     let finalAggregatedTextToSet: string | null = null;
 
    try {
-     if (!import.meta.env.VITE_API_KEY) {
-       criticalErrorOccurred = "VITE_API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
-       console.error('[App.tsx] handleExtractText: VITE_API_KEY environment variable is not set.');
+     if (!process.env.API_KEY) {
+       criticalErrorOccurred = "API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
+       console.error('[App.tsx] handleExtractText: API_KEY environment variable is not set.');
        throw new Error(criticalErrorOccurred);
        }
 
@@ -1385,11 +1385,12 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     };
 
     try {
+      const imageInfosForComposite = selectedImages.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
       const compositeImageBase64 = await generateCompositeImage(
         imageInfosForComposite,
         { receiptNumber, siteLocation, inspectionStartDate, item: selectedItem },
-        'image/jpeg'
-        );
+        'image/jpeg' 
+      );
 
       // ✅ 안전한 dataURL 생성
       let compositeDataUrl: string;
@@ -1402,10 +1403,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
       const compositeBlob = dataURLtoBlob(compositeDataUrl);
 
-      const sanitizedSite = sanitizeFilenameComponent(siteLocation);
-      const sanitizedItemName = sanitizeFilenameComponent(selectedItem === "TN/TP" ? "TN_TP" : selectedItem);
+      const sanitizedSite = sanitizeFilenameComponent(siteLocation); 
+      const sanitizedItemName = sanitizeFilenameComponent(selectedItem === "TN/TP" ? "TN_TP" : selectedItem); 
       const baseName = `${receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
-
+      
       const compositeKtlFileName = `${baseName}_composite.jpg`;
       const compositeFile = new File([compositeBlob], compositeKtlFileName, { type: 'image/jpeg' });
       
