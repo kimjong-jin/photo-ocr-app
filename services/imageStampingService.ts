@@ -114,8 +114,8 @@ export const generateCompositeImage = (
         const img = new Image();
         img.onload = () => resolveImg(img);
         img.onerror = (err) => {
-            console.error("Error loading an image for composite:", err, imgInfo.mimeType);
-            rejectImg(new Error(`Failed to load an image (MIME: ${imgInfo.mimeType}) for composite generation.`));
+            console.error("Error loading an image for composite. MIME:", imgInfo.mimeType, "Base64(start):", imgInfo.base64.substring(0, 30) + "...", "Error:", err);
+            rejectImg(new Error(`Failed to load an image (MIME: ${imgInfo.mimeType}) for composite generation. Check console for details.`));
         };
         if (imgInfo.base64.startsWith('data:')) {
             img.src = imgInfo.base64;
@@ -229,8 +229,20 @@ export const generateCompositeImage = (
         ctx.fillText(line, rectX + textPadding, textY);
       });
     }
+    
+    const finalDataURL = canvas.toDataURL(outputMimeType, quality);
 
-    resolve(canvas.toDataURL(outputMimeType, quality));
+    // Validate the generated Data URL
+    const parts = finalDataURL.split(',');
+    if (parts.length < 2 || !parts[0].includes(';base64') || parts[1].trim() === '') {
+      console.error(
+        "canvas.toDataURL in generateCompositeImage returned invalid/empty data. Canvas WxH:",
+        canvas.width, canvas.height, "Output (first 100chars):", finalDataURL.substring(0,100)
+      );
+      reject(new Error("합성 이미지 생성 실패: 캔버스에서 유효한 이미지 데이터를 생성할 수 없습니다. (잘못된 Data URL 형식)"));
+      return;
+    }
+    resolve(finalDataURL);
   });
 };
 
@@ -238,10 +250,14 @@ export const generateCompositeImage = (
 export const dataURLtoBlob = (dataurl: string): Blob => {
   const arr = dataurl.split(',');
   if (arr.length < 2) {
+    // This case should be caught by the validation in generateCompositeImage now
+    console.error("Invalid data URL format for blob conversion (missing comma):", dataurl.substring(0,100));
     throw new Error('Invalid data URL format for blob conversion.');
   }
   const mimeMatch = arr[0].match(/:(.*?);/);
   if (!mimeMatch || mimeMatch.length < 2) {
+     // This case should also be caught by validation in generateCompositeImage
+    console.error("Could not determine MIME type from data URL for blob conversion:", arr[0]);
     throw new Error('Could not determine MIME type from data URL for blob conversion.');
   }
   const mime = mimeMatch[1];
@@ -249,7 +265,7 @@ export const dataURLtoBlob = (dataurl: string): Blob => {
   try {
     bstr = atob(arr[1]);
   } catch (e) {
-    console.error("Failed to decode base64 string (atob):", e);
+    console.error("Failed to decode base64 string (atob). Input (first 100chars of base64 part):", arr[1].substring(0,100), "Error:", e);
     throw new Error("Invalid base64 data in data URL.");
   }
   
