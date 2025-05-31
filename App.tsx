@@ -1385,14 +1385,21 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     };
 
     try {
-      const imageInfosForComposite = selectedImages.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
       const compositeImageBase64 = await generateCompositeImage(
         imageInfosForComposite,
         { receiptNumber, siteLocation, inspectionStartDate, item: selectedItem },
         'image/jpeg'
-      );
+        );
 
-      const compositeDataUrl = `data:image/jpeg;base64,${compositeImageBase64}`;
+      // ✅ 안전한 dataURL 생성
+      let compositeDataUrl: string;
+
+      if (compositeImageBase64.startsWith("data:image/")) {
+        compositeDataUrl = compositeImageBase64;
+      } else {
+        compositeDataUrl = `data:image/jpeg;base64,${compositeImageBase64}`;
+      }
+
       const compositeBlob = dataURLtoBlob(compositeDataUrl);
 
       const sanitizedSite = sanitizeFilenameComponent(siteLocation);
