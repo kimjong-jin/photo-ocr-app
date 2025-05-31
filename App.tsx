@@ -1384,12 +1384,16 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     };
 
     try {
-      const imageInfosForComposite = selectedImages.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
-      const compositeImageBase64 = await generateCompositeImage(
-        imageInfosForComposite,
-        { receiptNumber, siteLocation, inspectionStartDate, item: selectedItem },
-        'image/jpeg' 
-      );
+     const imageInfosForComposite = selectedImages.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
+     const compositeImageBase64 = await generateCompositeImage(
+      imageInfosForComposite,
+      { receiptNumber, siteLocation, inspectionStartDate, item: selectedItem },
+      'image/jpeg'
+    );
+
+    const finalCompositeBase64 = compositeImageBase64.startsWith('data:')
+      ? compositeImageBase64
+      : `data:image/jpeg;base64,${compositeImageBase64}`;
 
       const compositeBlob = dataURLtoBlob(compositeImageBase64);
       const sanitizedSite = sanitizeFilenameComponent(siteLocation); 
