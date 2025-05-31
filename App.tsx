@@ -590,12 +590,13 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     let finalOcrDataToSet: ExtractedEntry[] | null = null;
     let finalAggregatedTextToSet: string | null = null;
 
-    try {
+   try {
      if (!import.meta.env.VITE_API_KEY) {
-      const criticalErrorOccurred = "API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
-      console.error('[App.tsx] handleExtractText: API_KEY environment variable is not set.');
-      throw new Error(criticalErrorOccurred);
-    }
+       criticalErrorOccurred = "VITE_API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
+       console.error('[App.tsx] handleExtractText: VITE_API_KEY environment variable is not set.');
+       throw new Error(criticalErrorOccurred);
+       }
+
 
       console.log(`[App.tsx] Starting to process ${selectedImages.length} images with Gemini.`);
       const imageProcessingPromises = selectedImages.map(async (currentImage, index) => {
@@ -1384,15 +1385,14 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     };
 
     try {
-     const imageInfosForComposite = selectedImages.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
-     const compositeImageBase64 = await generateCompositeImage(
-      imageInfosForComposite,
-      { receiptNumber, siteLocation, inspectionStartDate, item: selectedItem },
-      'image/jpeg'
-    );
+      const imageInfosForComposite = selectedImages.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
+      const compositeImageBase64 = await generateCompositeImage(
+        imageInfosForComposite,
+        { receiptNumber, siteLocation, inspectionStartDate, item: selectedItem },
+        'image/jpeg' 
+      );
 
-      const compositeDataUrl = `data:image/jpeg;base64,${compositeImageBase64}`;
-      const compositeBlob = dataURLtoBlob(compositeDataUrl);
+      const compositeBlob = dataURLtoBlob(compositeImageBase64);
       const sanitizedSite = sanitizeFilenameComponent(siteLocation); 
       const sanitizedItemName = sanitizeFilenameComponent(selectedItem === "TN/TP" ? "TN_TP" : selectedItem); 
       const baseName = `${receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
