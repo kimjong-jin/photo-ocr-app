@@ -97,6 +97,8 @@ interface StampDetails {
   item: string;
 }
 
+const MAX_COMPOSITE_DIMENSION = 3000; // Max width or height for the composite image
+
 export const generateCompositeImage = (
   images: ImageInfoMinimal[],
   stampDetails: StampDetails,
@@ -130,35 +132,44 @@ export const generateCompositeImage = (
 
     if (!loadedImages) return;
 
-
     const numImages = loadedImages.length;
-    const PADDING = 10; // Padding between images and around border
+    let PADDING = 10; // Initial Padding
 
     // Determine grid layout
     let cols = Math.ceil(Math.sqrt(numImages));
     let rows = Math.ceil(numImages / cols);
     
-    // Optimize layout for few images (e.g. 2, 3) to be more strip-like if preferred
-    if (numImages === 2) { cols = 2; rows = 1; } // Horizontal strip
-    else if (numImages === 3) { cols = 3; rows = 1; } // Horizontal strip
+    if (numImages === 2) { cols = 2; rows = 1; }
+    else if (numImages === 3) { cols = 3; rows = 1; }
 
+    const maxImgWidthOriginal = Math.max(...loadedImages.map(img => img.width), 300);
+    const maxImgHeightOriginal = Math.max(...loadedImages.map(img => img.height), 200);
 
-    // Assume all images are roughly the same size for cell calculation, or use a standard cell size
-    // For simplicity, let's find max width/height among images and use that as a basis for cell size
-    // Or, more robustly, define a target cell size and scale images into it.
-    // Let's go with a max individual image dimension to scale cells
-    const maxImgWidth = Math.max(...loadedImages.map(img => img.width), 300); // Min 300px width
-    const maxImgHeight = Math.max(...loadedImages.map(img => img.height), 200); // Min 200px height
+    let cellWidthOriginal = maxImgWidthOriginal;
+    let cellHeightOriginal = maxImgHeightOriginal;
 
-    const cellWidth = maxImgWidth;
-    const cellHeight = maxImgHeight;
+    let tentativeCanvasWidth = cols * cellWidthOriginal + (cols + 1) * PADDING;
+    let tentativeCanvasHeight = rows * cellHeightOriginal + (rows + 1) * PADDING;
+    
+    let scaleFactor = 1;
+    if (tentativeCanvasWidth > MAX_COMPOSITE_DIMENSION || tentativeCanvasHeight > MAX_COMPOSITE_DIMENSION) {
+        scaleFactor = Math.min(
+            MAX_COMPOSITE_DIMENSION / tentativeCanvasWidth,
+            MAX_COMPOSITE_DIMENSION / tentativeCanvasHeight
+        );
+    }
 
-    const canvasWidth = cols * cellWidth + (cols + 1) * PADDING;
-    const canvasHeight = rows * cellHeight + (rows + 1) * PADDING;
+    const finalCanvasWidth = tentativeCanvasWidth * scaleFactor;
+    const finalCanvasHeight = tentativeCanvasHeight * scaleFactor;
+    
+    const cellWidth = cellWidthOriginal * scaleFactor;
+    const cellHeight = cellHeightOriginal * scaleFactor;
+    PADDING = PADDING * scaleFactor;
+
 
     const canvas = document.createElement('canvas');
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
+    canvas.width = finalCanvasWidth;
+    canvas.height = finalCanvasHeight;
     const ctx = canvas.getContext('2d');
 
     if (!ctx) {
@@ -166,7 +177,7 @@ export const generateCompositeImage = (
       return;
     }
 
-    ctx.fillStyle = 'white'; // Background for the composite image
+    ctx.fillStyle = 'white'; 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     loadedImages.forEach((img, index) => {
@@ -176,15 +187,13 @@ export const generateCompositeImage = (
       const x = PADDING + colIndex * (cellWidth + PADDING);
       const y = PADDING + rowIndex * (cellHeight + PADDING);
 
-      // Scale image to fit cell while maintaining aspect ratio
       const hRatio = cellWidth / img.width;
       const vRatio = cellHeight / img.height;
-      const ratio = Math.min(hRatio, vRatio);
+      const ratio = Math.min(hRatio, vRatio); // Maintain aspect ratio
       
       const drawWidth = img.width * ratio;
       const drawHeight = img.height * ratio;
 
-      // Center the image within the cell
       const centerX = x + (cellWidth - drawWidth) / 2;
       const centerY = y + (cellHeight - drawHeight) / 2;
 
@@ -193,7 +202,8 @@ export const generateCompositeImage = (
 
     // Apply stamp
     const { receiptNumber, siteLocation, inspectionStartDate, item } = stampDetails;
-    const fontSize = Math.max(16, Math.min(canvas.width / 40, canvas.height / 30, 24)); // Adjusted for potentially larger canvas
+    // Font size calculation is based on the final (possibly scaled) canvas dimensions
+    const fontSize = Math.max(16 * scaleFactor, Math.min(canvas.width / 40, canvas.height / 30, 24 * scaleFactor)); 
     ctx.font = `bold ${fontSize}px Arial, sans-serif`;
 
     const textLines: string[] = [];
@@ -203,12 +213,12 @@ export const generateCompositeImage = (
     if (inspectionStartDate && inspectionStartDate.trim() !== '') textLines.push(`검사시작일: ${inspectionStartDate}`);
 
     if (textLines.length > 0) {
-      const textPadding = fontSize * 0.5;
-      const lineHeight = fontSize * 1.4;
+      const textPadding = fontSize * 0.5; // Scaled because fontSize is scaled
+      const lineHeight = fontSize * 1.4; // Scaled
       
       let maxTextWidth = 0;
       textLines.forEach(line => {
-          const metrics = ctx.measureText(line);
+          const metrics = ctx.measureText(line); // measureText uses current ctx.font which is scaled
           if (metrics.width > maxTextWidth) {
               maxTextWidth = metrics.width;
           }
@@ -217,6 +227,7 @@ export const generateCompositeImage = (
       const textBlockWidth = maxTextWidth + (textPadding * 2);
       const textBlockHeight = (textLines.length * lineHeight) - (lineHeight - fontSize) + textPadding;
       
+      // Position relative to bottom-left of the (potentially scaled) canvas
       const rectX = textPadding / 2;
       const rectY = canvas.height - textBlockHeight - (textPadding / 2);
 
