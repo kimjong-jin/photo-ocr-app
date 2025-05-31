@@ -1,23 +1,19 @@
-
-// Fix: Replaced deprecated GenerateContentRequest with GenerateContentParameters
-// Fix: Ensured correct import for GoogleGenAI
 import { GoogleGenAI, GenerateContentResponse, Part, GenerateContentParameters } from "@google/genai";
 
 let ai: GoogleGenAI | null = null;
 
 const getGenAIClient = (): GoogleGenAI => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = import.meta.env.VITE_API_KEY; // ✅ Vite 기준 수정
   if (!apiKey) {
-    console.error("[geminiService] API_KEY environment variable is not set.");
-    throw new Error(
-      "Gemini API Key is not configured. Please set the API_KEY environment variable."
-    );
+    console.error("[geminiService] API 키가 설정되어 있지 않습니다.");
+    throw new Error("Gemini API Key is not configured. Please set the VITE_API_KEY environment variable.");
   }
+
   if (!ai) {
-    // Fix: Use named apiKey parameter as per guidelines
     ai = new GoogleGenAI({ apiKey });
     console.log("[geminiService] GoogleGenAI client initialized.");
   }
+
   return ai;
 };
 
@@ -25,54 +21,41 @@ export const extractTextFromImage = async (
   imageBase64: string,
   mimeType: string,
   promptText: string,
-// Fix: Updated type hint to use GenerateContentParameters['config']
-  modelConfig?: GenerateContentParameters['config'] 
+  modelConfig?: GenerateContentParameters['config']
 ): Promise<string> => {
   try {
     const client = getGenAIClient();
-    
-    const imagePart: Part = {
-      inlineData: {
-        mimeType: mimeType,
-        data: imageBase64,
+
+    const parts: Part[] = [
+      { text: promptText },
+      {
+        inlineData: {
+          mimeType,
+          data: imageBase64,
+        },
       },
-    };
+    ];
 
-    const textPart: Part = {
-      text: promptText,
-    };
-
-    // Fix: Use recommended model 'gemini-2.5-flash-preview-04-17'
-    const model = 'gemini-2.5-flash-preview-04-17'; 
-    console.log("[geminiService] Calling Gemini API with model:", model, "MIME Type:", mimeType, "Config:", modelConfig);
-
-    // Fix: Use client.models.generateContent as per guidelines
     const response: GenerateContentResponse = await client.models.generateContent({
-      model: model,
-      contents: { parts: [textPart, imagePart] }, 
-      config: modelConfig, // Pass modelConfig to the API call
+      model: "gemini-2.5-flash-preview-04-17",
+      contents: { parts },
+      config: modelConfig,
     });
-    
-    // Fix: Use response.text to extract text as per guidelines
+
     const extractedText = response.text;
-    console.log("[geminiService] Raw response text from API:\n---\n", extractedText, "\n---");
+    console.log("[geminiService] 추출된 텍스트:\n", extractedText);
     return extractedText;
 
   } catch (error: any) {
-    console.error("[geminiService] Error calling Gemini API:", error);
-    if (error.message && error.message.includes("API Key not valid")) {
-        throw new Error("Invalid Gemini API Key. Please check your API_KEY environment variable.");
+    console.error("[geminiService] API 호출 중 오류 발생:", error);
+
+    if (error.message?.includes("API Key not valid")) {
+      throw new Error("❌ 잘못된 API 키입니다. 환경변수를 다시 확인하세요.");
     }
-    if (error.message && error.message.includes("Quota exceeded")) {
-        throw new Error("Gemini API quota exceeded. Please check your usage limits.");
+    if (error.message?.includes("Quota exceeded")) {
+      throw new Error("🚫 Gemini API 사용량 초과입니다. 쿼터를 확인해주세요.");
     }
-    // Consolidate error message for re-throw
-    let errorMessage = "An unknown error occurred while communicating with the Gemini API.";
-    if (error.message) {
-        errorMessage = error.message;
-    } else if (typeof error === 'object' && error !== null && error.toString) {
-        errorMessage = error.toString();
-    }
-    throw new Error(errorMessage);
+
+    throw new Error(error.message || "Gemini API 호출 중 알 수 없는 오류가 발생했습니다.");
   }
 };
