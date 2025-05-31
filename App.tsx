@@ -1389,15 +1389,16 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       const compositeImageBase64 = await generateCompositeImage(
         imageInfosForComposite,
         { receiptNumber, siteLocation, inspectionStartDate, item: selectedItem },
-        'image/jpeg' 
+        'image/jpeg'
       );
 
       const compositeDataUrl = `data:image/jpeg;base64,${compositeImageBase64}`;
-      const compositeBlob = dataURLtoBlob(compositeDataUrl);      
-      const sanitizedSite = sanitizeFilenameComponent(siteLocation); 
-      const sanitizedItemName = sanitizeFilenameComponent(selectedItem === "TN/TP" ? "TN_TP" : selectedItem); 
+      const compositeBlob = dataURLtoBlob(compositeDataUrl);
+
+      const sanitizedSite = sanitizeFilenameComponent(siteLocation);
+      const sanitizedItemName = sanitizeFilenameComponent(selectedItem === "TN/TP" ? "TN_TP" : selectedItem);
       const baseName = `${receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
-      
+
       const compositeKtlFileName = `${baseName}_composite.jpg`;
       const compositeFile = new File([compositeBlob], compositeKtlFileName, { type: 'image/jpeg' });
       
