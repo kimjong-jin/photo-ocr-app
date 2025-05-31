@@ -1392,7 +1392,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         'image/jpeg' 
       );
 
-      const compositeBlob = dataURLtoBlob(compositeImageBase64);
+      const compositeDataUrl = `data:image/jpeg;base64,${compositeImageBase64}`;
+      const compositeBlob = dataURLtoBlob(compositeDataUrl);      
       const sanitizedSite = sanitizeFilenameComponent(siteLocation); 
       const sanitizedItemName = sanitizeFilenameComponent(selectedItem === "TN/TP" ? "TN_TP" : selectedItem); 
       const baseName = `${receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
