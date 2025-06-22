@@ -1191,7 +1191,7 @@ Response Format:
   return (
     <div className="w-full max-w-4xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">
-        구조부 확인 일괄 기록 (Page 2)
+        구조부 일괄 기록 (Page 2)
       </h2>
 
        <div className="grid grid-cols-1 sm:grid-cols-1 gap-x-6 gap-y-4 p-4 bg-slate-700/30 rounded-lg border border-slate-600/50">
