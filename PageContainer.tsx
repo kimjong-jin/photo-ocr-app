@@ -8,7 +8,7 @@ type Page = 'photoLog' | 'structuralCheck';
 
 interface PageContainerProps {
   userName: string;
-  onLogout: () => void; // ✅ 추가: 상위에서 상태 초기화
+  onLogout: () => void; // ✅ 로그아웃 콜백 받음
 }
 
 const PageContainer: React.FC<PageContainerProps> = ({ userName, onLogout }) => {
@@ -22,7 +22,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, onLogout }) => 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center p-4 sm:p-8 font-[Inter] relative">
       
-      {/* ✅ 로그아웃 버튼 - 이제 props로 받은 onLogout을 실행 */}
       <button
         onClick={onLogout}
         className="absolute top-4 right-4 text-sm text-slate-400 hover:text-red-400 transition"
