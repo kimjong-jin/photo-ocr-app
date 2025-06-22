@@ -14,11 +14,15 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLogout = () => {
+    setUserName(null);
+  };
+
   if (!userName) {
     return <UserNameInput onNameSubmit={handleNameSubmit} />;
   }
 
-  return <PageContainer userName={userName} />;
+  return <PageContainer userName={userName} onLogout={handleLogout} />;
 };
 
 export default App;
