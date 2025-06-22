@@ -15,7 +15,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-    setUserName(null);
+    setUserName(null); 
   };
 
   if (!userName) {
