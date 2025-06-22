@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
 import ApiKeyChecker from './components/ApiKeyChecker';
 import PageContainer from './PageContainer'; 
-import UserNameInput, { ALLOWED_USER_NAMES } from './components/UserNameInput'; // Import ALLOWED_USER_NAMES
+import UserNameInput, { ALLOWED_USER_NAMES } from './components/UserNameInput'; 
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -27,21 +27,24 @@ const AppWrapper: React.FC = () => {
   }, []);
 
   const handleNameSubmit = useCallback((name: string) => {
-    if (name.trim() && ALLOWED_USER_NAMES.includes(name.trim())) { // Ensure submitted name is also allowed
+    if (name.trim() && ALLOWED_USER_NAMES.includes(name.trim())) { 
       const trimmedName = name.trim();
       localStorage.setItem(USER_NAME_LOCAL_STORAGE_KEY, trimmedName);
       setUserName(trimmedName);
       setIsUserNameSet(true);
     } else {
-      // This case should be handled within UserNameInput (displaying error if not allowed),
-      // but as a fallback or if somehow bypassed:
       alert("유효한 이름을 입력하거나 선택해주세요.");
-      localStorage.removeItem(USER_NAME_LOCAL_STORAGE_KEY); // Clear invalid stored name
+      localStorage.removeItem(USER_NAME_LOCAL_STORAGE_KEY); 
     }
   }, []);
 
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem(USER_NAME_LOCAL_STORAGE_KEY);
+    setUserName('');
+    setIsUserNameSet(false);
+  }, []);
+
   if (isLoadingUserName) {
-    // Optional: add a loading spinner or minimal UI here if desired
     return (
       <div className="fixed inset-0 bg-slate-900 flex items-center justify-center">
         {/* Placeholder for a loading indicator if needed */}
@@ -55,7 +58,7 @@ const AppWrapper: React.FC = () => {
 
   return (
     <ApiKeyChecker>
-      <PageContainer userName={userName} />
+      <PageContainer userName={userName} onLogout={handleLogout} />
     </ApiKeyChecker>
   );
 };
