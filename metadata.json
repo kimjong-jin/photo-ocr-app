@@ -1,8 +1,0 @@
-{
-  "name": "(2025-05-31) 사진 기록 전송",
-  "description": "사진을 업로드하고 관련 정보를 기록 및 관리하며, Gemini API를 사용하여 이미지에서 데이터를 추출합니다.",
-  "requestFramePermissions": [
-    "camera"
-  ],
-  "prompt": ""
-}
