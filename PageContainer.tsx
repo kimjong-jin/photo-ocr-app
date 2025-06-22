@@ -13,12 +13,21 @@ interface PageContainerProps {
 const PageContainer: React.FC<PageContainerProps> = ({ userName }) => {
   const [activePage, setActivePage] = useState<Page>('photoLog');
 
-  const navButtonBaseStyle = "px-4 py-2 rounded-md font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500";
+  const navButtonBaseStyle =
+    "px-4 py-2 rounded-md font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500";
   const activeNavButtonStyle = "bg-sky-500 text-white";
   const inactiveNavButtonStyle = "bg-slate-700 hover:bg-slate-600 text-slate-300";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center p-4 sm:p-8 font-[Inter]">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center p-4 sm:p-8 font-[Inter] relative">
+      {/* 로그아웃 버튼 추가 */}
+      <button
+        onClick={() => window.location.reload()}
+        className="absolute top-4 right-4 text-sm text-slate-400 hover:text-red-400 transition"
+      >
+        로그아웃
+      </button>
+
       <Header />
       <nav className="w-full max-w-3xl mb-6 flex justify-center space-x-2 sm:space-x-4 p-2 bg-slate-800 rounded-lg shadow-md">
         <button
@@ -36,10 +45,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName }) => {
           구조부 확인 (Page 2)
         </button>
       </nav>
-      
+
       {activePage === 'photoLog' && <PhotoLogPage userName={userName} />}
       {activePage === 'structuralCheck' && <StructuralCheckPage userName={userName} />}
-      
+
       <Footer />
     </div>
   );
