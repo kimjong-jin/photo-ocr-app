@@ -44,7 +44,7 @@ interface ApiKeyCheckerProps {
   children: React.ReactNode;
 }
 
-const API_KEY = process.env.API_KEY;
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ children }) => {
   if (!API_KEY) {
