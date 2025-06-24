@@ -10,7 +10,7 @@ let aiClient: GoogleGenAI | null = null;
 
 /** Gemini 클라이언트 싱글턴 생성 함수 */
 const getGenAIClient = (): GoogleGenAI => {
-  const apiKey = process.env.API_KEY?.trim();
+  const apiKey = import.meta.env.VITE_API_KEY?.trim();
   if (!apiKey) {
     console.error("[geminiService] 🚨 API_KEY 환경변수 미설정 또는 빈 값");
     throw new Error(
