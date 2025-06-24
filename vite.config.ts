@@ -1,6 +1,4 @@
-import path from 'path';
-import { defineConfig } from 'vite';
-
+// 기존 define 설정 제거
 export default defineConfig({
   resolve: {
     alias: {
