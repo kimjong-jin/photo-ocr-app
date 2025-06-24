@@ -1,8 +1,10 @@
-// 기존 define 설정 제거
+import path from 'path';
+import { defineConfig } from 'vite';
+
 export default defineConfig({
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, '.'),
+      '@': path.resolve(__dirname, 'src'),  // 💡 src 폴더 기준으로 매핑
     },
   },
 });
