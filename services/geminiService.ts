@@ -9,6 +9,7 @@ import {
 let aiClient: GoogleGenAI | null = null;
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GenerateContentResponse, Part, GenerateContentParameters } from "@google/generative-ai";
 
 let aiClient: GoogleGenerativeAI | null = null;
 
@@ -23,7 +24,7 @@ export const getGenAIClient = (): GoogleGenerativeAI => {
 
   if (!aiClient) {
     aiClient = new GoogleGenerativeAI(apiKey);
-    console.info("[geminiService] GoogleGenAI 클라이언트 초기화 완료");
+    console.info("[geminiService] GoogleGenerativeAI 클라이언트 초기화 완료");
   }
 
   return aiClient;
