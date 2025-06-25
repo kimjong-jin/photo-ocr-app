@@ -649,10 +649,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     let finalAggregatedTextToSet: string | null = null;
 
    try {
-     if (!process.env.API_KEY) {
-       criticalErrorOccurred = "API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
+     if (!import.meta.env.VITE_API_KEY) {
+       criticalErrorOccurred = "VITE_API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
        throw new Error(criticalErrorOccurred);
-       }
+     }
 
       const imageProcessingPromises = selectedImages.map(async (currentImage) => {
         let resultText: string = "";
