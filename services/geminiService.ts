@@ -83,10 +83,8 @@ export const extractTextFromImage = async (
     { text: promptText },
     { inlineData: { mimeType, data: imageBase64 } },
   ];
-  // 🚨 변경된 부분: 현재 시점(2025년 7월 16일)에 이미지와 텍스트 입력을 모두 처리하는 가장 일반적인 모델인
-  // 'gemini-1.5-flash' 또는 'gemini-1.5-pro'를 사용하도록 변경합니다.
-  // 실제 사용 전에 Google AI Gemini 모델 문서를 확인하여 최신 모델 이름을 적용하세요.
-  const model = "gemini-1.5-flash"; // 또는 "gemini-1.5-pro" (더 높은 성능, 더 높은 비용)
+  // 🚨 변경된 부분: gemini-1.5-flash 대신 gemini-1.5-pro 모델 사용
+  const model = "gemini-1.5-pro"; // 더 높은 정확도와 추론 능력을 가진 Pro 모델
 
   // 실제 API 호출 함수
   const callApi = async (): Promise<string> => {
