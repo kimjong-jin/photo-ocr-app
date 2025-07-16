@@ -83,8 +83,8 @@ export const extractTextFromImage = async (
     { text: promptText },
     { inlineData: { mimeType, data: imageBase64 } },
   ];
-  // 🚨 변경된 부분: gemini-1.5-flash 대신 gemini-1.5-pro 모델 사용
-  const model = "gemini-1.5-pro"; // 더 높은 정확도와 추론 능력을 가진 Pro 모델
+  // 🚨 변경된 부분: gemini-2.5-flash 모델 사용
+  const model = "gemini-2.5-flash";
 
   // 실제 API 호출 함수
   const callApi = async (): Promise<string> => {
