@@ -274,10 +274,12 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName }) => {
     setKtlApiCallStatus('idle');
 
     try {
-      if (!process.env.API_KEY) throw new Error("API_KEY 환경 변수가 설정되지 않았습니다.");
-      
-      let responseSchema;
-      if (selectedItem === "TN/TP") {
+      if (!import.meta.env.VITE_API_KEY) {
+         throw new Error("API_KEY 환경 변수가 설정되지 않았습니다.");
+       }
+
+       let responseSchema;
+       if (selectedItem === "TN/TP") {
           responseSchema = {
               type: Type.ARRAY,
               items: {
