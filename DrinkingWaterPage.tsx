@@ -70,11 +70,11 @@ function deepClean(obj: any): any {
     return cleanedArray.length > 0 ? cleanedArray : undefined;
   }
 
-  if (typeof obj === "object") {
+  if (typeof obj === 'object') {
     const newObj: Record<string, any> = {};
     for (const [key, value] of Object.entries(obj)) {
-      if (key === "raw_data_image") {
-        if (typeof console !== 'undefined') console.warn("[Clean] Removing raw_data_image key.");
+      if (key === 'raw_data_image') {
+        if (typeof console !== 'undefined') console.warn('[Clean] Removing raw_data_image key.');
         continue;
       }
       const cleanedValue = deepClean(value);
@@ -91,7 +91,7 @@ function deepClean(obj: any): any {
     return Object.keys(newObj).length > 0 ? newObj : undefined;
   }
 
-  if (obj === "") return undefined; // Remove empty strings
+  if (obj === '') return undefined; // Remove empty strings
   return obj;
 }
 
@@ -130,8 +130,8 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
 
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
-  const drinkingWaterItems = useMemo(() =>
-    ANALYSIS_ITEM_GROUPS.find(group => group.label === '먹는물')?.items || [],
+  const drinkingWaterItems = useMemo(
+    () => ANALYSIS_ITEM_GROUPS.find(group => group.label === '먹는물')?.items || [],
     []
   );
 
@@ -155,7 +155,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
 
     // Add hypothetical data table image name if there's data to send
     if (activeJob.processedOcrData?.some(d => d.value.trim() !== '' || (d.valueTP && d.valueTP.trim() !== ''))) {
-        fileNames.push(`${baseName}_datatable.png`);
+      fileNames.push(`${baseName}_datatable.png`);
     }
 
     return fileNames;
@@ -245,7 +245,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
     const suffixNum = newJobSuffixReceiptNumber.trim();
 
     if (!baseNum || !suffixNum || !newJobSelectedItem) {
-      alert("새 작업에 대한 접수번호 (공통 및 세부)와 항목을 모두 입력/선택해주세요.");
+      alert('새 작업에 대한 접수번호 (공통 및 세부)와 항목을 모두 입력/선택해주세요.');
       return;
     }
 
@@ -326,7 +326,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
     }));
     setCurrentPhotoIndexOfActiveJob(-1);
     if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+      fileInputRef.current.value = '';
     }
     resetSubmissionState();
   }, [activeJobId, resetSubmissionState]);
@@ -362,31 +362,29 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
   
     // Simplified formatter for non-response time values.
     const formatValue = (value: string | undefined, places: number): string => {
-        if (value === null || value === undefined || value.trim() === '') return '';
-        const num = parseFloat(value);
-        if (isNaN(num)) return value;
-        return num.toFixed(places);
+      if (value === null || value === undefined || value.trim() === '') return '';
+      const num = parseFloat(value);
+      if (isNaN(num)) return value;
+      return num.toFixed(places);
     };
   
     const updatedData = activeJob.processedOcrData.map(entry => {
-        if (entry.id === entryId) {
-            const updatedEntry = { ...entry };
-            const isResponseTime = entry.identifier?.startsWith('응답시간');
-            
-            if (isResponseTime) {
-                // Do nothing. The user has full control over the response time input.
-                // The value is already updated as a JSON string via onChange.
-            } else { 
-                // Apply decimal place formatting for all other measurement entries.
-                if (valueType === 'primary') {
-                    updatedEntry.value = formatValue(entry.value, activeJob.decimalPlaces);
-                } else if (valueType === 'tp') {
-                    updatedEntry.valueTP = formatValue(entry.valueTP, activeJob.decimalPlacesCl ?? activeJob.decimalPlaces);
-                }
-            }
-            return updatedEntry;
+      if (entry.id === entryId) {
+        const updatedEntry = { ...entry };
+        const isResponseTime = entry.identifier?.startsWith('응답시간');
+        
+        if (isResponseTime) {
+          // no-op
+        } else { 
+          if (valueType === 'primary') {
+            updatedEntry.value = formatValue(entry.value, activeJob.decimalPlaces);
+          } else if (valueType === 'tp') {
+            updatedEntry.valueTP = formatValue(entry.valueTP, activeJob.decimalPlacesCl ?? activeJob.decimalPlaces);
+          }
         }
-        return entry;
+        return updatedEntry;
+      }
+      return entry;
     });
     updateJobOcrData(activeJob.id, updatedData);
   };
@@ -407,26 +405,26 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
     if (images.length === 0) return;
 
     setJobs(prevJobs => prevJobs.map(job => {
-        if (job.id === activeJobId) {
-            const wasInitialSet = job.photos.length === 0;
-            const combined = [...job.photos, ...images];
-            
-            const uniqueImageMap = new Map<string, ImageInfo>();
-            combined.forEach(img => {
-                const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
-                if (!uniqueImageMap.has(key)) {
-                    uniqueImageMap.set(key, img);
-                }
-            });
-            const finalPhotos = Array.from(uniqueImageMap.values());
+      if (job.id === activeJobId) {
+        const wasInitialSet = job.photos.length === 0;
+        const combined = [...job.photos, ...images];
+        
+        const uniqueImageMap = new Map<string, ImageInfo>();
+        combined.forEach(img => {
+          const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
+          if (!uniqueImageMap.has(key)) {
+            uniqueImageMap.set(key, img);
+          }
+        });
+        const finalPhotos = Array.from(uniqueImageMap.values());
 
-            if (wasInitialSet && finalPhotos.length > 0) {
-                setCurrentPhotoIndexOfActiveJob(0);
-            }
-
-            return { ...job, photos: finalPhotos };
+        if (wasInitialSet && finalPhotos.length > 0) {
+          setCurrentPhotoIndexOfActiveJob(0);
         }
-        return job;
+
+        return { ...job, photos: finalPhotos };
+      }
+      return job;
     }));
     resetSubmissionState();
   }, [activeJobId, resetSubmissionState]);
@@ -464,15 +462,15 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
     
     let newCurrentIndex = currentPhotoIndexOfActiveJob;
     if (newPhotos.length === 0) {
-        newCurrentIndex = -1;
+      newCurrentIndex = -1;
     } else if (newCurrentIndex >= newPhotos.length) {
-        newCurrentIndex = newPhotos.length - 1;
+      newCurrentIndex = newPhotos.length - 1;
     } else if (newCurrentIndex > indexToDelete) {
-        newCurrentIndex = newCurrentIndex - 1;
+      newCurrentIndex = newCurrentIndex - 1;
     }
     
     setJobs(prevJobs => prevJobs.map(job =>
-        job.id === activeJobId ? { ...job, photos: newPhotos } : job
+      job.id === activeJobId ? { ...job, photos: newPhotos } : job
     ));
     setCurrentPhotoIndexOfActiveJob(newCurrentIndex);
     resetSubmissionState();
@@ -481,21 +479,21 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
 
   const handleInitiateSendToKtl = useCallback(() => {
     if (!activeJob || !userName || !siteLocation.trim()) return;
-    if (userName === "게스트") {
-      alert("게스트 사용자는 KTL로 전송할 수 없습니다.");
+    if (userName === '게스트') {
+      alert('게스트 사용자는 KTL로 전송할 수 없습니다.');
       return;
     }
     const hasValues = activeJob.processedOcrData?.some(entry =>
       (entry.value && entry.value.trim() !== '') || (entry.valueTP && entry.valueTP.trim() !== '')
     );
     if (!hasValues) {
-      alert("전송할 입력된 데이터가 없습니다.");
+      alert('전송할 입력된 데이터가 없습니다.');
       return;
     }
     const finalSiteLocation = activeJob.details ? `${siteLocation.trim()} / ${activeJob.details.trim()}` : siteLocation.trim();
 
     setKtlPreflightData({
-      jsonPayload: ktlJsonPreview || "JSON 미리보기를 생성할 수 없습니다.",
+      jsonPayload: ktlJsonPreview || 'JSON 미리보기를 생성할 수 없습니다.',
       fileNames: hypotheticalKtlFileNamesForPreview,
       context: {
         receiptNumber: activeJob.receiptNumber,
@@ -510,7 +508,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
   const handleSendToClaydoxConfirmed = useCallback(async () => {
     setIsKtlPreflightModalOpen(false);
     if (!activeJob || !userName || !siteLocation.trim()) {
-      setProcessingError("KTL 전송을 위한 필수 데이터가 누락되었습니다.");
+      setProcessingError('KTL 전송을 위한 필수 데이터가 누락되었습니다.');
       setKtlApiCallStatus('error');
       return;
     }
@@ -534,61 +532,61 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
     let actualKtlFileNames: string[] = [];
 
     try {
-        // Capture data table image
-        let dataTableFile: File | null = null;
-        if (dataTableRef.current) {
-            const canvas = await html2canvas(dataTableRef.current, { 
-                backgroundColor: '#1e293b',
-                ignoreElements: (element) => element.classList.contains('no-capture')
-            });
-            const dataUrl = canvas.toDataURL('image/png');
-            const blob = dataURLtoBlob(dataUrl);
-            const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
-            dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
+      // Capture data table image
+      let dataTableFile: File | null = null;
+      if (dataTableRef.current) {
+        const canvas = await html2canvas(dataTableRef.current, { 
+          backgroundColor: '#1e293b',
+          ignoreElements: (element) => element.classList.contains('no-capture')
+        });
+        const dataUrl = canvas.toDataURL('image/png');
+        const blob = dataURLtoBlob(dataUrl);
+        const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
+        dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
+      }
+      
+      // Process photos if they exist
+      if (activeJob.photos.length > 0) {
+        const imageInfosForComposite = activeJob.photos.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
+        const baseName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}`;
+  
+        const compositeDataUrl = await generateCompositeImage(
+          imageInfosForComposite,
+          { receiptNumber: activeJob.receiptNumber, siteLocation: finalSiteLocation, item: activeJob.selectedItem },
+          'image/jpeg'
+        );
+        const compositeBlob = dataURLtoBlob(compositeDataUrl);
+        const compositeKtlFileName = `${baseName}_composite.jpg`;
+        const compositeFile = new File([compositeBlob], compositeKtlFileName, { type: 'image/jpeg' });
+        filesToUpload.push(compositeFile);
+        actualKtlFileNames.push(compositeKtlFileName);
+  
+        const zip = new JSZip();
+        for (let i = 0; i < activeJob.photos.length; i++) {
+          const imageInfo = activeJob.photos[i];
+          const stampedDataUrl = await generateStampedImage(
+            imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, finalSiteLocation, '', activeJob.selectedItem
+          );
+          const stampedBlob = dataURLtoBlob(stampedDataUrl);
+          const extension = 'png';
+          const fileNameInZip = `${baseName}_${i + 1}.${extension}`;
+          zip.file(fileNameInZip, stampedBlob);
         }
-        
-        // Process photos if they exist
-        if (activeJob.photos.length > 0) {
-            const imageInfosForComposite = activeJob.photos.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
-            const baseName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}`;
-    
-            const compositeDataUrl = await generateCompositeImage(
-                imageInfosForComposite,
-                { receiptNumber: activeJob.receiptNumber, siteLocation: finalSiteLocation, item: activeJob.selectedItem },
-                'image/jpeg'
-            );
-            const compositeBlob = dataURLtoBlob(compositeDataUrl);
-            const compositeKtlFileName = `${baseName}_composite.jpg`;
-            const compositeFile = new File([compositeBlob], compositeKtlFileName, { type: 'image/jpeg' });
-            filesToUpload.push(compositeFile);
-            actualKtlFileNames.push(compositeKtlFileName);
-    
-            const zip = new JSZip();
-            for (let i = 0; i < activeJob.photos.length; i++) {
-                const imageInfo = activeJob.photos[i];
-                const stampedDataUrl = await generateStampedImage(
-                    imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, finalSiteLocation, '', activeJob.selectedItem
-                );
-                const stampedBlob = dataURLtoBlob(stampedDataUrl);
-                const extension = 'png';
-                const fileNameInZip = `${baseName}_${i + 1}.${extension}`;
-                zip.file(fileNameInZip, stampedBlob);
-            }
-    
-            if (Object.keys(zip.files).length > 0) {
-                const zipBlob = await zip.generateAsync({ type: "blob" });
-                const zipKtlFileName = `${baseName}_압축.zip`;
-                const zipFile = new File([zipBlob], zipKtlFileName, { type: 'application/zip' });
-                filesToUpload.push(zipFile);
-                actualKtlFileNames.push(zipKtlFileName);
-            }
+  
+        if (Object.keys(zip.files).length > 0) {
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          const zipKtlFileName = `${baseName}_압축.zip`;
+          const zipFile = new File([zipBlob], zipKtlFileName, { type: 'application/zip' });
+          filesToUpload.push(zipFile);
+          actualKtlFileNames.push(zipKtlFileName);
         }
+      }
 
-        // Add the data table file to the lists
-        if (dataTableFile) {
-            filesToUpload.push(dataTableFile);
-            actualKtlFileNames.push(dataTableFile.name);
-        }
+      // Add the data table file to the lists
+      if (dataTableFile) {
+        filesToUpload.push(dataTableFile);
+        actualKtlFileNames.push(dataTableFile.name);
+      }
 
       const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, actualKtlFileNames);
       alert(`KTL API 응답: ${response.message || JSON.stringify(response)}`);
@@ -603,7 +601,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
 
   const handleSaveDraft = useCallback(async () => {
     if (!activeJob || !siteLocation.trim()) {
-      alert("임시 저장할 작업을 선택하고 현장 위치를 입력해주세요.");
+      alert('임시 저장할 작업을 선택하고 현장 위치를 입력해주세요.');
       return;
     }
 
@@ -611,7 +609,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
       d => (d.value && d.value.trim() !== '') || (d.valueTP && d.valueTP.trim() !== '')
     );
     if (!hasDataToSave) {
-      alert("임시 저장할 데이터가 없습니다.");
+      alert('임시 저장할 데이터가 없습니다.');
       return;
     }
 
@@ -622,38 +620,38 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
       const transformedValues: Record<string, Record<string, SavedValueEntry>> = {};
 
       if (activeJob.selectedItem === 'TU/CL') {
-          const tuData: Record<string, SavedValueEntry> = {};
-          const clData: Record<string, SavedValueEntry> = {};
-          activeJob.processedOcrData?.forEach(entry => {
-              if (!entry.identifier || entry.identifier.includes('시작') || entry.identifier.includes('완료')) return;
-              if (entry.identifier === '응답시간') {
-                  if (entry.value && entry.value.trim() !== '') {
-                      tuData['응답시간'] = { val: entry.value, time: entry.time };
-                  }
-                  if (entry.valueTP && entry.valueTP.trim() !== '') {
-                      clData['응답시간'] = { val: entry.valueTP, time: entry.time };
-                  }
-              } else {
-                  if (entry.value && entry.value.trim() !== '') {
-                      tuData[entry.identifier] = { val: entry.value, time: entry.time };
-                  }
-                  if (entry.valueTP && entry.valueTP.trim() !== '') {
-                      clData[entry.identifier] = { val: entry.valueTP, time: entry.time };
-                  }
-              }
-          });
-          if (Object.keys(tuData).length > 0) transformedValues.TU = tuData;
-          if (Object.keys(clData).length > 0) transformedValues.Cl = clData;
-      } else { // Standalone TU or Cl
-          const itemData: Record<string, SavedValueEntry> = {};
-          activeJob.processedOcrData?.forEach(entry => {
-              if (entry.identifier && entry.value && entry.value.trim() !== '' && !entry.identifier.includes('시작') && !entry.identifier.includes('완료')) {
-                  itemData[entry.identifier] = { val: entry.value, time: entry.time };
-              }
-          });
-          if (Object.keys(itemData).length > 0) {
-              transformedValues[activeJob.selectedItem] = itemData;
+        const tuData: Record<string, SavedValueEntry> = {};
+        const clData: Record<string, SavedValueEntry> = {};
+        activeJob.processedOcrData?.forEach(entry => {
+          if (!entry.identifier || entry.identifier.includes('시작') || entry.identifier.includes('완료')) return;
+          if (entry.identifier === '응답시간') {
+            if (entry.value && entry.value.trim() !== '') {
+              tuData['응답시간'] = { val: entry.value, time: entry.time };
+            }
+            if (entry.valueTP && entry.valueTP.trim() !== '') {
+              clData['응답시간'] = { val: entry.valueTP, time: entry.time };
+            }
+          } else {
+            if (entry.value && entry.value.trim() !== '') {
+              tuData[entry.identifier] = { val: entry.value, time: entry.time };
+            }
+            if (entry.valueTP && entry.valueTP.trim() !== '') {
+              clData[entry.identifier] = { val: entry.valueTP, time: entry.time };
+            }
           }
+        });
+        if (Object.keys(tuData).length > 0) transformedValues.TU = tuData;
+        if (Object.keys(clData).length > 0) transformedValues.Cl = clData;
+      } else { // Standalone TU or Cl
+        const itemData: Record<string, SavedValueEntry> = {};
+        activeJob.processedOcrData?.forEach(entry => {
+          if (entry.identifier && entry.value && entry.value.trim() !== '' && !entry.identifier.includes('시작') && !entry.identifier.includes('완료')) {
+            itemData[entry.identifier] = { val: entry.value, time: entry.time };
+          }
+        });
+        if (Object.keys(itemData).length > 0) {
+          transformedValues[activeJob.selectedItem] = itemData;
+        }
       }
 
       const finalSiteLocation = activeJob.details ? `${siteLocation.trim()} / ${activeJob.details.trim()}` : siteLocation.trim();
@@ -669,16 +667,16 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
       const cleanedPayload = deepClean(payloadForApi);
 
       if (!cleanedPayload) {
-        alert("저장할 유효한 데이터가 없습니다.");
-        setIsSavingDraft(false); // Make sure to stop loading state
+        alert('저장할 유효한 데이터가 없습니다.');
+        setIsSavingDraft(false);
         return;
       }
 
       const response = await callSaveTempApi(cleanedPayload as SaveDataPayload);
-      setSaveDraftMessage(response.message || "성공적으로 저장되었습니다.");
+      setSaveDraftMessage(response.message || '성공적으로 저장되었습니다.');
       setTimeout(() => setSaveDraftMessage(null), 4000);
     } catch (error: any) {
-      console.error("Error saving draft:", error);
+      console.error('Error saving draft:', error);
       setProcessingError(`임시 저장 실패: ${error.message}`);
     } finally {
       setIsSavingDraft(false);
@@ -688,7 +686,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
 
   const handleLoadDraft = useCallback(async () => {
     if (!activeJob) {
-      alert("데이터를 가져올 작업을 선택해주세요.");
+      alert('데이터를 가져올 작업을 선택해주세요.');
       return;
     }
 
@@ -783,8 +781,8 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName }) => {
   
   const representativeActiveJobPhoto = useMemo(() => 
     activeJob && activeJob.photos.length > 0 && currentPhotoIndexOfActiveJob !== -1
-    ? activeJob.photos[currentPhotoIndexOfActiveJob]
-    : null
+      ? activeJob.photos[currentPhotoIndexOfActiveJob]
+      : null
   , [activeJob, currentPhotoIndexOfActiveJob]);
 
   const isControlsDisabled = isLoading || isSendingToClaydox || isSavingDraft || isLoadingDraft;
