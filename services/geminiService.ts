@@ -1,4 +1,3 @@
-
 import axios, { AxiosError } from "axios";
 import {
   GoogleGenAI,
@@ -11,11 +10,11 @@ let aiClient: GoogleGenAI | null = null;
 
 /** Gemini 클라이언트 싱글턴 생성 함수 */
 const getGenAIClient = (): GoogleGenAI => {
-  const apiKey = process.env.API_KEY?.trim();
+  const apiKey = import.meta.env.VITE_API_KEY?.trim();
   if (!apiKey) {
-    console.error("[geminiService] 🚨 API_KEY 환경변수 미설정 또는 빈 값");
+    console.error("[geminiService] 🚨 VITE_API_KEY 환경변수 미설정 또는 빈 값");
     throw new Error(
-      "Gemini API Key가 설정되지 않았습니다. API_KEY 환경변수를 확인해주세요."
+      "Gemini API Key가 설정되지 않았습니다. VITE_API_KEY 환경변수를 확인해주세요."
     );
   }
   if (!aiClient) {
@@ -120,7 +119,7 @@ export const extractTextFromImage = async (
     console.error("[geminiService] 모든 재시도 실패:", error.message);
     if (error.message.includes("API Key not valid")) {
       throw new Error(
-        "유효하지 않은 Gemini API Key입니다. API_KEY 환경변수를 확인해주세요."
+        "유효하지 않은 Gemini API Key입니다. VITE_API_KEY 환경변수를 확인해주세요."
       );
     }
     if (error.message.includes("Quota exceeded")) {
