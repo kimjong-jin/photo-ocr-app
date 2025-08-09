@@ -705,8 +705,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     let finalAggregatedTextToSet: string | null = null;
 
    try {
-     if (!process.env.API_KEY) {
-       criticalErrorOccurred = "API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
+     // ✅ Vite 방식으로 환경변수 확인
+     if (!import.meta.env.VITE_API_KEY) {
+       criticalErrorOccurred = "VITE_API_KEY 환경 변수가 설정되지 않았습니다. 앱 설정을 확인해주세요.";
        throw new Error(criticalErrorOccurred);
        }
       
@@ -835,7 +836,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         
         finalAggregatedTextToSet = JSON.stringify(deduplicatedRawData, null, 2);
 
-        if (batchHadError) {
+        if (results.some(res => res.status === 'rejected')) {
           finalErrorToSet = (finalErrorToSet ? finalErrorToSet + "\n" : "") + "일부 이미지를 처리하지 못했습니다.";
         }
     } else if (!criticalErrorOccurred) {
