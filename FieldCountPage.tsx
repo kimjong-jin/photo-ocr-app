@@ -209,7 +209,8 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
     updateActiveJob(j => ({ ...j, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined }));
     
     try {
-        if (!__API_KEY__) throw new Error("API_KEY 환경 변수가 설정되지 않았습니다.");
+        // @ts-ignore: __API_KEY__ is a global variable from Vite setup.
+        if (!import.meta.env.VITE_API_KEY) throw new Error("VITE_API_KEY 환경 변수가 설정되지 않았습니다.");
         
         let responseSchema;
         if (activeJob.selectedItem === "TN/TP") {
@@ -273,7 +274,27 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
                 } else {
                     primaryValue = (raw as RawEntrySingle).value || '';
                 }
-                return { id: self.crypto.randomUUID(), time: raw.time, value: primaryValue, valueTP: tpValue };
+                // identifier, identifierTP 필드 추가
+                let identifier = '';
+                let identifierTP = '';
+                if (activeJob.selectedItem === "TN/TP") {
+                    identifier = TN_IDENTIFIERS.find(id => id.val === primaryValue)?.id || '';
+                    identifierTP = TP_IDENTIFIERS.find(id => id.val === tpValue)?.id || '';
+                } else {
+                    const foundId = P2_SINGLE_ITEM_IDENTIFIERS.find(id => id.val === primaryValue);
+                    if (foundId) {
+                      identifier = foundId.id;
+                    }
+                }
+
+                return { 
+                    id: self.crypto.randomUUID(), 
+                    time: raw.time, 
+                    value: primaryValue, 
+                    valueTP: tpValue,
+                    identifier,
+                    identifierTP
+                };
             });
 
         updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
@@ -291,7 +312,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
 
   const handleAddEntry = useCallback(() => {
     updateActiveJob(j => {
-        const newEntry: ExtractedEntry = { id: self.crypto.randomUUID(), time: '', value: '', valueTP: j.selectedItem === "TN/TP" ? '' : undefined };
+        const newEntry: ExtractedEntry = { id: self.crypto.randomUUID(), time: '', value: '', valueTP: j.selectedItem === "TN/TP" ? '' : undefined, identifier: '', identifierTP: '' };
         return { ...j, processedOcrData: [...(j.processedOcrData || []), newEntry], submissionStatus: 'idle', submissionMessage: undefined };
     });
   }, [updateActiveJob]);
@@ -466,7 +487,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
           <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
             {jobs.map(job => (
               <div key={job.id}
-                   className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
+                  className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
               >
                 <div className="flex justify-between items-center">
                     <div className="flex-grow cursor-pointer" onClick={() => setActiveJobId(job.id)}>
