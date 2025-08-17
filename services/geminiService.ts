@@ -11,17 +11,22 @@ let aiClient: GoogleGenAI | null = null;
 
 /** Gemini 클라이언트 싱글턴 생성 함수 */
 const getGenAIClient = (): GoogleGenAI => {
-  // ✅ Vite 환경에서는 반드시 import.meta.env 사용
-  const apiKey =
-    import.meta.env.VITE_API_KEY?.trim() ??
-    import.meta.env.VITE_GEMINI_API_KEY?.trim();
+  // ✅ Vite 환경에서는 반드시 import.meta.env 사용
+  const apiKey = import.meta.env.VITE_API_KEY?.trim();
 
-  if (!apiKey) {
-    console.error("[geminiService] 🚨 API_KEY 환경변수 누락");
-    throw new Error(
-      "Gemini API Key가 설정되지 않았습니다. .env 파일에 VITE_API_KEY=... 추가하세요."
-    );
-  }
+  if (!apiKey) {
+    console.error("[geminiService] 🚨 API_KEY 환경변수 누락");
+    throw new Error(
+      "Gemini API Key가 설정되지 않았습니다. Vercel 환경변수(VITE_API_KEY)를 확인하세요."
+    );
+  }
+
+  if (!aiClient) {
+    aiClient = new GoogleGenAI({ apiKey });
+    console.info("[geminiService] GoogleGenAI 클라이언트 초기화 완료");
+  }
+  return aiClient;
+};
 
   if (!aiClient) {
     aiClient = new GoogleGenAI({ apiKey });
