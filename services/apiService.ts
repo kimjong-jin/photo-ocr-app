@@ -29,11 +29,11 @@ export interface LoadedData {
 // ================== Env ==================
 const SAVE_TEMP_API_URL =
   import.meta.env.VITE_SAVE_TEMP_API_URL ??
-  'https://api-2rhr2hjjjq-uc.a.run.app/save-temp'; // fallback (안전장치)
+  'https://api-2rhr2hjjjq-uc.a.run.app/save-temp'; // fallback
 
 const LOAD_TEMP_API_URL =
   import.meta.env.VITE_LOAD_TEMP_API_URL ??
-  'https://api-2rhr2hjjjq-uc.a.run.app/load-temp'; // fallback (안전장치)
+  'https://api-2rhr2hjjjq-uc.a.run.app/load-temp'; // fallback
 
 const API_KEY: string | undefined = import.meta.env.VITE_API_KEY;
 
@@ -54,6 +54,7 @@ function normalizeReceipt(raw: string) {
     .trim();
 }
 
+// 서버 응답을 LoadedData 형태로 보정
 function ensureLoadedShape(data: any, fallbackReceipt: string): LoadedData {
   const rn = data?.receipt_no ?? data?.receiptNo ?? fallbackReceipt;
   return {
@@ -105,8 +106,8 @@ export const callSaveTempApi = async (
 };
 
 /**
- * 임시 로드: GET /load-temp?receiptNo=...
- * - 404/“not found”면 ?receipt_no=로 1회 재시도
+ * 임시 로드
+ * - 시도 순서: GET ?receiptNo → GET ?receipt_no → POST {receiptNo} → POST {receipt_no}
  * - values 비어 있어도 존재로 간주
  */
 export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData> => {
@@ -115,38 +116,76 @@ export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData
   }
 
   const receipt = normalizeReceipt(receiptNumber);
-  const headers = buildHeaders(false);
+  const headersGet = buildHeaders(false);
+  const headersPost = buildHeaders(true);
 
-  // 1차: ?receiptNo=
-  const u1 = new URL(LOAD_TEMP_API_URL);
-  u1.searchParams.set('receiptNo', receipt);
+  type AttemptResult = { ok: boolean; status: number; text: string };
 
-  let res = await fetch(u1.toString(), { method: 'GET', headers });
-  let text = await res.text().catch(() => '');
+  const attempts: Array<() => Promise<AttemptResult>> = [
+    // 1) GET ?receiptNo=
+    async () => {
+      const u = new URL(LOAD_TEMP_API_URL);
+      u.searchParams.set('receiptNo', receipt);
+      const r = await fetch(u.toString(), { method: 'GET', headers: headersGet });
+      const t = await r.text().catch(() => '');
+      return { ok: r.ok, status: r.status, text: t };
+    },
+    // 2) GET ?receipt_no=
+    async () => {
+      const u = new URL(LOAD_TEMP_API_URL);
+      u.searchParams.set('receipt_no', receipt);
+      const r = await fetch(u.toString(), { method: 'GET', headers: headersGet });
+      const t = await r.text().catch(() => '');
+      return { ok: r.ok, status: r.status, text: t };
+    },
+    // 3) POST {receiptNo}
+    async () => {
+      const r = await fetch(LOAD_TEMP_API_URL, {
+        method: 'POST',
+        headers: headersPost,
+        body: JSON.stringify({ receiptNo: receipt }),
+      });
+      const t = await r.text().catch(() => '');
+      return { ok: r.ok, status: r.status, text: t };
+    },
+    // 4) POST {receipt_no}
+    async () => {
+      const r = await fetch(LOAD_TEMP_API_URL, {
+        method: 'POST',
+        headers: headersPost,
+        body: JSON.stringify({ receipt_no: receipt }),
+      });
+      const t = await r.text().catch(() => '');
+      return { ok: r.ok, status: r.status, text: t };
+    },
+  ];
 
-  // 2차: ?receipt_no= (404 또는 "not found" 텍스트일 때만)
-  if (res.status === 404 || /not\s*found/i.test(text)) {
-    const u2 = new URL(LOAD_TEMP_API_URL);
-    u2.searchParams.set('receipt_no', receipt);
-    res = await fetch(u2.toString(), { method: 'GET', headers });
-    text = await res.text().catch(() => '');
-  }
+  let lastStatus = 0;
+  let lastText = '';
 
-  if (!res.ok) {
-    // 404 또는 not found 메시지
-    if (res.status === 404 || /not\s*found/i.test(text)) {
-      throw new Error(`저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receipt}).`);
+  for (const run of attempts) {
+    const { ok, status, text } = await run();
+    lastStatus = status;
+    lastText = text;
+
+    if (ok) {
+      const raw = text ? JSON.parse(text) : {};
+      const data = ensureLoadedShape(raw, receipt);
+      if (!data.values) data.values = {}; // 비어 있어도 존재로 간주
+      return data;
     }
+
+    // not found 류는 다음 패턴으로 계속 시도
+    if (status === 404 || /not\s*found/i.test(text)) continue;
+
+    // 그 외 에러는 즉시 보고
     try {
       const err = JSON.parse(text);
-      throw new Error(err?.message || `API 오류: ${res.status} ${res.statusText}`);
+      throw new Error(err?.message || `API 오류: ${status}`);
     } catch {
-      throw new Error(`API 오류: ${res.status} ${res.statusText}`);
+      throw new Error(`API 오류: ${status}`);
     }
   }
 
-  const raw = text ? JSON.parse(text) : {};
-  const data = ensureLoadedShape(raw, receipt);
-  if (!data.values) data.values = {}; // ✅ 비어 있어도 OK(존재로 간주)
-  return data;
+  throw new Error(`저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receipt}).`);
 };
