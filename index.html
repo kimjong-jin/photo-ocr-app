@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>내부망 데이터 전송 시스템</title>
+
+  <!-- Tailwind 등 내부 CSS 빌드 파일 -->
+  <link rel="stylesheet" href="/index.css" />
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.6.3",
+    "axios": "https://esm.sh/axios@^1.10.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "jszip": "https://esm.sh/jszip@^3.10.1",
+    "xlsx": "https://esm.sh/xlsx@^0.18.5",
+    "vite": "https://esm.sh/vite@^7.0.3",
+    "path": "https://esm.sh/path@^0.12.7",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^4.6.0",
+    "url": "https://esm.sh/url@^0.11.4"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-slate-900 antialiased">
+  <noscript>JavaScript를 활성화해야 앱이 작동합니다.</noscript>
+  <div id="root"></div>
+
+  <!-- React 앱 진입점 (빌드 기준에 맞춰 하나만 사용) -->
+  <script type="module" src="/src/main.tsx"></script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

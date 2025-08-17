@@ -1,0 +1,6 @@
+{
+  "name": "수분석 전송 프로그램 개발",
+  "description": "수분석 자료 및 카카오톡 알림을 간편하게 전송하는 내부망 전용 유틸리티입니다.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
