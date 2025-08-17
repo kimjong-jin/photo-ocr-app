@@ -29,28 +29,28 @@ export interface LoadedData {
 // ================== Env ==================
 const SAVE_TEMP_API_URL =
   import.meta.env.VITE_SAVE_TEMP_API_URL ??
-  'https://api-2rhr2hjjjq-uc.a.run.app/save-temp'; // fallback
+  "https://api-2rhr2hjjjq-uc.a.run.app/save-temp"; // fallback
 
 const LOAD_TEMP_API_URL =
   import.meta.env.VITE_LOAD_TEMP_API_URL ??
-  'https://api-2rhr2hjjjq-uc.a.run.app/load-temp'; // fallback
+  "https://api-2rhr2hjjjq-uc.a.run.app/load-temp"; // fallback
 
 const API_KEY: string | undefined = import.meta.env.VITE_API_KEY;
 
 // ================== Helpers ==================
 function buildHeaders(isJson = true): HeadersInit {
   const headers: Record<string, string> = {};
-  if (isJson) headers['Content-Type'] = 'application/json';
-  headers['Accept'] = 'application/json';
-  if (API_KEY) headers['x-api-key'] = API_KEY;
+  if (isJson) headers["Content-Type"] = "application/json";
+  headers["Accept"] = "application/json";
+  if (API_KEY) headers["x-api-key"] = API_KEY;
   return headers;
 }
 
 // 접수번호 정규화(전각 대시/공백 등 정리)
 function normalizeReceipt(raw: string) {
-  return (raw ?? '')
-    .replace(/[‐–—―ー－]/g, '-') // 다양한 대시 → 일반 하이픈
-    .replace(/\s+/g, '')
+  return (raw ?? "")
+    .replace(/[‐–—―ー－]/g, "-") // 다양한 대시 → 일반 하이픈
+    .replace(/\s+/g, "")
     .trim();
 }
 
@@ -59,10 +59,11 @@ function ensureLoadedShape(data: any, fallbackReceipt: string): LoadedData {
   const rn = data?.receipt_no ?? data?.receiptNo ?? fallbackReceipt;
   return {
     receipt_no: rn,
-    site: data?.site ?? '',
+    site: data?.site ?? "",
     item: Array.isArray(data?.item) ? data.item : [],
-    user_name: data?.user_name ?? '',
-    values: (data?.values && typeof data.values === 'object') ? data.values : {},
+    user_name: data?.user_name ?? "",
+    values:
+      data?.values && typeof data.values === "object" ? data.values : {},
   };
 }
 
@@ -76,7 +77,7 @@ export const callSaveTempApi = async (
   payload: SaveDataPayload
 ): Promise<{ message: string }> => {
   if (!SAVE_TEMP_API_URL) {
-    throw new Error('VITE_SAVE_TEMP_API_URL이(가) 설정되어 있지 않습니다.');
+    throw new Error("VITE_SAVE_TEMP_API_URL이(가) 설정되어 있지 않습니다.");
   }
 
   const normalizedReceipt = normalizeReceipt(payload.receipt_no);
@@ -87,7 +88,7 @@ export const callSaveTempApi = async (
   };
 
   const res = await fetch(SAVE_TEMP_API_URL, {
-    method: 'POST',
+    method: "POST",
     headers: buildHeaders(true),
     body: JSON.stringify(body),
   });
@@ -95,14 +96,16 @@ export const callSaveTempApi = async (
   if (!res.ok) {
     try {
       const err = await res.json();
-      throw new Error(err?.message || `API 오류: ${res.status} ${res.statusText}`);
+      throw new Error(
+        err?.message || `API 오류: ${res.status} ${res.statusText}`
+      );
     } catch {
       throw new Error(`API 오류: ${res.status} ${res.statusText}`);
     }
   }
 
   const data = await res.json().catch(() => ({}));
-  return { message: data?.message || 'Firestore에 성공적으로 저장되었습니다.' };
+  return { message: data?.message || "Firestore에 성공적으로 저장되었습니다." };
 };
 
 /**
@@ -110,9 +113,11 @@ export const callSaveTempApi = async (
  * - 시도 순서: GET ?receiptNo → GET ?receipt_no → POST {receiptNo} → POST {receipt_no}
  * - values 비어 있어도 존재로 간주
  */
-export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData> => {
+export const callLoadTempApi = async (
+  receiptNumber: string
+): Promise<LoadedData> => {
   if (!LOAD_TEMP_API_URL) {
-    throw new Error('VITE_LOAD_TEMP_API_URL이(가) 설정되어 있지 않습니다.');
+    throw new Error("VITE_LOAD_TEMP_API_URL이(가) 설정되어 있지 않습니다.");
   }
 
   const receipt = normalizeReceipt(receiptNumber);
@@ -125,43 +130,43 @@ export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData
     // 1) GET ?receiptNo=
     async () => {
       const u = new URL(LOAD_TEMP_API_URL);
-      u.searchParams.set('receiptNo', receipt);
-      const r = await fetch(u.toString(), { method: 'GET', headers: headersGet });
-      const t = await r.text().catch(() => '');
+      u.searchParams.set("receiptNo", receipt);
+      const r = await fetch(u.toString(), { method: "GET", headers: headersGet });
+      const t = await r.text().catch(() => "");
       return { ok: r.ok, status: r.status, text: t };
     },
     // 2) GET ?receipt_no=
     async () => {
       const u = new URL(LOAD_TEMP_API_URL);
-      u.searchParams.set('receipt_no', receipt);
-      const r = await fetch(u.toString(), { method: 'GET', headers: headersGet });
-      const t = await r.text().catch(() => '');
+      u.searchParams.set("receipt_no", receipt);
+      const r = await fetch(u.toString(), { method: "GET", headers: headersGet });
+      const t = await r.text().catch(() => "");
       return { ok: r.ok, status: r.status, text: t };
     },
     // 3) POST {receiptNo}
     async () => {
       const r = await fetch(LOAD_TEMP_API_URL, {
-        method: 'POST',
+        method: "POST",
         headers: headersPost,
         body: JSON.stringify({ receiptNo: receipt }),
       });
-      const t = await r.text().catch(() => '');
+      const t = await r.text().catch(() => "");
       return { ok: r.ok, status: r.status, text: t };
     },
     // 4) POST {receipt_no}
     async () => {
       const r = await fetch(LOAD_TEMP_API_URL, {
-        method: 'POST',
+        method: "POST",
         headers: headersPost,
         body: JSON.stringify({ receipt_no: receipt }),
       });
-      const t = await r.text().catch(() => '');
+      const t = await r.text().catch(() => "");
       return { ok: r.ok, status: r.status, text: t };
     },
   ];
 
   let lastStatus = 0;
-  let lastText = '';
+  let lastText = "";
 
   for (const run of attempts) {
     const { ok, status, text } = await run();
