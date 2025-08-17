@@ -209,7 +209,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
     updateActiveJob(j => ({ ...j, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined }));
     
     try {
-        if (!process.env.API_KEY) throw new Error("API_KEY 환경 변수가 설정되지 않았습니다.");
+        if (!__API_KEY__) throw new Error("API_KEY 환경 변수가 설정되지 않았습니다.");
         
         let responseSchema;
         if (activeJob.selectedItem === "TN/TP") {
