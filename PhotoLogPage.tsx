@@ -17,6 +17,8 @@ import { Spinner } from './components/Spinner';
 import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput } from './services/imageStampingService';
 import { autoAssignIdentifiersByConcentration } from './services/identifierAutomationService';
 
+/** ✅ Vite 환경변수 접근 */
+const API_KEY = import.meta.env.VITE_API_KEY as string | undefined;
 
 export interface ExtractedEntry {
   id: string;
@@ -271,7 +273,6 @@ const calculateMaxDecimalPlaces = (
   return maxPlaces;
 };
 
-
 interface PhotoLogPageProps {
   userName: string;
   jobs: PhotoLogJob[];
@@ -337,7 +338,6 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
     setProcessingError(null);
   }, [updateActiveJob]);
 
-
   const hypotheticalKtlFileNamesForPreview = useMemo(() => {
     if (!activeJob || activeJob.photos.length === 0) return [];
     const sanitizedSite = sanitizeFilenameComponent(siteLocation);
@@ -361,7 +361,6 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
     };
     return generateKtlJsonForPreview(payload, activeJob.selectedItem, hypotheticalKtlFileNamesForPreview);
   }, [activeJob, userName, siteLocation, hypotheticalKtlFileNamesForPreview]);
-
 
   useEffect(() => {
     if (!activeJob) return;
@@ -394,9 +393,6 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
         newRangeResults = { low: calculateRangeDetails(lowValues), medium: calculateRangeDetails(mediumValues), high: calculateRangeDetails(highValues) };
     }
     
-    // This effect should only synchronize derived data and should not interfere with submission status,
-    // which is managed by explicit user actions (e.g., sending to KTL, modifying data).
-    // We only update if the derived data has actually changed to prevent re-render loops.
     if (
         JSON.stringify(activeJob.concentrationBoundaries) !== JSON.stringify(boundaries) ||
         JSON.stringify(activeJob.rangeDifferenceResults) !== JSON.stringify(newRangeResults) ||
@@ -405,7 +401,6 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
         updateActiveJob(j => ({ ...j, concentrationBoundaries: boundaries, rangeDifferenceResults: newRangeResults, decimalPlaces: newMaxDecimalPlaces }));
     }
   }, [activeJob?.processedOcrData, activeJob?.selectedItem, updateActiveJob, activeJob]);
-
 
   const handleImagesSet = useCallback((newlySelectedImages: ImageInfo[]) => {
     if (newlySelectedImages.length === 0 && activeJob?.photos && activeJob.photos.length > 0) return;
@@ -516,6 +511,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 `;
     return prompt;
   };
+
   const handleExtractText = useCallback(async () => {
     if (!activeJob || activeJob.photos.length === 0) {
       setProcessingError("먼저 이미지를 선택하거나 촬영해주세요.");
@@ -526,8 +522,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
     let allRawExtractedEntries: RawEntryUnion[] = []; let batchHadError = false; let criticalErrorOccurred: string | null = null;
     try {
-        if (!process.env.API_KEY) throw new Error("API_KEY 환경 변수가 설정되지 않았습니다.");
-        
+        /** ✅ Vite env 체크 */
+        if (!API_KEY) throw new Error("VITE_API_KEY 환경 변수가 설정되지 않았습니다.");
+
         let responseSchema;
         if (activeJob.selectedItem === "TN/TP") {
             responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING } }, required: ["time"] } };
@@ -542,12 +539,12 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                 const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
                 jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
                 const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
-                if (Array.isArray(jsonDataFromImage)) return { status: 'fulfilled', value: jsonDataFromImage };
-                return { status: 'rejected', reason: `Image ${image.file.name} did not return a valid JSON array.` };
+                if (Array.isArray(jsonDataFromImage)) return { status: 'fulfilled', value: jsonDataFromImage } as const;
+                return { status: 'rejected', reason: `Image ${image.file.name} did not return a valid JSON array.` } as const;
             } catch (imgErr: any) {
                 if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) criticalErrorOccurred = imgErr.message;
                 let reason = (imgErr instanceof SyntaxError) ? `JSON parsing failed: ${imgErr.message}. AI response: ${jsonStr}` : imgErr.message;
-                return { status: 'rejected', reason };
+                return { status: 'rejected', reason } as const;
             }
         });
 
@@ -565,7 +562,6 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         if (allRawExtractedEntries.length > 0) {
             const normalizeTime = (timeStr: string): string => {
                 if (!timeStr) return '';
-                // Standardize date separators and remove seconds
                 const standardized = timeStr.replace(/-/g, '/');
                 const match = standardized.match(/(\d{4}\/\d{2}\/\d{2}\s\d{2}:\d{2})/);
                 return match ? match[1] : standardized;
@@ -720,7 +716,6 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setProcessingError(null);
   }, [activeJob, updateActiveJob]);
 
-
   const handleInitiateSendToKtl = useCallback(() => {
     if (!activeJob || !ktlJsonPreview) {
         alert("KTL 전송을 위한 모든 조건(작업 선택, 데이터, 사진, 필수정보)이 충족되지 않았습니다.");
@@ -782,7 +777,6 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     }
   }, [activeJob, siteLocation, userName, updateActiveJob]);
 
-
   const handleBatchSendToKtl = async () => {
     const jobsToSend = jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0 && j.photos.length > 0);
     if (jobsToSend.length === 0) {
@@ -838,7 +832,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setTimeout(() => setBatchSendProgress(null), 5000);
   };
   
-    const handleDownloadStampedImages = useCallback(async () => {
+  const handleDownloadStampedImages = useCallback(async () => {
     if (!activeJob || activeJob.photos.length === 0) {
         alert("다운로드할 이미지가 없습니다.");
         return;
