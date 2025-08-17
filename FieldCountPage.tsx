@@ -1,592 +1,574 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { ImageInput, ImageInfo } from './components/ImageInput';
-import { CameraView } from './components/CameraView';
-import { ImagePreview } from './components/ImagePreview';
-import { OcrControls } from './components/OcrControls';
-import { OcrResultDisplay } from './components/OcrResultDisplay';
-import { extractTextFromImage } from './services/geminiService';
-import { generateStampedImage, dataURLtoBlob, generateCompositeImage } from './services/imageStampingService';
-import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview } from './services/claydoxApiService';
+// FieldCountPage.tsx
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { PageContainer } from '../PageContainer';
+import { CameraView, PhotoData } from '../CameraView';
+import { OcrResultDisplay } from './OcrResultDisplay';
+import { OcrControls } from './OcrControls';
+import { ActionButton } from '../forms/kakaotalk/ActionButton';
+import { FaPlus, FaCheck, FaTimes } from 'react-icons/fa';
+import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
-import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
-import { ThumbnailGallery } from './components/ThumbnailGallery';
-import { Type } from '@google/genai';
-import { PhotoLogJob, ExtractedEntry } from './PhotoLogPage'; // Reuse type from PhotoLogPage
-import { ActionButton } from './components/ActionButton';
-import { Spinner } from './components/Spinner';
-import { P2_SINGLE_ITEM_IDENTIFIERS, TN_IDENTIFIERS, TP_IDENTIFIERS } from './shared/constants';
+import { ExtractedEntry } from '../PhotoLogPage';
+import { v4 as uuidv4 } from 'uuid';
+import { useAuth } from '../../contexts/AuthContext';
+import { callSaveTempApi, callLoadTempApi } from '../../services/apiService';
+import { callClaydoxApi } from '../../services/claydoxApiService';
+import { getOcrResult, getOcrResultWithUserDefinedPatterns, processImagesForStamping } from '../../services/geminiService';
+import { autoAssignIdentifiers as autoAssignService } from '../../services/identifierAutomationService';
+import { callImageStampingApi } from '../../services/imageStampingService';
 
 type KtlApiCallStatus = 'idle' | 'success' | 'error';
 
-interface RawEntrySingle {
-  time: string;
-  value: string;
-}
-interface RawEntryTnTp {
-  time: string;
-  value_tn?: string;
-  value_tp?: string;
-}
-type RawEntryUnion = RawEntrySingle | RawEntryTnTp;
-
-const TrashIcon: React.FC = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
-    </svg>
-);
-
-const sanitizeFilenameComponent = (component: string): string => {
-  if (!component) return '';
-  return component.replace(/[/\\[\]:*?"<>|]/g, '_').replace(/__+/g, '_');
+// Helper function to handle reordering logic
+const reorderArray = (
+  array: ExtractedEntry[],
+  sourceIndex: number,
+  targetIndex: number
+): ExtractedEntry[] => {
+  const newArray = [...array];
+  const [removed] = newArray.splice(sourceIndex, 1);
+  newArray.splice(targetIndex, 0, removed);
+  return newArray;
 };
 
-const generateIdentifierSequence = (ocrData: ExtractedEntry[] | null): string => {
-    if (!ocrData) return "";
-    let sequence = "";
-    const excludedBases = ["현장"];
-  
-    const processSingleIdentifier = (idVal: string | undefined): string | null => {
-      if (!idVal) return null;
-      let base = idVal.replace(/[0-9]/g, '');
-      if (base.endsWith('P')) base = base.slice(0, -1);
-      if (excludedBases.includes(base)) return null;
-      return base.length > 0 ? base : null;
-    };
-  
-    for (const entry of ocrData) {
-        const part = processSingleIdentifier(entry.identifier);
-        if (part) sequence += part;
-        const tpPart = processSingleIdentifier(entry.identifierTP);
-        if (tpPart) sequence += tpPart;
-    }
-    return sequence;
+// Helper function to reorder multiple rows
+const reorderMultipleRows = (
+  array: ExtractedEntry[],
+  sourceRange: { start: number; end: number },
+  targetIndex: number
+): ExtractedEntry[] => {
+  if (sourceRange.start < 0 || sourceRange.end >= array.length || targetIndex < 0 || targetIndex > array.length || sourceRange.start > sourceRange.end) {
+    return array;
+  }
+
+  const newArray = [...array];
+  const elementsToMove = newArray.splice(sourceRange.start, sourceRange.end - sourceRange.start + 1);
+
+  if (targetIndex > sourceRange.end) {
+    targetIndex -= elementsToMove.length;
+  }
+  
+  newArray.splice(targetIndex, 0, ...elementsToMove);
+
+  return newArray;
 };
 
-const generatePromptForFieldCount = (
-    receiptNum: string,
-    siteLoc: string,
-    item: string
-): string => {
-    let prompt = `제공된 측정 장비의 이미지를 분석해주세요.\n컨텍스트:\n- 접수번호: ${receiptNum}\n- 현장/위치: ${siteLoc}\n- 항목/파라미터: ${item || '현장 계수 값'}`;
-    if (item === "TN/TP") {
-        prompt += `\n- 이미지에서 TN 및 TP 각각의 시간 및 값 쌍을 추출해주세요. "value_tn"과 "value_tp" 필드를 사용하세요.`;
-        prompt += `\n\n중요 규칙:\n1.  **두 값 모두 추출:** 같은 시간대에 TN과 TP 값이 모두 표시된 경우, JSON 객체에 "value_tn"과 "value_tp" 키를 **둘 다 포함해야 합니다.**`;
-        prompt += `\n2.  **한 값만 있는 경우:** 특정 시간대에 TN 또는 TP 값 중 하나만 명확하게 식별 가능한 경우 (예를 들어, 다른 값의 칸이 비어 있거나 'null' 또는 '-'로 표시된 경우), 해당 값의 키만 포함하고 다른 키는 **생략(omit)합니다**.`;
-        prompt += `\n3.  **값 형식:** 모든 값 필드에는 이미지에서 보이는 **순수한 숫자 값만** 포함해야 합니다. 단위, 지시자, 주석 등은 **모두 제외**하세요.`;
-        prompt += `\n\nJSON 출력 형식 예시 (TN/TP):\n[\n  { "time": "2025/07/10 10:00", "value_tn": "15.3", "value_tp": "1.2" },\n  { "time": "2025/07/10 11:00", "value_tn": "12.1" },\n  { "time": "2025/07/10 12:00", "value_tp": "0.9" }\n]`;
-    } else {
-        prompt += `\n\nJSON 출력 형식 예시 (${item}):\n[\n  { "time": "2025/07/10 10:00", "value": "15.3" },\n  { "time": "2025/07/10 11:00", "value": "12.1" }\n]`;
-    }
-    prompt += `\n\n중요 지침:\n1. 응답은 반드시 유효한 단일 JSON 배열이어야 합니다. 배열 외부에는 어떤 텍스트도 포함하지 마세요.\n2. 값 필드("value", "value_tn", "value_tp")에는 순수한 숫자 값만 포함해주세요. 단위나 텍스트 주석은 제외합니다.\n3. 이미지에서 관련 데이터를 찾을 수 없으면 빈 배열([])을 반환하세요.\n`;
-    return prompt;
+export const FieldCountPage: React.FC = () => {
+  const { currentUser } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ocrData, setOcrData] = useState<ExtractedEntry[] | null>(null);
+  const [photoData, setPhotoData] = useState<PhotoData[]>([]);
+  const [contextProvided, setContextProvided] = useState(false);
+  const [isDownloadingStamped, setIsDownloadingStamped] = useState(false);
+  const [isSendingToClaydox, setIsSendingToClaydox] = useState(false);
+  const [ktlApiCallStatus, setKtlApiCallStatus] = useState<KtlApiCallStatus>('idle');
+  const [selectedItem, setSelectedItem] = useState("");
+  const [receiptNumber, setReceiptNumber] = useState("");
+  const [siteName, setSiteName] = useState("");
+  const [userName, setUserName] = useState(currentUser?.displayName || "");
+  const [isManualEntryMode, setIsManualEntryMode] = useState(false);
+  const [rawJsonForCopy, setRawJsonForCopy] = useState<string | null>(null);
+
+  // API URLs
+  const OCR_API_URL = import.meta.env.VITE_GEMINI_OCR_API_URL;
+  const KTL_API_URL = import.meta.env.VITE_KTL_API_URL;
+
+  const availableIdentifiers = useMemo(() => {
+    if (selectedItem === "TU/CL") return ["TU", "Cl"];
+    return ["Z1", "Z2", "S1", "S2", "Z3", "Z4", "S3", "S4", "Z5", "S5", "M", "응답시간"];
+  }, [selectedItem]);
+
+  const tnIdentifiers = useMemo(() => ["Z1", "Z2", "S1", "S2", "Z3", "Z4", "S3", "S4", "Z5", "S5", "M", "응답시간"], []);
+  const tpIdentifiers = useMemo(() => ["응답시간"], []);
+  
+  const formRef = useRef<HTMLFormElement>(null);
+  
+  const allInputsFilled = useMemo(() => {
+    return selectedItem && receiptNumber && siteName && userName;
+  }, [selectedItem, receiptNumber, siteName, userName]);
+
+  useEffect(() => {
+    setContextProvided(allInputsFilled);
+  }, [allInputsFilled]);
+
+  const processSingleImage = useCallback(async (base64Image: string) => {
+    const payload = {
+      base64Image,
+      item: selectedItem,
+      receipt_no: receiptNumber,
+    };
+    return getOcrResult(payload, OCR_API_URL);
+  }, [OCR_API_URL, selectedItem, receiptNumber]);
+
+  const handleExtractText = useCallback(async () => {
+    setError(null);
+    setOcrData(null);
+    setRawJsonForCopy(null);
+    setIsLoading(true);
+
+    if (!photoData || photoData.length === 0) {
+      setError("분석할 이미지가 없습니다. 이미지를 추가해주세요.");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const promises = photoData.map(photo => processSingleImage(photo.dataUrl));
+      const results = await Promise.allSettled(promises);
+      
+      const allOcrData: ExtractedEntry[] = [];
+      const rawResponses: any[] = [];
+      let hasRejected = false;
+
+      results.forEach(result => {
+        if (result.status === 'fulfilled') {
+          if (result.value) {
+            allOcrData.push(...result.value.data);
+            rawResponses.push(result.value.rawResponse);
+          }
+        } else {
+          hasRejected = true;
+        }
+      });
+      
+      if (hasRejected) {
+        setError("일부 이미지를 처리하지 못했습니다. 다시 시도하거나, 이미지를 확인해주세요.");
+      }
+
+      if (allOcrData.length === 0) {
+        setError("이미지에서 유효한 데이터를 추출하지 못했습니다. 이미지를 다시 확인해주세요.");
+      }
+      
+      setOcrData(allOcrData);
+      setRawJsonForCopy(JSON.stringify(rawResponses, null, 2));
+
+    } catch (err: any) {
+      setError("OCR 분석 중 알 수 없는 오류가 발생했습니다: " + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [photoData, processSingleImage]);
+
+  const handleClear = useCallback(() => {
+    setOcrData(null);
+    setPhotoData([]);
+    setError(null);
+    setRawJsonForCopy(null);
+    setKtlApiCallStatus('idle');
+  }, []);
+
+  const handleAddEntry = useCallback(() => {
+    setOcrData(prev => {
+      const newEntry: ExtractedEntry = {
+        id: uuidv4(),
+        time: '',
+        value: '',
+        valueTP: '',
+        identifier: '',
+        identifierTP: '',
+        isManual: true,
+      };
+      if (!prev) return [newEntry];
+      return [...prev, newEntry];
+    });
+  }, []);
+
+  const handleAutoAssignIdentifiers = useCallback(() => {
+    if (ocrData) {
+      const updatedData = autoAssignService(ocrData, {
+        receiptNumber,
+        selectedItem
+      });
+      setOcrData(updatedData);
+    }
+  }, [ocrData, receiptNumber, selectedItem]);
+
+  const handleReorderRows = useCallback((sourceRowStr: string, targetRowStr?: string) => {
+    if (!ocrData) return;
+
+    try {
+      const sourceRows = sourceRowStr.includes('-') ?
+        sourceRowStr.split('-').map(s => parseInt(s.trim(), 10) - 1) :
+        [parseInt(sourceRowStr.trim(), 10) - 1];
+
+      const targetRow = targetRowStr ? parseInt(targetRowStr.trim(), 10) - 1 : ocrData.length;
+
+      if (sourceRows.some(index => isNaN(index) || index < 0 || index >= ocrData.length) || isNaN(targetRow) || targetRow < 0 || targetRow > ocrData.length) {
+        throw new Error("유효하지 않은 행 번호입니다. 올바른 숫자를 입력해주세요.");
+      }
+
+      let updatedOcrData: ExtractedEntry[] = [];
+      if (sourceRows.length > 1) {
+        const sourceRange = { start: Math.min(...sourceRows), end: Math.max(...sourceRows) };
+        updatedOcrData = reorderMultipleRows(ocrData, sourceRange, targetRow);
+      } else {
+        updatedOcrData = reorderArray(ocrData, sourceRows[0], targetRow);
+      }
+      
+      setOcrData(updatedOcrData);
+
+    } catch (err: any) {
+      alert(`행 순서 변경 실패: ${err.message}`);
+    }
+  }, [ocrData]);
+
+
+  const handleEntryIdentifierChange = useCallback((id: string, newIdentifier: string | undefined) => {
+    setOcrData(prev => prev ? prev.map(entry => entry.id === id ? { ...entry, identifier: newIdentifier || '' } : entry) : null);
+  }, []);
+
+  const handleEntryIdentifierTPChange = useCallback((id: string, newIdentifier: string | undefined) => {
+    setOcrData(prev => prev ? prev.map(entry => entry.id === id ? { ...entry, identifierTP: newIdentifier || '' } : entry) : null);
+  }, []);
+
+  const handleEntryTimeChange = useCallback((id: string, newTime: string) => {
+    setOcrData(prev => prev ? prev.map(entry => entry.id === id ? { ...entry, time: newTime } : entry) : null);
+  }, []);
+
+  const handleEntryPrimaryValueChange = useCallback((id: string, newValue: string) => {
+    setOcrData(prev => prev ? prev.map(entry => entry.id === id ? { ...entry, value: newValue } : entry) : null);
+  }, []);
+
+  const handleEntryValueTPChange = useCallback((id: string, newValue: string) => {
+    setOcrData(prev => prev ? prev.map(entry => entry.id === id ? { ...entry, valueTP: newValue } : entry) : null);
+  }, []);
+
+  const onDownloadStampedImages = useCallback(async () => {
+    if (!photoData || photoData.length === 0 || !ocrData) return;
+
+    setIsDownloadingStamped(true);
+    setError(null);
+
+    try {
+      const stampedImagePayloads = processImagesForStamping(photoData, ocrData, {
+        receiptNumber,
+        siteName,
+        userName,
+        selectedItem
+      });
+      
+      const zip = new JSZip();
+      
+      for (const payload of stampedImagePayloads) {
+        const stampedImageBase64 = await callImageStampingApi(payload);
+        const blob = await fetch(`data:image/jpeg;base64,${stampedImageBase64}`).then(res => res.blob());
+        const filename = `${payload.receipt_no}_${payload.item}_${payload.image_id}.jpg`;
+        zip.file(filename, blob);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      saveAs(zipBlob, `${receiptNumber}_${siteName}_스탬프_이미지.zip`);
+    } catch (err: any) {
+      setError("스탬프 이미지 다운로드 중 오류가 발생했습니다: " + err.message);
+      console.error(err);
+    } finally {
+      setIsDownloadingStamped(false);
+    }
+  }, [photoData, ocrData, receiptNumber, siteName, userName, selectedItem]);
+
+  const onInitiateSendToKtl = useCallback(async () => {
+    if (!ocrData || ocrData.length === 0) {
+      alert("KTL로 전송할 데이터가 없습니다.");
+      return;
+    }
+
+    if (!isManualEntryMode && (!photoData || photoData.length === 0)) {
+      alert("이미지가 첨부되지 않았습니다.");
+      return;
+    }
+
+    setIsSendingToClaydox(true);
+    setKtlApiCallStatus('idle');
+
+    try {
+      await callClaydoxApi({
+        receipt_no: receiptNumber,
+        site_name: siteName,
+        user_name: userName,
+        ocrData: ocrData,
+        photoData: photoData,
+        selectedItem: selectedItem,
+      });
+      setKtlApiCallStatus('success');
+      alert('데이터가 KTL로 성공적으로 전송되었습니다.');
+    } catch (error: any) {
+      console.error("KTL 전송 실패:", error);
+      setKtlApiCallStatus('error');
+      alert(`KTL 전송 실패: ${error.message}`);
+    } finally {
+      setIsSendingToClaydox(false);
+    }
+  }, [ocrData, photoData, receiptNumber, siteName, userName, selectedItem, isManualEntryMode]);
+
+  const draftJsonToPreview = useMemo(() => {
+    if (!ocrData) return null;
+    const dataForSave = {
+      receipt_no: receiptNumber,
+      site: siteName,
+      item: [selectedItem],
+      user_name: userName,
+      values: ocrData.reduce((acc, entry) => {
+        if (entry.identifier || entry.identifierTP) {
+          if (entry.identifier && entry.value !== undefined) {
+            acc[entry.identifier] = { val: entry.value, time: entry.time || "" };
+          }
+          if (entry.identifierTP && entry.valueTP !== undefined) {
+            acc[entry.identifierTP] = { val: entry.valueTP, time: entry.time || "" };
+          }
+        }
+        return acc;
+      }, {} as Record<string, { val: string; time: string }>),
+    };
+    return JSON.stringify(dataForSave, null, 2);
+  }, [ocrData, receiptNumber, siteName, selectedItem, userName]);
+
+  const ktlJsonToPreview = useMemo(() => {
+    if (!ocrData) return null;
+    const payload = {
+      receipt_no: receiptNumber,
+      site_name: siteName,
+      user_name: userName,
+      items: ocrData.map((entry, index) => ({
+        id: entry.id,
+        primary: {
+          value: entry.value,
+          identifier: entry.identifier,
+        },
+        secondary: {
+          value: entry.valueTP,
+          identifier: entry.identifierTP,
+        },
+        time: entry.time
+      }))
+    };
+    return JSON.stringify(payload, null, 2);
+  }, [ocrData, receiptNumber, siteName, userName]);
+
+
+  const onSaveTemp = useCallback(async () => {
+    if (!ocrData || !draftJsonToPreview) {
+      alert("저장할 데이터가 없습니다.");
+      return;
+    }
+    if (!receiptNumber) {
+      alert("저장을 위해 접수번호를 입력해주세요.");
+      return;
+    }
+    try {
+      const payload = JSON.parse(draftJsonToPreview);
+      await callSaveTempApi(payload);
+      alert("임시 저장 완료!");
+    } catch (err: any) {
+      alert(`임시 저장 실패: ${err.message}`);
+    }
+  }, [ocrData, draftJsonToPreview, receiptNumber]);
+
+  const onLoadTemp = useCallback(async () => {
+    if (!receiptNumber) {
+      alert("데이터를 불러오려면 접수번호를 입력해주세요.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const loadedData = await callLoadTempApi(receiptNumber);
+      console.log("불러온 데이터:", loadedData);
+      
+      // 기존 데이터 초기화 (필요하다면)
+      setOcrData([]);
+      setPhotoData([]);
+      
+      // 불러온 데이터를 OcrResultDisplay 형식에 맞게 변환
+      const transformedData: ExtractedEntry[] = Object.entries(loadedData.values).flatMap(([identifier, entries]) => {
+        // TU, Cl 값 처리
+        if (identifier === 'TU' || identifier === 'Cl') {
+          return Object.entries(entries).map(([key, value]) => ({
+            id: key,
+            time: value.time,
+            value: value.val,
+            valueTP: '',
+            identifier: identifier,
+            identifierTP: '',
+            isManual: true, // 임시 저장된 데이터는 수동 입력으로 간주
+          }));
+        }
+        // TN/TP 값 처리 (복수 식별자를 하나의 행으로 합치는 로직)
+        else if (identifier.startsWith('TN')) {
+          // 'TN/TP' 모드인 경우
+          const tnValue = entries.tn_value?.val || '';
+          const tnTime = entries.tn_value?.time || '';
+          const tpValue = entries.tp_value?.val || '';
+          const tpTime = entries.tp_value?.time || ''; // TP의 시간도 가져올 수 있다면
+          return [{
+            id: uuidv4(), // 새로운 ID 생성
+            time: tnTime, // TN의 시간을 사용하거나 병합
+            value: tnValue,
+            valueTP: tpValue,
+            identifier: entries.tn_value?.identifier || identifier, // TN 식별자
+            identifierTP: entries.tp_value?.identifier || '', // TP 식별자
+            isManual: true,
+          }];
+        }
+        // 일반 필드
+        else {
+          return Object.entries(entries).map(([key, value]) => ({
+            id: key,
+            time: value.time,
+            value: value.val,
+            valueTP: '',
+            identifier: identifier,
+            identifierTP: '',
+            isManual: true,
+          }));
+        }
+      });
+      
+      setOcrData(transformedData);
+      alert("데이터 로딩 성공!");
+    } catch (err: any) {
+      setError(err.message || "데이터 로딩 중 알 수 없는 오류가 발생했습니다.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [receiptNumber]);
+
+  const handleToggleManualMode = useCallback(() => {
+    setIsManualEntryMode(prev => !prev);
+    if (!isManualEntryMode) {
+      setOcrData(null);
+    }
+  }, [isManualEntryMode]);
+
+  const handleSetPhotoData = useCallback((data: PhotoData[]) => {
+    setPhotoData(data);
+    setOcrData(null);
+    setError(null);
+    setRawJsonForCopy(null);
+    setKtlApiCallStatus('idle');
+  }, []);
+
+  return (
+    <PageContainer>
+      <div className="p-4 sm:p-6 lg:p-8 space-y-8 bg-slate-900 text-slate-200 min-h-screen">
+        <div className="bg-slate-800 rounded-xl shadow-lg p-5 space-y-4">
+          <h2 className="text-2xl font-bold text-sky-400">현장 계수 분석</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="relative">
+              <label htmlFor="receipt-number" className="block text-sm font-medium text-slate-400">접수번호</label>
+              <input
+                type="text"
+                id="receipt-number"
+                value={receiptNumber}
+                onChange={(e) => setReceiptNumber(e.target.value)}
+                className="mt-1 block w-full bg-slate-700 border-slate-600 rounded-md shadow-sm py-2 px-3 text-sm placeholder-slate-400 focus:ring-sky-500 focus:border-sky-500"
+                placeholder="예: 24-001"
+              />
+            </div>
+            <div>
+              <label htmlFor="site-name" className="block text-sm font-medium text-slate-400">현장명</label>
+              <input
+                type="text"
+                id="site-name"
+                value={siteName}
+                onChange={(e) => setSiteName(e.target.value)}
+                className="mt-1 block w-full bg-slate-700 border-slate-600 rounded-md shadow-sm py-2 px-3 text-sm placeholder-slate-400 focus:ring-sky-500 focus:border-sky-500"
+                placeholder="예: 부산1동"
+              />
+            </div>
+            <div>
+              <label htmlFor="user-name" className="block text-sm font-medium text-slate-400">분석자</label>
+              <input
+                type="text"
+                id="user-name"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                className="mt-1 block w-full bg-slate-700 border-slate-600 rounded-md shadow-sm py-2 px-3 text-sm placeholder-slate-400 focus:ring-sky-500 focus:border-sky-500"
+                placeholder="홍길동"
+              />
+            </div>
+            <div>
+              <label htmlFor="item-select" className="block text-sm font-medium text-slate-400">항목</label>
+              <select
+                id="item-select"
+                value={selectedItem}
+                onChange={(e) => setSelectedItem(e.target.value)}
+                className="mt-1 block w-full bg-slate-700 border-slate-600 rounded-md shadow-sm py-2 px-3 text-sm text-slate-200 focus:ring-sky-500 focus:border-sky-500"
+              >
+                <option value="">선택하세요</option>
+                <option value="TN/TP">TN/TP</option>
+                <option value="TU/CL">탁도/잔류염소</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 mt-4">
+            <ActionButton
+              onClick={onSaveTemp}
+              variant="secondary"
+              icon={<FaCheck />}
+              disabled={!draftJsonToPreview || isLoading}
+            >
+              임시 저장
+            </ActionButton>
+            <ActionButton
+              onClick={onLoadTemp}
+              variant="secondary"
+              icon={<FaTimes />}
+              disabled={!receiptNumber || isLoading}
+            >
+              임시 불러오기
+            </ActionButton>
+          </div>
+        </div>
+
+        {!isManualEntryMode ? (
+          <CameraView
+            onCapture={setPhotoData}
+            photoData={photoData}
+            contextProvided={contextProvided}
+          />
+        ) : (
+          <div className="mt-6 p-6 bg-slate-700/50 rounded-lg shadow text-center">
+            <p className="text-slate-400">수동 입력 모드입니다.</p>
+          </div>
+        )}
+        <OcrControls
+          onExtract={handleExtractText}
+          onClear={handleClear}
+          isExtractDisabled={!contextProvided || photoData.length === 0 || isLoading}
+          isClearDisabled={!photoData.length && !ocrData}
+          onDownloadStampedImages={onDownloadStampedImages}
+          isDownloadStampedDisabled={!contextProvided || photoData.length === 0 || !ocrData || isLoading || isDownloadingStamped}
+          isDownloadingStamped={isDownloadingStamped}
+          onInitiateSendToKtl={onInitiateSendToKtl}
+          isClaydoxDisabled={!contextProvided || !ocrData || isLoading || isSendingToClaydox}
+          isSendingToClaydox={isSendingToClaydox}
+          ktlApiCallStatus={ktlApiCallStatus}
+          onAutoAssignIdentifiers={handleAutoAssignIdentifiers}
+          isAutoAssignDisabled={!ocrData || isLoading}
+        />
+        <OcrResultDisplay
+          ocrData={ocrData}
+          error={error}
+          isLoading={isLoading}
+          contextProvided={contextProvided}
+          hasImage={photoData.length > 0}
+          selectedItem={selectedItem}
+          onEntryIdentifierChange={handleEntryIdentifierChange}
+          onEntryIdentifierTPChange={handleEntryIdentifierTPChange}
+          onEntryTimeChange={handleEntryTimeChange}
+          onEntryPrimaryValueChange={handleEntryPrimaryValueChange}
+          onEntryValueTPChange={handleEntryValueTPChange}
+          onAddEntry={handleAddEntry}
+          onReorderRows={handleReorderRows}
+          availableIdentifiers={availableIdentifiers}
+          tnIdentifiers={tnIdentifiers}
+          tpIdentifiers={tpIdentifiers}
+          rawJsonForCopy={rawJsonForCopy}
+          draftJsonToPreview={draftJsonToPreview}
+          ktlJsonToPreview={ktlJsonToPreview}
+          isManualEntryMode={isManualEntryMode}
+        />
+      </div>
+    </PageContainer>
+  );
 };
-
-interface FieldCountPageProps {
-  userName: string;
-  jobs: PhotoLogJob[];
-  setJobs: React.Dispatch<React.SetStateAction<PhotoLogJob[]>>;
-  activeJobId: string | null;
-  setActiveJobId: (id: string | null) => void;
-  siteLocation: string;
-  onDeleteJob: (jobId: string) => void;
-}
-
-const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob }) => {
-  const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
-  
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [processingError, setProcessingError] = useState<string | null>(null);
-  const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
-  const [isSendingToClaydox, setIsSendingToClaydox] = useState<boolean>(false);
-  const [isKtlPreflightModalOpen, setKtlPreflightModalOpen] = useState<boolean>(false);
-  const [ktlPreflightData, setKtlPreflightData] = useState<KtlPreflightData | null>(null);
-  const [currentImageIndex, setCurrentImageIndex] = useState<number>(-1);
-  const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const ocrControlsKtlStatus = useMemo<KtlApiCallStatus>(() => {
-    if (!activeJob) return 'idle';
-    if (activeJob.submissionStatus === 'success' || activeJob.submissionStatus === 'error') {
-        return activeJob.submissionStatus;
-    }
-    return 'idle';
-  }, [activeJob]);
-
-  useEffect(() => {
-    if (activeJob && activeJob.photos.length > 0) {
-        if (currentImageIndex < 0 || currentImageIndex >= activeJob.photos.length) {
-            setCurrentImageIndex(0);
-        }
-    } else {
-        setCurrentImageIndex(-1);
-    }
-  }, [activeJob, currentImageIndex]);
-  
-  const updateActiveJob = useCallback((updater: (job: PhotoLogJob) => PhotoLogJob) => {
-    if (!activeJobId) return;
-    setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
-  }, [activeJobId, setJobs]);
-
-  const resetActiveJobData = useCallback(() => {
-    updateActiveJob(job => ({ ...job, photos: [], photoComments: {}, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined }));
-    setCurrentImageIndex(-1);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    setProcessingError(null);
-  }, [updateActiveJob]);
-  
-  const hypotheticalKtlFileNamesForPreview = useMemo(() => {
-    if (!activeJob || activeJob.photos.length === 0) return [];
-    const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
-    const baseName = `${activeJob.receiptNumber}_수질_${sanitizedItemName}_현장적용계수`;
-    return [ `${baseName}.jpg`, `${baseName}.zip` ];
-  }, [activeJob]);
-  
-  const ktlJsonPreview = useMemo(() => {
-    if (!activeJob || !userName) return null;
-    const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData);
-    const payload: ClaydoxPayload = {
-      receiptNumber: activeJob.receiptNumber,
-      siteLocation: siteLocation,
-      item: activeJob.selectedItem,
-      ocrData: activeJob.processedOcrData || [],
-      updateUser: userName,
-      identifierSequence: identifierSequence,
-      pageType: 'FieldCount',
-    };
-    return generateKtlJsonForPreview(payload, activeJob.selectedItem, hypotheticalKtlFileNamesForPreview);
-  }, [activeJob, userName, siteLocation, hypotheticalKtlFileNamesForPreview]);
-
-  const handleImagesSet = useCallback((newlySelectedImages: ImageInfo[]) => {
-    if (newlySelectedImages.length === 0 && activeJob?.photos?.length > 0) return;
-    updateActiveJob(job => {
-        const existingPhotos = job.photos || [];
-        const combined = [...existingPhotos, ...newlySelectedImages];
-        const uniqueImageMap = new Map<string, ImageInfo>();
-        combined.forEach(img => {
-            const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
-            if (!uniqueImageMap.has(key)) uniqueImageMap.set(key, img);
-        });
-        const finalPhotos = Array.from(uniqueImageMap.values());
-        if (existingPhotos.length === 0 && finalPhotos.length > 0) setCurrentImageIndex(0);
-        return { ...job, photos: finalPhotos, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined };
-    });
-    setProcessingError(null);
-  }, [activeJob, updateActiveJob]);
-
-  const handleOpenCamera = useCallback(() => setIsCameraOpen(true), []);
-  const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
-
-  const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
-    updateActiveJob(job => {
-        const newPhotos = [...(job.photos || []), { file, base64, mimeType }];
-        setCurrentImageIndex(newPhotos.length - 1);
-        return { ...job, photos: newPhotos, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined };
-    });
-    setIsCameraOpen(false);
-    setProcessingError(null);
-  }, [updateActiveJob]);
-
-  const handleDeleteImage = useCallback((indexToDelete: number) => {
-    if (!activeJob || indexToDelete < 0 || indexToDelete >= activeJob.photos.length) return;
-    updateActiveJob(job => {
-        const newPhotos = job.photos.filter((_, index) => index !== indexToDelete);
-        if (newPhotos.length === 0) setCurrentImageIndex(-1);
-        else if (currentImageIndex >= newPhotos.length) setCurrentImageIndex(newPhotos.length - 1);
-        else if (currentImageIndex > indexToDelete) setCurrentImageIndex(prev => prev - 1);
-        return { ...job, photos: newPhotos, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined };
-    });
-    setProcessingError(null);
-  }, [activeJob, currentImageIndex, updateActiveJob]);
-
-  const handleExtractText = useCallback(async () => {
-    if (!activeJob || activeJob.photos.length === 0) {
-      setProcessingError("먼저 이미지를 선택해주세요.");
-      return;
-    }
-    setIsLoading(true);
-    setProcessingError(null);
-    updateActiveJob(j => ({ ...j, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined }));
-    
-    try {
-        // @ts-ignore: __API_KEY__ is a global variable from Vite setup.
-        if (!import.meta.env.VITE_API_KEY) throw new Error("VITE_API_KEY 환경 변수가 설정되지 않았습니다.");
-        
-        let responseSchema;
-        if (activeJob.selectedItem === "TN/TP") {
-            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING }}, required: ["time"]}};
-        } else {
-            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value: { type: Type.STRING }}, required: ["time", "value"]}};
-        }
-
-        const promises = activeJob.photos.map(async (image) => {
-            let jsonStr = "";
-            try {
-                const prompt = generatePromptForFieldCount(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
-                const config = { responseMimeType: "application/json", responseSchema };
-                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, config);
-                return JSON.parse(jsonStr) as RawEntryUnion[];
-            } catch (err: any) {
-                const reason = err instanceof SyntaxError ? `JSON parsing failed: ${err.message}. AI response: ${jsonStr}` : err.message;
-                return Promise.reject(new Error(reason));
-            }
-        });
-
-        const results = await Promise.allSettled(promises);
-        const allEntries = results.filter(res => res.status === 'fulfilled').flatMap(res => (res as PromiseFulfilledResult<RawEntryUnion[]>).value);
-        
-        const normalizeTime = (timeStr: string): string => {
-            if (!timeStr) return '';
-            const standardized = timeStr.replace(/-/g, '/');
-            const match = standardized.match(/(\d{4}\/\d{2}\/\d{2}\s\d{2}:\d{2})/);
-            return match ? match[1] : standardized;
-        };
-
-        const uniqueEntriesMap = new Map<string, RawEntryUnion>();
-        allEntries.forEach(entry => {
-            const normalizedTime = normalizeTime(entry.time);
-            if (!uniqueEntriesMap.has(normalizedTime)) {
-                uniqueEntriesMap.set(normalizedTime, { ...entry, time: normalizedTime });
-            } else {
-                const existing = uniqueEntriesMap.get(normalizedTime)!;
-                if (activeJob.selectedItem === "TN/TP") {
-                    const existingTnTp = existing as RawEntryTnTp;
-                    const currentTnTp = entry as RawEntryTnTp;
-                    if (currentTnTp.value_tn && !existingTnTp.value_tn) existingTnTp.value_tn = currentTnTp.value_tn;
-                    if (currentTnTp.value_tp && !existingTnTp.value_tp) existingTnTp.value_tp = currentTnTp.value_tp;
-                } else {
-                    const existingSingle = existing as RawEntrySingle;
-                    const currentSingle = entry as RawEntrySingle;
-                    if (currentSingle.value && !existingSingle.value) {
-                         existingSingle.value = currentSingle.value;
-                    }
-                }
-            }
-        });
-
-        const finalOcrData = Array.from(uniqueEntriesMap.values())
-            .sort((a,b) => a.time.localeCompare(b.time))
-            .map(raw => {
-                let primaryValue = '', tpValue: string | undefined;
-                if (activeJob.selectedItem === "TN/TP") {
-                    primaryValue = (raw as RawEntryTnTp).value_tn || '';
-                    tpValue = (raw as RawEntryTnTp).value_tp;
-                } else {
-                    primaryValue = (raw as RawEntrySingle).value || '';
-                }
-                // identifier, identifierTP 필드 추가
-                let identifier = '';
-                let identifierTP = '';
-                if (activeJob.selectedItem === "TN/TP") {
-                    identifier = TN_IDENTIFIERS.find(id => id.val === primaryValue)?.id || '';
-                    identifierTP = TP_IDENTIFIERS.find(id => id.val === tpValue)?.id || '';
-                } else {
-                    const foundId = P2_SINGLE_ITEM_IDENTIFIERS.find(id => id.val === primaryValue);
-                    if (foundId) {
-                      identifier = foundId.id;
-                    }
-                }
-
-                return { 
-                    id: self.crypto.randomUUID(), 
-                    time: raw.time, 
-                    value: primaryValue, 
-                    valueTP: tpValue,
-                    identifier,
-                    identifierTP
-                };
-            });
-
-        updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
-        if (results.some(res => res.status === 'rejected')) setProcessingError("일부 이미지를 처리하지 못했습니다.");
-    } catch (e: any) {
-        setProcessingError(e.message || "데이터 추출 중 오류 발생");
-    } finally {
-        setIsLoading(false);
-    }
-  }, [activeJob, siteLocation, updateActiveJob]);
-
-  const handleEntryChange = (id: string, field: keyof ExtractedEntry, value: string | undefined) => {
-    updateActiveJob(j => ({ ...j, processedOcrData: (j.processedOcrData || []).map(e => e.id === id ? { ...e, [field]: value } : e), submissionStatus: 'idle', submissionMessage: undefined }));
-  };
-
-  const handleAddEntry = useCallback(() => {
-    updateActiveJob(j => {
-        const newEntry: ExtractedEntry = { id: self.crypto.randomUUID(), time: '', value: '', valueTP: j.selectedItem === "TN/TP" ? '' : undefined, identifier: '', identifierTP: '' };
-        return { ...j, processedOcrData: [...(j.processedOcrData || []), newEntry], submissionStatus: 'idle', submissionMessage: undefined };
-    });
-  }, [updateActiveJob]);
-
-  const handleReorderRows = useCallback((sourceRowStr: string, targetRowStr?: string) => {
-    if (!activeJob || !activeJob.processedOcrData) return;
-
-    const data = [...activeJob.processedOcrData];
-    const sourceIndices: number[] = [];
-
-    // Parse source string, handles "5" and "1-3"
-    if (sourceRowStr.includes('-')) {
-        const [start, end] = sourceRowStr.split('-').map(s => parseInt(s.trim(), 10) - 1);
-        if (!isNaN(start) && !isNaN(end) && start <= end) {
-            for (let i = start; i <= end; i++) {
-                sourceIndices.push(i);
-            }
-        }
-    } else {
-        const index = parseInt(sourceRowStr.trim(), 10) - 1;
-        if (!isNaN(index)) {
-            sourceIndices.push(index);
-        }
-    }
-    
-    // Sort descending to remove items without index shifting issues
-    const uniqueSourceIndices = [...new Set(sourceIndices)].sort((a, b) => b - a);
-
-    if (uniqueSourceIndices.length === 0 || uniqueSourceIndices.some(i => i < 0 || i >= data.length)) {
-      alert("유효하지 않은 행 번호입니다. 데이터 범위 내의 숫자나 '시작-끝' 형식으로 입력해주세요.");
-      return;
-    }
-
-    // Extract elements to move, and reverse them to maintain original order
-    const elementsToMove = uniqueSourceIndices.map(i => data[i]).reverse();
-    // Remove elements from the original array
-    uniqueSourceIndices.forEach(i => data.splice(i, 1));
-    
-    let targetIndex = data.length; // Default to end
-    if (targetRowStr && targetRowStr.trim()) {
-        const target = parseInt(targetRowStr.trim(), 10) - 1;
-        if (!isNaN(target) && target >= 0 && target <= data.length) { // Target can be data.length to append at the end
-            targetIndex = target;
-        } else {
-            alert(`새 위치 번호가 잘못되었습니다. 1부터 ${data.length + 1} 사이의 숫자를 입력해주세요.`);
-            return;
-        }
-    }
-    
-    // Insert the elements at the new position
-    data.splice(targetIndex, 0, ...elementsToMove);
-
-    updateActiveJob(job => ({
-        ...job,
-        processedOcrData: data,
-        submissionStatus: 'idle',
-        submissionMessage: undefined,
-    }));
-  }, [activeJob, updateActiveJob]);
-
-  const handleInitiateSendToKtl = useCallback(() => {
-    if (!activeJob || !ktlJsonPreview) {
-        alert("KTL 전송을 위한 모든 조건(작업 선택, 데이터, 사진, 필수정보)이 충족되지 않았습니다.");
-        return;
-    }
-    setKtlPreflightData({
-        jsonPayload: ktlJsonPreview, 
-        fileNames: hypotheticalKtlFileNamesForPreview,
-        context: { receiptNumber: activeJob.receiptNumber, siteLocation: siteLocation, selectedItem: activeJob.selectedItem, userName }
-    });
-    setKtlPreflightModalOpen(true);
-  }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
-
-  const handleSendToClaydoxConfirmed = useCallback(async () => {
-    setKtlPreflightModalOpen(false);
-    if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
-      updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: "KTL 전송을 위한 필수 데이터가 누락되었습니다." }));
-      return;
-    }
-    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "전송 중..."}));
-
-    try {
-        const payload: ClaydoxPayload = {
-            receiptNumber: activeJob.receiptNumber, siteLocation, item: activeJob.selectedItem, updateUser: userName,
-            ocrData: activeJob.processedOcrData,
-            pageType: 'FieldCount',
-        };
-        const baseName = `${activeJob.receiptNumber}_수질_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_현장적용계수`;
-        
-        const compositeDataUrl = await generateCompositeImage(activeJob.photos, { receiptNumber: activeJob.receiptNumber, siteLocation, item: activeJob.selectedItem }, 'image/jpeg');
-        const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}.jpg`, { type: 'image/jpeg' });
-        
-        const zip = new JSZip();
-        for (let i = 0; i < activeJob.photos.length; i++) {
-            const imageInfo = activeJob.photos[i];
-            const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, siteLocation, '', activeJob.selectedItem);
-            zip.file(`${baseName}_${i + 1}.png`, dataURLtoBlob(stampedDataUrl));
-        }
-        const zipBlob = await zip.generateAsync({ type: "blob" });
-        const zipFile = new File([zipBlob], `${baseName}.zip`, { type: 'application/zip' });
-
-        const response = await sendToClaydoxApi(payload, [compositeFile, zipFile], activeJob.selectedItem, [`${baseName}.jpg`, `${baseName}.zip`]);
-        updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
-    } catch (error: any) {
-        updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
-    }
-  }, [activeJob, siteLocation, userName, updateActiveJob]);
-  
-    const handleBatchSendToKtl = async () => {
-    const jobsToSend = jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0 && j.photos.length > 0);
-    if (jobsToSend.length === 0) {
-        alert("전송할 데이터가 있는 작업이 없습니다. 각 작업에 사진과 추출된 데이터가 있는지 확인하세요.");
-        return;
-    }
-
-    setIsSendingToClaydox(true);
-    setBatchSendProgress(`(0/${jobsToSend.length}) 작업 처리 시작...`);
-    setJobs(prev => prev.map(j => jobsToSend.find(jts => jts.id === j.id) ? { ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' } : j));
-
-    for (let i = 0; i < jobsToSend.length; i++) {
-        const job = jobsToSend[i];
-        setBatchSendProgress(`(${(i + 1)}/${jobsToSend.length}) '${job.receiptNumber}' 전송 중...`);
-        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionMessage: '파일 생성 및 전송 중...' } : j));
-        
-        try {
-            const payload: ClaydoxPayload = {
-                receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!, pageType: 'FieldCount',
-            };
-            const baseName = `${job.receiptNumber}_수질_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}_현장적용계수`;
-            
-            const compositeDataUrl = await generateCompositeImage(job.photos, { receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem }, 'image/jpeg');
-            const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}.jpg`, { type: 'image/jpeg' });
-            
-            const zip = new JSZip();
-            for (const imageInfo of job.photos) {
-                const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, job.receiptNumber, siteLocation, '', job.selectedItem, job.photoComments[imageInfo.file.name]);
-                zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`, dataURLtoBlob(stampedDataUrl));
-            }
-            const zipBlob = await zip.generateAsync({ type: "blob" });
-            const zipFile = new File([zipBlob], `${baseName}.zip`, { type: 'application/zip' });
-
-            const response = await sendToClaydoxApi(payload, [compositeFile, zipFile], job.selectedItem, [compositeFile.name, zipFile.name]);
-            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message || '전송 성공' } : j));
-        } catch (error: any) {
-            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
-        }
-    }
-
-    setBatchSendProgress('일괄 전송 완료.');
-    setIsSendingToClaydox(false);
-    setTimeout(() => setBatchSendProgress(null), 5000);
-  };
-
-  const isControlsDisabled = isLoading || isSendingToClaydox || isCameraOpen || !!batchSendProgress;
-  const representativeImageData = activeJob && currentImageIndex !== -1 ? activeJob.photos[currentImageIndex] : null;
-
-  const StatusIndicator: React.FC<{ status: PhotoLogJob['submissionStatus'], message?: string }> = ({ status, message }) => {
-    if (status === 'idle' || !message) return null;
-    if (status === 'sending') return <span className="text-xs text-sky-400 animate-pulse">{message}</span>;
-    if (status === 'success') return <span className="text-xs text-green-400">✅ {message}</span>;
-    if (status === 'error') return <span className="text-xs text-red-400" title={message}>❌ {message.length > 30 ? message.substring(0, 27) + '...' : message}</span>;
-    return null;
-  };
-
-  return (
-    <div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
-      <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">현장 계수 (P2)</h2>
-      
-      {jobs.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
-          <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
-            {jobs.map(job => (
-              <div key={job.id}
-                  className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
-              >
-                <div className="flex justify-between items-center">
-                    <div className="flex-grow cursor-pointer" onClick={() => setActiveJobId(job.id)}>
-                        <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>{job.receiptNumber} / {job.selectedItem}</span>
-                    </div>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteJob(job.id);
-                        }}
-                        className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0"
-                        title="이 작업 삭제"
-                        aria-label={`'${job.receiptNumber}' 작업 삭제`}
-                    >
-                        <TrashIcon />
-                    </button>
-                </div>
-                <div className="mt-1 text-right cursor-pointer" onClick={() => setActiveJobId(job.id)}>
-                    <StatusIndicator status={job.submissionStatus} message={job.submissionMessage} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!activeJob && jobs.length > 0 && <p className="text-center text-slate-400 p-4">계속하려면 위 목록에서 작업을 선택하세요.</p>}
-      {!activeJob && jobs.length === 0 && <p className="text-center text-slate-400 p-4">시작하려면 '공통 정보 및 작업 관리' 섹션에서 작업을 추가하세요.</p>}
-
-      {activeJob && (
-        <div className="space-y-4 pt-4 border-t border-slate-700">
-          {isCameraOpen ? ( <CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} /> ) : (
-            <>
-              <ImageInput onImagesSet={handleImagesSet} onOpenCamera={handleOpenCamera} isLoading={isControlsDisabled} ref={fileInputRef} selectedImageCount={activeJob.photos.length} />
-              {representativeImageData && ( <ImagePreview imageBase64={representativeImageData.base64} fileName={representativeImageData.file.name} mimeType={representativeImageData.mimeType} receiptNumber={activeJob.receiptNumber} siteLocation={siteLocation} item={activeJob.selectedItem} showOverlay={true} totalSelectedImages={activeJob.photos.length} currentImageIndex={currentImageIndex} onDelete={() => handleDeleteImage(currentImageIndex)} /> )}
-              <ThumbnailGallery images={activeJob.photos} currentIndex={currentImageIndex} onSelectImage={setCurrentImageIndex} onDeleteImage={handleDeleteImage} disabled={isControlsDisabled}/>
-            </>
-          )}
-          <OcrControls
-              onExtract={handleExtractText}
-              onClear={resetActiveJobData}
-              isExtractDisabled={isControlsDisabled || activeJob.photos.length === 0}
-              isClearDisabled={isControlsDisabled || activeJob.photos.length === 0}
-              onInitiateSendToKtl={handleInitiateSendToKtl} 
-              isClaydoxDisabled={isControlsDisabled || !activeJob.processedOcrData || activeJob.processedOcrData.length === 0}
-              isSendingToClaydox={isSendingToClaydox || activeJob.submissionStatus === 'sending'}
-              ktlApiCallStatus={ocrControlsKtlStatus}
-          />
-          <OcrResultDisplay
-              ocrData={activeJob.processedOcrData}
-              error={processingError}
-              isLoading={isLoading}
-              contextProvided={true}
-              hasImage={activeJob.photos.length > 0}
-              selectedItem={activeJob.selectedItem}
-              onEntryIdentifierChange={(id, val) => handleEntryChange(id, 'identifier', val)}
-              onEntryIdentifierTPChange={(id, val) => handleEntryChange(id, 'identifierTP', val)}
-              onEntryTimeChange={(id, val) => handleEntryChange(id, 'time', val)}
-              onEntryPrimaryValueChange={(id, val) => handleEntryChange(id, 'value', val)}
-              onEntryValueTPChange={(id, val) => handleEntryChange(id, 'valueTP', val)}
-              onAddEntry={handleAddEntry}
-              onReorderRows={handleReorderRows}
-              availableIdentifiers={P2_SINGLE_ITEM_IDENTIFIERS}
-              tnIdentifiers={TN_IDENTIFIERS}
-              tpIdentifiers={TP_IDENTIFIERS}
-              rawJsonForCopy={JSON.stringify(activeJob.processedOcrData, null, 2)}
-              ktlJsonToPreview={ktlJsonPreview}
-              timeColumnHeader="측정 시간"
-          />
-        </div>
-      )}
-
-      {jobs.length > 0 && (
-          <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
-              <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
-              <p className="text-sm text-slate-400">
-                  이 페이지의 모든 유효한 작업(사진 및 데이터가 있는)을 KTL로 전송합니다. 안정적인 Wi-Fi 환경에서 실행하는 것을 권장합니다.
-              </p>
-              {batchSendProgress && (
-                  <div className="p-3 bg-slate-700/50 rounded-md text-sky-300 text-sm flex items-center gap-2">
-                      <Spinner size="sm" />
-                      <span>{batchSendProgress}</span>
-                  </div>
-              )}
-              <ActionButton
-                  onClick={handleBatchSendToKtl}
-                  disabled={isControlsDisabled || jobs.filter(j => j.processedOcrData && j.photos.length > 0).length === 0}
-                  fullWidth
-                  variant="secondary"
-                  className="bg-teal-600 hover:bg-teal-500"
-              >
-                  {isSendingToClaydox ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.filter(j => j.processedOcrData && j.photos.length > 0).length}건)`}
-              </ActionButton>
-          </div>
-      )}
-
-      {isKtlPreflightModalOpen && ktlPreflightData && ( <KtlPreflightModal isOpen={isKtlPreflightModalOpen} onClose={() => setKtlPreflightModalOpen(false)} onConfirm={handleSendToClaydoxConfirmed} preflightData={ktlPreflightData} /> )}
-    </div>
-  );
-};
-
-export default FieldCountPage;
