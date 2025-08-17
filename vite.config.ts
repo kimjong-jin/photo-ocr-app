@@ -1,20 +1,16 @@
+import { defineConfig } from 'vite';
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
-  return {
-    define: {
-      'process.env.VITE_API_KEY': JSON.stringify(env.VITE_API_KEY),
-      'process.env.VITE_LOAD_TEMP_API_URL': JSON.stringify(env.VITE_LOAD_TEMP_API_URL),
-      'process.env.VITE_SAVE_TEMP_API_URL': JSON.stringify(env.VITE_SAVE_TEMP_API_URL),
+export default defineConfig({
+  define: {
+    __API_KEY__: JSON.stringify(import.meta.env.VITE_API_KEY),
+    __LOAD_TEMP_API_URL__: JSON.stringify(import.meta.env.VITE_LOAD_TEMP_API_URL),
+    __SAVE_TEMP_API_URL__: JSON.stringify(import.meta.env.VITE_SAVE_TEMP_API_URL),
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
     },
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
-    },
-    base: './', // EXE 빌드 시 필수
-  };
+  },
+  base: './',
 });
-
