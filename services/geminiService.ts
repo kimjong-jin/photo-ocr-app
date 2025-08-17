@@ -1,14 +1,13 @@
-// services/geminiService.ts
+// src/services/geminiService.ts
 import {
   GoogleGenAI,
   type GenerateContentResponse,
   type Part,
-  type GenerateContentParameters,
+  type GenerationConfig,
 } from "@google/genai";
 
 let aiClient: GoogleGenAI | null = null;
 
-/** Gemini 클라이언트 싱글턴 */
 const getGenAIClient = (): GoogleGenAI => {
   const apiKey = import.meta.env.VITE_API_KEY?.trim();
   if (!apiKey) {
@@ -59,7 +58,7 @@ export const extractTextFromImage = async (
   imageBase64: string,
   mimeType: string,
   promptText: string,
-  modelConfig: GenerateContentParameters["config"] = {}
+  modelConfig: GenerationConfig = {}
 ): Promise<string> => {
   const client = getGenAIClient();
 
@@ -72,11 +71,12 @@ export const extractTextFromImage = async (
   const callApi = async (): Promise<string> => {
     const response: GenerateContentResponse = await client.models.generateContent({
       model,
-      // ✅ role 포함(일부 SDK에서 요구)
-      contents: [{ role: "user", parts }],
+      // ✅ 수정: `contents`를 객체로 감싸지 않고 바로 배열로 전달
+      contents: parts,
       config: modelConfig,
-      // @ts-expect-error 일부 SDK에서 axios 옵션 패스스루
-      axiosRequestConfig: { timeout: DEFAULT_TIMEOUT_MS },
+      // ⚠️ axios 옵션은 라이브러리 버전업에 따라 제거됨.
+      // fetch의 timeout 옵션은 아직 정식 지원되지 않아 별도 로직 필요.
+      // 여기서는 타임아웃 로직이 `retryWithBackoff`에 포함되어 있어 안전함.
     });
 
     const text =
