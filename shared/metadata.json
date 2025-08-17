@@ -1,0 +1,8 @@
+{
+  "name": "수분석, 카카오톡 전송 코딩",
+  "description": "수분석 자료(사진, PDF, 엑셀) 및 카카오톡 메시지 전송을 위한 유틸리티입니다.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "prompt": ""
+}
