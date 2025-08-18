@@ -1,13 +1,14 @@
 
-
-
-
 import React from 'react';
 import { ImageInfo } from './ImageInput';
 import type { AnalysisType } from '../StructuralCheckPage'; // Use type import
 
+interface GalleryImage extends ImageInfo {
+    uid?: string;
+}
+
 interface ThumbnailGalleryProps {
-  images: ImageInfo[];
+  images: GalleryImage[];
   currentIndex: number;
   onSelectImage: (index: number) => void;
   onDeleteImage: (index: number) => void;
@@ -46,7 +47,7 @@ export const ThumbnailGallery: React.FC<ThumbnailGalleryProps> = ({
         {images.map((image, index) => {
           const hasBeenAnalyzed = analysisStatusForPhotos?.[index] && analysisStatusForPhotos[index].size > 0;
           return (
-            <div key={`${image.file.name}-${index}`} className="relative group">
+            <div key={image.uid || `${image.file.name}-${index}`} className="relative group">
               <button
                 type="button"
                 onClick={() => onSelectImage(index)}
