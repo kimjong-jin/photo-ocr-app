@@ -13,11 +13,11 @@ let aiClient: GoogleGenerativeAI | null = null;
 /** Gemini 클라이언트 싱글턴 생성 */
 const getGenAIClient = (): GoogleGenerativeAI => {
   // ✅ Vite 환경변수는 반드시 VITE_ 접두사가 필요
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
+  const apiKey = import.meta.env.VITE_API_KEY?.trim();
   if (!apiKey) {
-    console.error("[geminiService] 🚨 VITE_GEMINI_API_KEY 미설정 또는 빈 값");
+    console.error("[geminiService] 🚨 VITE_API_KEY 미설정 또는 빈 값");
     throw new Error(
-      "Gemini API Key가 설정되지 않았습니다. VITE_GEMINI_API_KEY 환경변수를 확인해주세요."
+      "Gemini API Key가 설정되지 않았습니다. VITE_API_KEY 환경변수를 확인해주세요."
     );
   }
   if (!aiClient) {
