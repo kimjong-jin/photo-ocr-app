@@ -419,101 +419,95 @@ setIsKtlPreflightModalOpen(true);
 
 const handleSendToClaydoxConfirmed = useCallback(async () => {
     setIsKtlPreflightModalOpen(false);
-    if (!activeJob || !userName || !siteLocation.trim()) {
-        updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: "KTL 전송을 위한 필수 데이터가 누락되었습니다." }));
-        return;
-    }
+    if (!activeJob) return;
+    setJobForSnapshot(activeJob);
+}, [activeJob]);
 
-    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "전송 중..." }));
+useEffect(() => {
+    if (!jobForSnapshot) return;
 
-    const finalSiteLocation = formatSite(siteLocation, activeJob.details);
+    const performSnapshotAndSend = async () => {
+        if (!userName || !siteLocation.trim()) {
+            updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: "KTL 전송을 위한 필수 데이터가 누락되었습니다." }));
+            setJobForSnapshot(null);
+            return;
+        }
 
-    const payload: ClaydoxPayload = {
-        receiptNumber: activeJob.receiptNumber,
-        siteLocation: finalSiteLocation,
-        item: activeJob.selectedItem,
-        ocrData: activeJob.processedOcrData || [],
-        updateUser: userName,
-        pageType: 'DrinkingWater',
-        maxDecimalPlaces: activeJob.decimalPlaces,
-        maxDecimalPlacesCl: activeJob.decimalPlacesCl,
+        updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "전송 중..." }));
+
+        const finalSiteLocation = formatSite(siteLocation, jobForSnapshot.details);
+
+        const payload: ClaydoxPayload = {
+            receiptNumber: jobForSnapshot.receiptNumber,
+            siteLocation: finalSiteLocation,
+            item: jobForSnapshot.selectedItem,
+            ocrData: jobForSnapshot.processedOcrData || [],
+            updateUser: userName,
+            pageType: 'DrinkingWater',
+            maxDecimalPlaces: jobForSnapshot.decimalPlaces,
+            maxDecimalPlacesCl: jobForSnapshot.decimalPlacesCl,
+        };
+
+        let filesToUpload: File[] = [];
+        let actualKtlFileNames: string[] = [];
+
+        try {
+            const elementToCapture = document.getElementById(`snapshot-container-for-${jobForSnapshot.id}`);
+            let dataTableFile: File | null = null;
+            if (elementToCapture) {
+                const canvas = await html2canvas(elementToCapture, { backgroundColor: '#1e293b', scale: 1.5 });
+                const dataUrl = canvas.toDataURL('image/png');
+                const blob = dataURLtoBlob(dataUrl);
+                const dataTableFileName = `${jobForSnapshot.receiptNumber}_먹는물_${sanitizeFilenameComponent(jobForSnapshot.selectedItem.replace('/', '_'))}_datatable.png`;
+                dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
+            }
+
+            if (jobForSnapshot.photos.length > 0) {
+                const imageInfosForComposite = jobForSnapshot.photos.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
+                const baseName = `${jobForSnapshot.receiptNumber}_먹는물_${sanitizeFilenameComponent(jobForSnapshot.selectedItem.replace('/', '_'))}`;
+
+                const compositeDataUrl = await generateCompositeImage(imageInfosForComposite, { receiptNumber: jobForSnapshot.receiptNumber, siteLocation: finalSiteLocation, item: jobForSnapshot.selectedItem }, 'image/jpeg');
+                const compositeBlob = dataURLtoBlob(compositeDataUrl);
+                const compositeKtlFileName = `${baseName}_composite.jpg`;
+                const compositeFile = new File([compositeBlob], compositeKtlFileName, { type: 'image/jpeg' });
+                filesToUpload.push(compositeFile);
+                actualKtlFileNames.push(compositeKtlFileName);
+
+                const zip = new JSZip();
+                for (let i = 0; i < jobForSnapshot.photos.length; i++) {
+                    const imageInfo = jobForSnapshot.photos[i];
+                    const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, jobForSnapshot.receiptNumber, finalSiteLocation, '', jobForSnapshot.selectedItem);
+                    const stampedBlob = dataURLtoBlob(stampedDataUrl);
+                    zip.file(`${baseName}_${i + 1}.png`, stampedBlob);
+                }
+
+                if (Object.keys(zip.files).length > 0) {
+                    const zipBlob = await zip.generateAsync({ type: "blob" });
+                    const zipKtlFileName = `${baseName}_압축.zip`;
+                    const zipFile = new File([zipBlob], zipKtlFileName, { type: 'application/zip' });
+                    filesToUpload.push(zipFile);
+                    actualKtlFileNames.push(zipKtlFileName);
+                }
+            }
+            if (dataTableFile) {
+                filesToUpload.push(dataTableFile);
+                actualKtlFileNames.push(dataTableFile.name);
+            }
+
+            const response = await sendToClaydoxApi(payload, filesToUpload, jobForSnapshot.selectedItem, actualKtlFileNames);
+            updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
+        } catch (error: any) {
+            updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
+        } finally {
+            setJobForSnapshot(null); // Cleanup
+        }
     };
+    
+    // Use timeout to ensure DOM is updated before snapshot
+    const timer = setTimeout(performSnapshotAndSend, 100);
+    return () => clearTimeout(timer);
+}, [jobForSnapshot, userName, siteLocation, updateActiveJob]);
 
-    let filesToUpload: File[] = [];
-    let actualKtlFileNames: string[] = [];
-
-    try {
-        let dataTableFile: File | null = null;
-        setJobForSnapshot(activeJob); // Set state to render the snapshot component
-
-        // Wait for the next render cycle for the component to be in the DOM
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
-        if (elementToCapture) {
-            const canvas = await html2canvas(elementToCapture, {
-                backgroundColor: '#1e293b',
-                width: elementToCapture.offsetWidth,
-                height: elementToCapture.offsetHeight,
-                scale: 1.5,
-            });
-            const dataUrl = canvas.toDataURL('image/png');
-            const blob = dataURLtoBlob(dataUrl);
-            const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
-            dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
-        }
-        
-        setJobForSnapshot(null); // Clean up snapshot state
-
-        // Process photos if they exist
-        if (activeJob.photos.length > 0) {
-            const imageInfosForComposite = activeJob.photos.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
-            const baseName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}`;
-
-            const compositeDataUrl = await generateCompositeImage(
-                imageInfosForComposite,
-                { receiptNumber: activeJob.receiptNumber, siteLocation: finalSiteLocation, item: activeJob.selectedItem },
-                'image/jpeg'
-            );
-            const compositeBlob = dataURLtoBlob(compositeDataUrl);
-            const compositeKtlFileName = `${baseName}_composite.jpg`;
-            const compositeFile = new File([compositeBlob], compositeKtlFileName, { type: 'image/jpeg' });
-            filesToUpload.push(compositeFile);
-            actualKtlFileNames.push(compositeKtlFileName);
-
-            const zip = new JSZip();
-            for (let i = 0; i < activeJob.photos.length; i++) {
-                const imageInfo = activeJob.photos[i];
-                const stampedDataUrl = await generateStampedImage(
-                    imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, finalSiteLocation, '', activeJob.selectedItem
-                );
-                const stampedBlob = dataURLtoBlob(stampedDataUrl);
-                const extension = 'png';
-                const fileNameInZip = `${baseName}_${i + 1}.${extension}`;
-                zip.file(fileNameInZip, stampedBlob);
-            }
-
-            if (Object.keys(zip.files).length > 0) {
-                const zipBlob = await zip.generateAsync({ type: "blob" });
-                const zipKtlFileName = `${baseName}_압축.zip`;
-                const zipFile = new File([zipBlob], zipKtlFileName, { type: 'application/zip' });
-                filesToUpload.push(zipFile);
-                actualKtlFileNames.push(zipKtlFileName);
-            }
-        }
-
-        if (dataTableFile) {
-            filesToUpload.push(dataTableFile);
-            actualKtlFileNames.push(dataTableFile.name);
-        }
-
-        const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, actualKtlFileNames);
-        updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
-    } catch (error: any) {
-        setJobForSnapshot(null); // Ensure cleanup on error
-        updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
-    }
-}, [activeJob, userName, siteLocation, updateActiveJob]);
 
 const representativeActiveJobPhoto = useMemo(() =>
 activeJob && activeJob.photos.length > 0 && currentPhotoIndexOfActiveJob !== -1
