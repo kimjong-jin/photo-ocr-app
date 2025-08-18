@@ -1,19 +1,18 @@
 
-
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { ImageInput, ImageInfo } from './components/ImageInput';
+import { ImageInput, ImageInfo as BaseImageInfo } from './components/ImageInput';
 import { CameraView } from './components/CameraView';
 import { ImagePreview } from './components/ImagePreview';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
 import { extractTextFromImage } from './services/geminiService';
-import { generateStampedImage, dataURLtoBlob, generateCompositeImage } from './services/imageStampingService';
+import { generateStampedImage, dataURLtoBlob, generateCompositeImage, CompositeImageInput } from './services/imageStampingService';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview } from './services/claydoxApiService';
 import JSZip from 'jszip';
 import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
 import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { Type } from '@google/genai';
-import { PhotoLogJob, ExtractedEntry } from './PhotoLogPage'; // Reuse type from PhotoLogPage
+import { PhotoLogJob, ExtractedEntry, JobPhoto } from './PhotoLogPage'; // Reuse type from PhotoLogPage
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
 import { P2_SINGLE_ITEM_IDENTIFIERS, TN_IDENTIFIERS, TP_IDENTIFIERS } from './shared/constants';
@@ -116,12 +115,15 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
   }, [activeJob]);
 
   useEffect(() => {
-    if (activeJob && activeJob.photos.length > 0) {
-        if (currentImageIndex < 0 || currentImageIndex >= activeJob.photos.length) {
-            setCurrentImageIndex(0);
+    if (activeJob) {
+        const numPhotos = activeJob.photos.length;
+        if (numPhotos > 0) {
+            if (currentImageIndex < 0 || currentImageIndex >= numPhotos) {
+                setCurrentImageIndex(0);
+            }
+        } else if (currentImageIndex !== -1) {
+            setCurrentImageIndex(-1);
         }
-    } else {
-        setCurrentImageIndex(-1);
     }
   }, [activeJob, currentImageIndex]);
   
@@ -159,18 +161,22 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
     return generateKtlJsonForPreview(payload, activeJob.selectedItem, hypotheticalKtlFileNamesForPreview);
   }, [activeJob, userName, siteLocation, hypotheticalKtlFileNamesForPreview]);
 
-  const handleImagesSet = useCallback((newlySelectedImages: ImageInfo[]) => {
+  const handleImagesSet = useCallback((newlySelectedImages: BaseImageInfo[]) => {
     if (newlySelectedImages.length === 0 && activeJob?.photos?.length > 0) return;
+    const photosWithUids: JobPhoto[] = newlySelectedImages.map(img => ({
+        ...img,
+        uid: self.crypto.randomUUID()
+    }));
+
     updateActiveJob(job => {
         const existingPhotos = job.photos || [];
-        const combined = [...existingPhotos, ...newlySelectedImages];
-        const uniqueImageMap = new Map<string, ImageInfo>();
+        const combined = [...existingPhotos, ...photosWithUids];
+        const uniqueImageMap = new Map<string, JobPhoto>();
         combined.forEach(img => {
             const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
             if (!uniqueImageMap.has(key)) uniqueImageMap.set(key, img);
         });
         const finalPhotos = Array.from(uniqueImageMap.values());
-        if (existingPhotos.length === 0 && finalPhotos.length > 0) setCurrentImageIndex(0);
         return { ...job, photos: finalPhotos, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined };
     });
     setProcessingError(null);
@@ -180,8 +186,9 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
   const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
 
   const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
+    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: self.crypto.randomUUID() };
     updateActiveJob(job => {
-        const newPhotos = [...(job.photos || []), { file, base64, mimeType }];
+        const newPhotos = [...(job.photos || []), capturedImageInfo];
         setCurrentImageIndex(newPhotos.length - 1);
         return { ...job, photos: newPhotos, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined };
     });
@@ -191,15 +198,15 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
 
   const handleDeleteImage = useCallback((indexToDelete: number) => {
     if (!activeJob || indexToDelete < 0 || indexToDelete >= activeJob.photos.length) return;
+    const deletedPhotoUid = activeJob.photos[indexToDelete].uid;
     updateActiveJob(job => {
         const newPhotos = job.photos.filter((_, index) => index !== indexToDelete);
-        if (newPhotos.length === 0) setCurrentImageIndex(-1);
-        else if (currentImageIndex >= newPhotos.length) setCurrentImageIndex(newPhotos.length - 1);
-        else if (currentImageIndex > indexToDelete) setCurrentImageIndex(prev => prev - 1);
-        return { ...job, photos: newPhotos, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined };
+        const newComments = { ...job.photoComments };
+        delete newComments[deletedPhotoUid];
+        return { ...job, photos: newPhotos, photoComments: newComments, processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined };
     });
     setProcessingError(null);
-  }, [activeJob, currentImageIndex, updateActiveJob]);
+  }, [activeJob, updateActiveJob]);
 
   const handleExtractText = useCallback(async () => {
     if (!activeJob || activeJob.photos.length === 0) {
@@ -304,7 +311,6 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
     const data = [...activeJob.processedOcrData];
     const sourceIndices: number[] = [];
 
-    // Parse source string, handles "5" and "1-3"
     if (sourceRowStr.includes('-')) {
         const [start, end] = sourceRowStr.split('-').map(s => parseInt(s.trim(), 10) - 1);
         if (!isNaN(start) && !isNaN(end) && start <= end) {
@@ -319,23 +325,20 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
         }
     }
     
-    // Sort descending to remove items without index shifting issues
     const uniqueSourceIndices = [...new Set(sourceIndices)].sort((a, b) => b - a);
 
     if (uniqueSourceIndices.length === 0 || uniqueSourceIndices.some(i => i < 0 || i >= data.length)) {
       alert("유효하지 않은 행 번호입니다. 데이터 범위 내의 숫자나 '시작-끝' 형식으로 입력해주세요.");
       return;
     }
-
-    // Extract elements to move, and reverse them to maintain original order
+    
     const elementsToMove = uniqueSourceIndices.map(i => data[i]).reverse();
-    // Remove elements from the original array
     uniqueSourceIndices.forEach(i => data.splice(i, 1));
     
-    let targetIndex = data.length; // Default to end
+    let targetIndex = data.length;
     if (targetRowStr && targetRowStr.trim()) {
         const target = parseInt(targetRowStr.trim(), 10) - 1;
-        if (!isNaN(target) && target >= 0 && target <= data.length) { // Target can be data.length to append at the end
+        if (!isNaN(target) && target >= 0 && target <= data.length) {
             targetIndex = target;
         } else {
             alert(`새 위치 번호가 잘못되었습니다. 1부터 ${data.length + 1} 사이의 숫자를 입력해주세요.`);
@@ -343,7 +346,6 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
         }
     }
     
-    // Insert the elements at the new position
     data.splice(targetIndex, 0, ...elementsToMove);
 
     updateActiveJob(job => ({
@@ -402,7 +404,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
     }
   }, [activeJob, siteLocation, userName, updateActiveJob]);
   
-    const handleBatchSendToKtl = async () => {
+  const handleBatchSendToKtl = async () => {
     const jobsToSend = jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0 && j.photos.length > 0);
     if (jobsToSend.length === 0) {
         alert("전송할 데이터가 있는 작업이 없습니다. 각 작업에 사진과 추출된 데이터가 있는지 확인하세요.");
@@ -417,25 +419,26 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
         const job = jobsToSend[i];
         setBatchSendProgress(`(${(i + 1)}/${jobsToSend.length}) '${job.receiptNumber}' 전송 중...`);
         setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionMessage: '파일 생성 및 전송 중...' } : j));
-        
+
         try {
             const payload: ClaydoxPayload = {
-                receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!, pageType: 'FieldCount',
+                receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
+                pageType: 'FieldCount',
             };
             const baseName = `${job.receiptNumber}_수질_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}_현장적용계수`;
             
-            const compositeDataUrl = await generateCompositeImage(job.photos, { receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem }, 'image/jpeg');
+            const compositeDataUrl = await generateCompositeImage((job.photos || []).map(p => ({ base64: p.base64, mimeType: p.mimeType, comment: job.photoComments[p.uid] })), { receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem }, 'image/jpeg');
             const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}.jpg`, { type: 'image/jpeg' });
-            
+
             const zip = new JSZip();
             for (const imageInfo of job.photos) {
-                const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, job.receiptNumber, siteLocation, '', job.selectedItem, job.photoComments[imageInfo.file.name]);
+                const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, job.receiptNumber, siteLocation, '', job.selectedItem, job.photoComments[imageInfo.uid]);
                 zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`, dataURLtoBlob(stampedDataUrl));
             }
             const zipBlob = await zip.generateAsync({ type: "blob" });
             const zipFile = new File([zipBlob], `${baseName}.zip`, { type: 'application/zip' });
 
-            const response = await sendToClaydoxApi(payload, [compositeFile, zipFile], job.selectedItem, [compositeFile.name, zipFile.name]);
+            const response = await sendToClaydoxApi(payload, [compositeFile, zipFile], job.selectedItem, [`${baseName}.jpg`, `${baseName}.zip`]);
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message || '전송 성공' } : j));
         } catch (error: any) {
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
@@ -446,7 +449,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
     setIsSendingToClaydox(false);
     setTimeout(() => setBatchSendProgress(null), 5000);
   };
-
+    
   const isControlsDisabled = isLoading || isSendingToClaydox || isCameraOpen || !!batchSendProgress;
   const representativeImageData = activeJob && currentImageIndex !== -1 ? activeJob.photos[currentImageIndex] : null;
 
@@ -459,39 +462,39 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
   };
 
   return (
-    <div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
+    <div className="w-full max-w-4xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">현장 계수 (P2)</h2>
-      
+
       {jobs.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
-          <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
-            {jobs.map(job => (
-              <div key={job.id}
-                   className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
-              >
-                <div className="flex justify-between items-center">
-                    <div className="flex-grow cursor-pointer" onClick={() => setActiveJobId(job.id)}>
-                        <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>{job.receiptNumber} / {job.selectedItem}</span>
-                    </div>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteJob(job.id);
-                        }}
-                        className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0"
-                        title="이 작업 삭제"
-                        aria-label={`'${job.receiptNumber}' 작업 삭제`}
+            <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
+            <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
+                {jobs.map(job => (
+                    <div key={job.id}
+                        className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
                     >
-                        <TrashIcon />
-                    </button>
-                </div>
-                <div className="mt-1 text-right cursor-pointer" onClick={() => setActiveJobId(job.id)}>
-                    <StatusIndicator status={job.submissionStatus} message={job.submissionMessage} />
-                </div>
-              </div>
-            ))}
-          </div>
+                        <div className="flex justify-between items-center">
+                            <div className="flex-grow cursor-pointer" onClick={() => setActiveJobId(job.id)}>
+                                <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>{job.receiptNumber} / {job.selectedItem}</span>
+                            </div>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDeleteJob(job.id);
+                                }}
+                                className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0"
+                                title="이 작업 삭제"
+                                aria-label={`'${job.receiptNumber}' 작업 삭제`}
+                            >
+                                <TrashIcon />
+                            </button>
+                        </div>
+                        <div className="mt-1 text-right cursor-pointer" onClick={() => setActiveJobId(job.id)}>
+                            <StatusIndicator status={job.submissionStatus} message={job.submissionMessage} />
+                        </div>
+                    </div>
+                ))}
+            </div>
         </div>
       )}
 
@@ -500,44 +503,44 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
 
       {activeJob && (
         <div className="space-y-4 pt-4 border-t border-slate-700">
-          {isCameraOpen ? ( <CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} /> ) : (
-            <>
-              <ImageInput onImagesSet={handleImagesSet} onOpenCamera={handleOpenCamera} isLoading={isControlsDisabled} ref={fileInputRef} selectedImageCount={activeJob.photos.length} />
-              {representativeImageData && ( <ImagePreview imageBase64={representativeImageData.base64} fileName={representativeImageData.file.name} mimeType={representativeImageData.mimeType} receiptNumber={activeJob.receiptNumber} siteLocation={siteLocation} item={activeJob.selectedItem} showOverlay={true} totalSelectedImages={activeJob.photos.length} currentImageIndex={currentImageIndex} onDelete={() => handleDeleteImage(currentImageIndex)} /> )}
-              <ThumbnailGallery images={activeJob.photos} currentIndex={currentImageIndex} onSelectImage={setCurrentImageIndex} onDeleteImage={handleDeleteImage} disabled={isControlsDisabled}/>
-            </>
-          )}
-          <OcrControls
-              onExtract={handleExtractText}
-              onClear={resetActiveJobData}
-              isExtractDisabled={isControlsDisabled || activeJob.photos.length === 0}
-              isClearDisabled={isControlsDisabled || activeJob.photos.length === 0}
-              onInitiateSendToKtl={handleInitiateSendToKtl} 
-              isClaydoxDisabled={isControlsDisabled || !activeJob.processedOcrData || activeJob.processedOcrData.length === 0}
-              isSendingToClaydox={isSendingToClaydox || activeJob.submissionStatus === 'sending'}
-              ktlApiCallStatus={ocrControlsKtlStatus}
-          />
-          <OcrResultDisplay
-              ocrData={activeJob.processedOcrData}
-              error={processingError}
-              isLoading={isLoading}
-              contextProvided={true}
-              hasImage={activeJob.photos.length > 0}
-              selectedItem={activeJob.selectedItem}
-              onEntryIdentifierChange={(id, val) => handleEntryChange(id, 'identifier', val)}
-              onEntryIdentifierTPChange={(id, val) => handleEntryChange(id, 'identifierTP', val)}
-              onEntryTimeChange={(id, val) => handleEntryChange(id, 'time', val)}
-              onEntryPrimaryValueChange={(id, val) => handleEntryChange(id, 'value', val)}
-              onEntryValueTPChange={(id, val) => handleEntryChange(id, 'valueTP', val)}
-              onAddEntry={handleAddEntry}
-              onReorderRows={handleReorderRows}
-              availableIdentifiers={P2_SINGLE_ITEM_IDENTIFIERS}
-              tnIdentifiers={TN_IDENTIFIERS}
-              tpIdentifiers={TP_IDENTIFIERS}
-              rawJsonForCopy={JSON.stringify(activeJob.processedOcrData, null, 2)}
-              ktlJsonToPreview={ktlJsonPreview}
-              timeColumnHeader="측정 시간"
-          />
+            {isCameraOpen ? (<CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} />) : (
+                <>
+                    <ImageInput onImagesSet={handleImagesSet} onOpenCamera={handleOpenCamera} isLoading={isControlsDisabled} ref={fileInputRef} selectedImageCount={activeJob.photos.length} />
+                    {representativeImageData && (<ImagePreview imageBase64={representativeImageData.base64} fileName={representativeImageData.file.name} mimeType={representativeImageData.mimeType} receiptNumber={activeJob.receiptNumber} siteLocation={siteLocation} item={activeJob.selectedItem} showOverlay={true} totalSelectedImages={activeJob.photos.length} currentImageIndex={currentImageIndex} onDelete={() => handleDeleteImage(currentImageIndex)} />)}
+                    <ThumbnailGallery images={activeJob.photos} currentIndex={currentImageIndex} onSelectImage={setCurrentImageIndex} onDeleteImage={handleDeleteImage} disabled={isControlsDisabled} />
+                </>
+            )}
+            <OcrControls
+                onExtract={handleExtractText}
+                onClear={resetActiveJobData}
+                isExtractDisabled={isControlsDisabled || activeJob.photos.length === 0}
+                isClearDisabled={isControlsDisabled || activeJob.photos.length === 0}
+                onInitiateSendToKtl={handleInitiateSendToKtl}
+                isClaydoxDisabled={isControlsDisabled || !activeJob.processedOcrData || activeJob.processedOcrData.length === 0 || activeJob.submissionStatus === 'sending'}
+                isSendingToClaydox={isSendingToClaydox || (activeJob?.submissionStatus === 'sending')}
+                ktlApiCallStatus={ocrControlsKtlStatus}
+            />
+            <OcrResultDisplay
+                ocrData={activeJob.processedOcrData}
+                error={processingError}
+                isLoading={isLoading}
+                contextProvided={true}
+                hasImage={activeJob.photos.length > 0}
+                selectedItem={activeJob.selectedItem}
+                onEntryIdentifierChange={(id, val) => handleEntryChange(id, 'identifier', val)}
+                onEntryIdentifierTPChange={(id, val) => handleEntryChange(id, 'identifierTP', val)}
+                onEntryTimeChange={(id, val) => handleEntryChange(id, 'time', val)}
+                onEntryPrimaryValueChange={(id, val) => handleEntryChange(id, 'value', val)}
+                onEntryValueTPChange={(id, val) => handleEntryChange(id, 'valueTP', val)}
+                onAddEntry={handleAddEntry}
+                onReorderRows={handleReorderRows}
+                availableIdentifiers={TN_IDENTIFIERS} 
+                tnIdentifiers={TN_IDENTIFIERS}
+                tpIdentifiers={TP_IDENTIFIERS}
+                rawJsonForCopy={JSON.stringify(activeJob.processedOcrData, null, 2)}
+                ktlJsonToPreview={ktlJsonPreview}
+                timeColumnHeader="측정 시간"
+            />
         </div>
       )}
 
@@ -565,7 +568,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({ userName, jobs, setJobs
           </div>
       )}
 
-      {isKtlPreflightModalOpen && ktlPreflightData && ( <KtlPreflightModal isOpen={isKtlPreflightModalOpen} onClose={() => setKtlPreflightModalOpen(false)} onConfirm={handleSendToClaydoxConfirmed} preflightData={ktlPreflightData} /> )}
+      {isKtlPreflightModalOpen && ktlPreflightData && (<KtlPreflightModal isOpen={isKtlPreflightModalOpen} onClose={() => setKtlPreflightModalOpen(false)} onConfirm={handleSendToClaydoxConfirmed} preflightData={ktlPreflightData} />)}
     </div>
   );
 };
