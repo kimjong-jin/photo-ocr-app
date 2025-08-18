@@ -1,7 +1,6 @@
 
-
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { ImageInput, ImageInfo } from './components/ImageInput';
+import { ImageInput, ImageInfo as BaseImageInfo } from './components/ImageInput';
 import { CameraView } from './components/CameraView';
 import { ImagePreview } from './components/ImagePreview';
 import { OcrControls } from './components/OcrControls';
@@ -19,6 +18,9 @@ import { Spinner } from './components/Spinner';
 import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput } from './services/imageStampingService';
 import { autoAssignIdentifiersByConcentration } from './services/identifierAutomationService';
 
+export interface JobPhoto extends BaseImageInfo {
+  uid: string;
+}
 
 export interface ExtractedEntry {
   id: string;
@@ -58,7 +60,7 @@ export interface PhotoLogJob {
     receiptNumber: string;
     siteLocation: string;
     selectedItem: string;
-    photos: ImageInfo[];
+    photos: JobPhoto[];
     photoComments: Record<string, string>;
     processedOcrData: ExtractedEntry[] | null;
     rangeDifferenceResults: AppRangeResults | null;
@@ -308,12 +310,15 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
   }, [activeJob]);
 
   useEffect(() => {
-    if (activeJob && activeJob.photos.length > 0) {
-        if (currentImageIndex < 0 || currentImageIndex >= activeJob.photos.length) {
-            setCurrentImageIndex(0);
+    if (activeJob) {
+        const numPhotos = activeJob.photos.length;
+        if (numPhotos > 0) {
+            if (currentImageIndex < 0 || currentImageIndex >= numPhotos) {
+                setCurrentImageIndex(0);
+            }
+        } else if (currentImageIndex !== -1) {
+            setCurrentImageIndex(-1);
         }
-    } else {
-        setCurrentImageIndex(-1);
     }
   }, [activeJob, currentImageIndex]);
 
@@ -409,22 +414,23 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
   }, [activeJob?.processedOcrData, activeJob?.selectedItem, updateActiveJob, activeJob]);
 
 
-  const handleImagesSet = useCallback((newlySelectedImages: ImageInfo[]) => {
+  const handleImagesSet = useCallback((newlySelectedImages: BaseImageInfo[]) => {
     if (newlySelectedImages.length === 0 && activeJob?.photos && activeJob.photos.length > 0) return;
     
+    const photosWithUids: JobPhoto[] = newlySelectedImages.map(img => ({
+        ...img,
+        uid: self.crypto.randomUUID()
+    }));
+
     updateActiveJob(job => {
         const existingPhotos = job.photos || [];
-        const combined = [...existingPhotos, ...newlySelectedImages];
-        const uniqueImageMap = new Map<string, ImageInfo>();
+        const combined = [...existingPhotos, ...photosWithUids];
+        const uniqueImageMap = new Map<string, JobPhoto>();
         combined.forEach(img => {
             const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
             if (!uniqueImageMap.has(key)) uniqueImageMap.set(key, img);
         });
         const finalPhotos = Array.from(uniqueImageMap.values());
-        
-        if (existingPhotos.length === 0 && finalPhotos.length > 0) {
-            setCurrentImageIndex(0);
-        }
         
         return { ...job, photos: finalPhotos, processedOcrData: null, rangeDifferenceResults: null, submissionStatus: 'idle', submissionMessage: undefined };
     });
@@ -435,7 +441,7 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
   const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
 
   const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
-    const capturedImageInfo: ImageInfo = { file, base64, mimeType };
+    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: self.crypto.randomUUID() };
     updateActiveJob(job => {
         const newPhotos = [...(job.photos || []), capturedImageInfo];
         setCurrentImageIndex(newPhotos.length - 1);
@@ -447,19 +453,15 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
 
   const handleDeleteImage = useCallback((indexToDelete: number) => {
     if (!activeJob || indexToDelete < 0 || indexToDelete >= activeJob.photos.length) return;
+    const deletedPhotoUid = activeJob.photos[indexToDelete].uid;
     updateActiveJob(job => {
         const newPhotos = job.photos.filter((_, index) => index !== indexToDelete);
-        if (newPhotos.length === 0) {
-            setCurrentImageIndex(-1);
-        } else if (currentImageIndex >= newPhotos.length) {
-            setCurrentImageIndex(newPhotos.length - 1);
-        } else if (currentImageIndex > indexToDelete) {
-            setCurrentImageIndex(prev => prev - 1);
-        }
-        return { ...job, photos: newPhotos, processedOcrData: null, rangeDifferenceResults: null, submissionStatus: 'idle', submissionMessage: undefined };
+        const newComments = { ...job.photoComments };
+        delete newComments[deletedPhotoUid];
+        return { ...job, photos: newPhotos, photoComments: newComments, processedOcrData: null, rangeDifferenceResults: null, submissionStatus: 'idle', submissionMessage: undefined };
     });
     setProcessingError(null);
-  }, [activeJob, currentImageIndex, updateActiveJob]);
+  }, [activeJob, updateActiveJob]);
 
   const generatePromptForProAnalysis = ( receiptNum: string, siteLoc: string, item: string ): string => {
     let prompt = `제공된 측정 장비의 이미지를 분석해주세요.
@@ -761,7 +763,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const imagesForComposite: CompositeImageInput[] = activeJob.photos.map(p => ({
           base64: p.base64,
           mimeType: p.mimeType,
-          comment: activeJob.photoComments[p.file.name]
+          comment: activeJob.photoComments[p.uid]
         }));
         const compositeDataUrl = await generateCompositeImage(imagesForComposite, { receiptNumber: activeJob.receiptNumber, siteLocation, item: activeJob.selectedItem }, 'image/jpeg');
 
@@ -770,7 +772,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const zip = new JSZip();
         for (let i = 0; i < activeJob.photos.length; i++) {
             const imageInfo = activeJob.photos[i];
-            const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, siteLocation, '', activeJob.selectedItem, activeJob.photoComments[imageInfo.file.name]);
+            const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, siteLocation, '', activeJob.selectedItem, activeJob.photoComments[imageInfo.uid]);
             zip.file(`${baseName}_${i + 1}.png`, dataURLtoBlob(stampedDataUrl));
         }
         const zipBlob = await zip.generateAsync({ type: "blob" });
@@ -814,7 +816,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             const imagesForComposite: CompositeImageInput[] = job.photos.map(p => ({
               base64: p.base64,
               mimeType: p.mimeType,
-              comment: job.photoComments[p.file.name]
+              comment: job.photoComments[p.uid]
             }));
             const compositeDataUrl = await generateCompositeImage(imagesForComposite, { receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem }, 'image/jpeg');
 
@@ -822,7 +824,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             
             const zip = new JSZip();
             for (const imageInfo of job.photos) {
-                const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, job.receiptNumber, siteLocation, '', job.selectedItem, job.photoComments[imageInfo.file.name]);
+                const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, job.receiptNumber, siteLocation, '', job.selectedItem, job.photoComments[imageInfo.uid]);
                 zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`, dataURLtoBlob(stampedDataUrl));
             }
             const zipBlob = await zip.generateAsync({ type: "blob" });
@@ -855,7 +857,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
         for (let i = 0; i < activeJob.photos.length; i++) {
             const imageInfo = activeJob.photos[i];
-            const comment = activeJob.photoComments[imageInfo.file.name];
+            const comment = activeJob.photoComments[imageInfo.uid];
             const stampedDataUrl = await generateStampedImage(
                 imageInfo.base64,
                 imageInfo.mimeType,
