@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import ReactDOM from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview } from './services/claydoxApiService';
@@ -85,7 +84,7 @@ const [ktlPreflightData, setKtlPreflightData] = useState<KtlPreflightData | null
 const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
 const fileInputRef = useRef<HTMLInputElement>(null);
 const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
-const snapshotHostRef = useRef<HTMLDivElement | null>(null);
+const [jobForSnapshot, setJobForSnapshot] = useState<DrinkingWaterJob | null>(null);
 
 const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
@@ -444,31 +443,27 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
     let actualKtlFileNames: string[] = [];
 
     try {
-        // Capture data table image using the new snapshot component
         let dataTableFile: File | null = null;
-        if (snapshotHostRef.current) {
-            const snapshotRoot = ReactDOM.createRoot(snapshotHostRef.current);
-            const renderPromise = new Promise<void>(resolve => {
-                snapshotRoot.render(<DrinkingWaterSnapshot job={activeJob} siteLocation={siteLocation} />);
-                setTimeout(resolve, 100); 
-            });
-            await renderPromise;
+        setJobForSnapshot(activeJob); // Set state to render the snapshot component
 
-            const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
-            if (elementToCapture) {
-                const canvas = await html2canvas(elementToCapture, {
-                    backgroundColor: '#1e293b',
-                    width: elementToCapture.offsetWidth,
-                    height: elementToCapture.offsetHeight,
-                    scale: 1.5,
-                });
-                const dataUrl = canvas.toDataURL('image/png');
-                const blob = dataURLtoBlob(dataUrl);
-                const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
-                dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
-            }
-            snapshotRoot.unmount();
+        // Wait for the next render cycle for the component to be in the DOM
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
+        if (elementToCapture) {
+            const canvas = await html2canvas(elementToCapture, {
+                backgroundColor: '#1e293b',
+                width: elementToCapture.offsetWidth,
+                height: elementToCapture.offsetHeight,
+                scale: 1.5,
+            });
+            const dataUrl = canvas.toDataURL('image/png');
+            const blob = dataURLtoBlob(dataUrl);
+            const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
+            dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
         }
+        
+        setJobForSnapshot(null); // Clean up snapshot state
 
         // Process photos if they exist
         if (activeJob.photos.length > 0) {
@@ -515,6 +510,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
         const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, actualKtlFileNames);
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
     } catch (error: any) {
+        setJobForSnapshot(null); // Ensure cleanup on error
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
     }
 }, [activeJob, userName, siteLocation, updateActiveJob]);
@@ -552,7 +548,11 @@ const StatusIndicator: React.FC<{ status: DrinkingWaterJob['submissionStatus'], 
 
 return (
 <div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
-  <div ref={snapshotHostRef} style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}></div>
+  {jobForSnapshot && (
+    <div style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}>
+      <DrinkingWaterSnapshot job={jobForSnapshot} siteLocation={siteLocation} />
+    </div>
+  )}
   <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">
     먹는물 분석 (P3)
   </h2>
