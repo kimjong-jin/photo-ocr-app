@@ -1,48 +1,48 @@
-import axios, { AxiosError } from "axios";
+// geminiService.ts
+
+import type { AxiosError } from "axios";
 import {
-  GoogleGenerativeAI,   // ✅ 올바른 클래스명
-  GenerateContentResponse,
-  Part,
-  GenerateContentParameters,
-} from "@google/generative-ai";  // ✅ 올바른 패키지명
+  GoogleGenerativeAI,
+  type GenerateContentResponse,
+  type Part,
+  type GenerateContentParameters,
+} from "@google/generative-ai";
 
 let aiClient: GoogleGenerativeAI | null = null;
 
-/** Gemini 클라이언트 싱글턴 생성 함수 */
+/** Gemini 클라이언트 싱글턴 생성 */
 const getGenAIClient = (): GoogleGenerativeAI => {
-  const apiKey = import.meta.env.GEMINI_API_KEY?.trim();  // ✅ 환경변수명 수정
+  // ✅ Vite 환경변수는 반드시 VITE_ 접두사가 필요
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
   if (!apiKey) {
-    console.error("[geminiService] 🚨 GEMINI_API_KEY 환경변수 미설정 또는 빈 값");
+    console.error("[geminiService] 🚨 VITE_GEMINI_API_KEY 미설정 또는 빈 값");
     throw new Error(
-      "Gemini API Key가 설정되지 않았습니다. GEMINI_API_KEY 환경변수를 확인해주세요."
+      "Gemini API Key가 설정되지 않았습니다. VITE_GEMINI_API_KEY 환경변수를 확인해주세요."
     );
   }
   if (!aiClient) {
-    aiClient = new GoogleGenerativeAI({ apiKey });
+    aiClient = new GoogleGenerativeAI(apiKey);
     console.info("[geminiService] GoogleGenerativeAI 클라이언트 초기화 완료");
   }
   return aiClient;
 };
 
-const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 3;
 const INITIAL_DELAY_MS = 1_000;
 
-async function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   retries: number,
   initialDelay: number,
-  shouldRetry: (err: any) => boolean
+  shouldRetry: (err: unknown) => boolean
 ): Promise<T> {
-  let lastError: any;
+  let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await fn();
-    } catch (err: any) {
+    } catch (err) {
       lastError = err;
       const retryable = shouldRetry(err);
       if (!retryable || attempt === retries) break;
@@ -56,11 +56,14 @@ async function retryWithBackoff<T>(
   throw lastError;
 }
 
+/**
+ * 이미지에서 텍스트 추출 (멀티모달 프롬프트)
+ */
 export const extractTextFromImage = async (
   imageBase64: string,
   mimeType: string,
   promptText: string,
-  modelConfig: GenerateContentParameters["generationConfig"] = {} // ✅ 타입 키 수정
+  modelConfig: GenerateContentParameters["generationConfig"] = {}
 ): Promise<string> => {
   const client = getGenAIClient();
 
@@ -68,21 +71,29 @@ export const extractTextFromImage = async (
     { text: promptText },
     { inlineData: { mimeType, data: imageBase64 } },
   ];
-  const model = "gemini-2.5-flash";
+
+  // 모델명은 프로젝트 정책에 맞게 조정 가능
+  const model = client.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const callApi = async (): Promise<string> => {
-    const response: GenerateContentResponse = await client.generativeModel(model).generateContent({
+    const response: GenerateContentResponse = await model.generateContent({
       contents: [{ role: "user", parts }],
       generationConfig: modelConfig,
     });
     return response.response.text();
   };
 
-  const isRetryableError = (error: any): boolean => {
-    const status = (error as AxiosError).response?.status;
+  const isRetryableError = (error: unknown): boolean => {
+    const e = error as AxiosError & { status?: number; message?: string };
+    const status = e?.response?.status ?? e?.status;
+    const msg = (e?.message || "").toLowerCase();
+
     return (
-      (status !== undefined && status >= 500 && status < 600) ||
-      error.message?.toLowerCase().includes("internal error encountered")
+      (typeof status === "number" && status >= 500 && status < 600) ||
+      msg.includes("internal error encountered") ||
+      msg.includes("temporarily unavailable") ||
+      msg.includes("deadline exceeded") ||
+      msg.includes("timeout")
     );
   };
 
@@ -96,17 +107,18 @@ export const extractTextFromImage = async (
     console.debug("[geminiService] 최종 추출 텍스트:", extractedText);
     return extractedText;
   } catch (error: any) {
-    console.error("[geminiService] 모든 재시도 실패:", error.message);
-    if (error.message.includes("API Key not valid")) {
+    console.error("[geminiService] 모든 재시도 실패:", error?.message || error);
+
+    const msg = String(error?.message || "").toLowerCase();
+
+    if (msg.includes("api key not valid") || msg.includes("unauthorized")) {
       throw new Error(
-        "유효하지 않은 Gemini API Key입니다. GEMINI_API_KEY 환경변수를 확인해주세요."
+        "유효하지 않은 Gemini API Key입니다. VITE_GEMINI_API_KEY 환경변수를 확인해주세요."
       );
     }
-    if (error.message.includes("Quota exceeded")) {
+    if (msg.includes("quota") || msg.includes("rate limit")) {
       throw new Error("Gemini API 할당량을 초과했습니다. 사용량을 확인해주세요.");
     }
-    throw new Error(
-      error.message || "Gemini API 통신 중 알 수 없는 오류가 발생했습니다."
-    );
+    throw new Error("Gemini API 통신 중 알 수 없는 오류가 발생했습니다.");
   }
 };
