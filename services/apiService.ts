@@ -1,8 +1,13 @@
+
+
 // services/apiService.ts
 
-// ---------- Types ----------
-export interface SavedValueEntry { val: string; time: string; }
+export interface SavedValueEntry {
+  val: string;
+  time: string;
+}
 
+// DrinkingWaterPage.tsx의 데이터 구조를 기반으로 한 인터페이스
 export interface SaveDataPayload {
   receipt_no: string;
   site: string;
@@ -23,124 +28,115 @@ export interface LoadedData {
   };
 }
 
-// ---------- Env helpers ----------
-const readEnv = (key: string): string | undefined => {
-  const v =
-    (import.meta as any)?.env?.[key] ??
-    (typeof window !== 'undefined' ? (window as any).__ENV?.[key] : undefined) ??
-    (globalThis as any)?.[key];
-  console.log(`[readEnv] key: ${key}, value:`, v);
-  return typeof v === 'string' && v.trim() ? v : undefined;
-};
+const SAVE_TEMP_API_URL = (import.meta as any).env.VITE_SAVE_TEMP_API_URL;
+// VITE_LOAD_TEMP_API_URL이 잘못 설정된 경우를 대비하여 VITE_SAVE_TEMP_API_URL에서 파생시킵니다.
+// 이는 /save-temp 엔드포인트에 GET 요청을 보내 404 오류가 발생하는 것을 방지하기 위함입니다.
+const LOAD_TEMP_API_URL = "https://api-2rhr2hjjjq-uc.a.run.app/load-temp";
 
-const getEnvOr = (key: string, fallback?: string) => readEnv(key) ?? fallback;
 
-// 배포 도메인에서는 ENV 우선, 없으면 하드코딩 URL 사용
-const SAVE_TEMP_API_URL = getEnvOr(
-  'VITE_SAVE_TEMP_API_URL',
-  'https://api-2rhr2hjjjq-uc.a.run.app/save-temp'
-);
-const LOAD_TEMP_API_URL = getEnvOr(
-  'VITE_LOAD_TEMP_API_URL',
-  'https://api-2rhr2hjjjq-uc.a.run.app/load-temp'
-);
-// 키가 필요하다면 ENV에서 읽어서 헤더로 보냄(없어도 동작 가능한 서버면 undefined 처리)
-const API_KEY = readEnv('VITE_API_KEY');
-
-// ---------- Fetch helpers ----------
-const parseJSONSafe = async (res: Response) => {
-  const text = await res.text().catch(() => '');
-  if (!text) return null;
-  try { return JSON.parse(text); } catch { return null; }
-};
-
-const makeResponseError = async (res: Response, fallback: string) => {
-  const js = await parseJSONSafe(res);
-  let msg = `${fallback}: ${res.status} ${res.statusText}`;
-  if (js && typeof (js as any).message === 'string' && (js as any).message.trim()) {
-    msg = (js as any).message;
-  }
-  if (res.status === 0) {
-    msg += ' (CORS 또는 네트워크 문제 가능성: 서버의 Access-Control-Allow-* / HTTPS 설정 확인)';
-  }
-  return new Error(msg);
-};
-
-// ---------- APIs ----------
+/**
+ * 임시 저장 데이터를 Firestore API로 전송합니다.
+ * @param payload 저장할 데이터
+ * @returns API 응답 메시지
+ */
 export const callSaveTempApi = async (payload: SaveDataPayload): Promise<{ message: string }> => {
+  if (!SAVE_TEMP_API_URL) {
+    throw new Error("저장 API URL이 설정되지 않았습니다. VITE_SAVE_TEMP_API_URL 환경변수를 확인해주세요.");
+  }
+  
   try {
-    console.log('[SAVE] url=', SAVE_TEMP_API_URL, 'hasApiKey=', !!API_KEY);
-    console.log('[SAVE] payload=', payload);
-
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (API_KEY) headers['x-api-key'] = API_KEY;
-
-    const res = await fetch(SAVE_TEMP_API_URL!, {
+    console.log("Firestore 임시 저장 API 호출, 페이로드:", payload);
+    
+    const response = await fetch(SAVE_TEMP_API_URL, {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(payload),
     });
 
-    if (!res.ok) {
-      console.warn('[SAVE][status]', res.status, res.statusText);
-      const raw = await res.clone().text().catch(() => '');
-      console.warn('[SAVE][raw]', raw);
-      throw await makeResponseError(res, 'API 오류');
+    if (!response.ok) {
+      let errorMessage = `API 오류: ${response.status} ${response.statusText}`;
+      try {
+        // API에서 제공하는 구체적인 오류 메시지를 파싱합니다.
+        const errorData = await response.json();
+        if (errorData && errorData.message) {
+          errorMessage = errorData.message;
+        }
+      } catch (e) {
+        // 응답 본문 파싱에 실패하면 상태 텍스트를 사용합니다.
+      }
+      throw new Error(errorMessage);
     }
 
-    const data = (await parseJSONSafe(res)) ?? {};
-    console.log('[SAVE] success:', data);
-    return { message: (data as any).message || 'Firestore에 성공적으로 저장되었습니다.' };
-  } catch (err: any) {
-    if (err?.name === 'TypeError') {
-      console.error('[SAVE] Network/CORS error:', err);
-      throw new Error('네트워크/CORS 문제로 요청이 차단된 것 같습니다. 서버의 CORS 헤더와 HTTPS 여부를 확인하세요.');
-    }
-    console.error('[SAVE] failed:', err);
-    throw new Error(err?.message || 'Firestore에 임시 저장 중 알 수 없는 오류');
+    const responseData = await response.json();
+    console.log("Firestore 임시 저장 성공:", responseData);
+    
+    return { message: responseData.message || "Firestore에 성공적으로 저장되었습니다." };
+
+  } catch (error: any) {
+    console.error("Firestore 임시 저장 API 호출 실패:", error);
+    // UI에서 오류를 표시할 수 있도록 에러를 다시 던집니다.
+    throw new Error(error.message || 'Firestore에 임시 저장 중 알 수 없는 오류가 발생했습니다.');
   }
 };
 
+/**
+ * Firestore API에서 임시 저장된 데이터를 불러옵니다.
+ * @param receiptNumber 불러올 데이터의 접수번호
+ * @returns 불러온 데이터
+ */
 export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData> => {
-  const notFoundMsg = `저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receiptNumber}).`;
-
+  if (!LOAD_TEMP_API_URL) {
+    // 이 오류는 하드코딩된 URL이 제거되지 않는 한 발생하지 않아야 합니다.
+    throw new Error("불러오기 API URL이 설정되지 않았습니다.");
+  }
+  
   try {
-    const url = new URL(LOAD_TEMP_API_URL!);
-    url.searchParams.set('receipt_no', receiptNumber);
-    const headers: Record<string, string> = { Accept: 'application/json' };
-    if (API_KEY) headers['x-api-key'] = API_KEY;
+    console.log("Firestore 임시 저장 데이터 로딩 API 호출, 접수번호:", receiptNumber);
 
-    console.log('[LOAD] url =', url.toString(), 'hasApiKey=', !!API_KEY);
+    const url = new URL(LOAD_TEMP_API_URL);
+    url.searchParams.append('receipt_no', receiptNumber);
 
-    const res = await fetch(url.toString(), { method: 'GET', headers });
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+    
+    const notFoundError = new Error(`저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receiptNumber}).`);
 
-    console.log('[LOAD][status]', res.status, res.statusText);
-    const raw = await res.clone().text().catch(() => '');
-    console.log('[LOAD][raw]', raw);
-
-    if (!res.ok) {
-      if (res.status === 404) {
-        console.warn('[LOAD] 404 Not Found for', receiptNumber);
-        throw new Error(notFoundMsg);
+    if (!response.ok) {
+      let errorMessage = `API 오류: ${response.status} ${response.statusText}`;
+      if (response.status === 404) {
+          throw notFoundError;
       }
-      throw await makeResponseError(res, 'API 오류');
+      try {
+        const errorData = await response.json();
+        if (errorData && errorData.message) {
+           if (errorData.message.toLowerCase().includes('not found')) {
+               throw notFoundError;
+           }
+           errorMessage = errorData.message;
+        }
+      } catch (e: any) {
+        if (e === notFoundError) throw e;
+      }
+      throw new Error(errorMessage);
     }
 
-    const data = (raw ? JSON.parse(raw) : null) as LoadedData | null;
-    console.log('[LOAD][parsed]', data);
-
-    if (!data || !data.values || Object.keys(data.values).length === 0) {
-      console.warn('[LOAD] empty values payload');
-      throw new Error(notFoundMsg);
+    const responseData = await response.json();
+    console.log("Firestore 데이터 로딩 성공:", responseData);
+    
+    if (!responseData || !responseData.values || Object.keys(responseData.values).length === 0) {
+        throw notFoundError;
     }
 
-    return data;
-  } catch (err: any) {
-    if (err?.name === 'TypeError') {
-      console.error('[LOAD] Network/CORS error:', err);
-      throw new Error('네트워크/CORS 문제로 요청이 차단된 것 같습니다. 서버의 CORS 헤더와 HTTPS 여부를 확인하세요.');
-    }
-    console.error('[LOAD] failed:', err);
-    throw err;
+    return responseData as LoadedData;
+
+  } catch (error: any) {
+    console.error("Firestore 임시 저장 데이터 로딩 API 호출 실패:", error);
+    throw error; // UI 컴포넌트에서 잡을 수 있도록 에러를 다시 던집니다.
   }
 };
