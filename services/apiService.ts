@@ -6,11 +6,11 @@ export interface SavedValueEntry {
   time: string;
 }
 
+// DrinkingWaterPage.tsx의 데이터 구조를 기반으로 한 인터페이스
 export interface SaveDataPayload {
-  // 서버 스펙: snake_case 유지
-  receipt_no: string;
+  receipt_no: string;        // 서버 스펙: snake_case 유지
   site: string;
-  item: string[];
+  item: string[];            // 서버가 배열 기대
   user_name: string;
   values: Record<string, Record<string, SavedValueEntry>>;
 }
@@ -27,118 +27,134 @@ export interface LoadedData {
   };
 }
 
-// ===== 공통 유틸 =====
-// 공통번호 + 세부번호를 결합 (예: "17-020915-01", "1" → "17-020915-01-1")
-export function buildReceiptNo(base: string, detail: string) {
-  const b = (base ?? "").trim();
-  const d = (detail ?? "").trim();
-  if (!b || !d) throw new Error("접수번호(공통)와 세부번호를 모두 입력하세요.");
-  return `${b}-${d}`;
+// ===== 유틸 =====
+function trim(str: string) {
+  return (str ?? "").trim();
 }
-
-// 좌우 공백만 정리 (하이픈/문자 형식은 그대로 둠: Firestore에 저장된 포맷과 1:1 매칭)
-function normalizeReceiptNo(raw: string) {
-  return (raw ?? "").trim();
-}
-
-// 끝이 "-숫자" 형태인지 검사 → 세부번호가 붙었는지 강제
 function hasDetailSegment(no: string) {
-  return /-\d+$/.test(no.trim());
+  return /-\d+$/.test(trim(no)); // 끝이 "-숫자"
 }
 
-// ===== 엔드포인트 (env → 폴백) =====
-const SAVE_TEMP_API_URL =
-  import.meta.env.VITE_SAVE_TEMP_API_URL ??
-  "https://api-2rhr2hjjjq-uc.a.run.app/save-temp";
+// ===== 엔드포인트 (옛날 코드대로 하드코딩) =====
+const SAVE_TEMP_API_URL = "https://api-2rhr2hjjjq-uc.a.run.app/save-temp";
+const LOAD_TEMP_API_URL = "https://api-2rhr2hjjjq-uc.a.run.app/load-temp";
 
-const LOAD_TEMP_API_URL =
-  import.meta.env.VITE_LOAD_TEMP_API_URL ??
-  "https://api-2rhr2hjjjq-uc.a.run.app/load-temp";
+/**
+ * 임시 저장 데이터를 Firestore API로 전송합니다.
+ * @param payload 저장할 데이터
+ * @returns API 응답 메시지
+ */
+export const callSaveTempApi = async (payload: SaveDataPayload): Promise<{ message: string }> => {
+  try {
+    const receipt = trim(payload.receipt_no);
+    if (!receipt) throw new Error("receipt_no 누락");
+    if (!hasDetailSegment(receipt)) throw new Error(`세부번호가 포함된 접수번호가 필요합니다 (받은 값: "${receipt}")`);
 
-// ===== 임시 저장 =====
-export const callSaveTempApi = async (
-  payload: SaveDataPayload
-): Promise<{ message: string }> => {
-  if (!SAVE_TEMP_API_URL) {
-    throw new Error("VITE_SAVE_TEMP_API_URL 환경변수가 없습니다.");
+    console.log("[SAVE] Firestore 임시 저장 API 호출:", SAVE_TEMP_API_URL, payload);
+
+    const response = await fetch(SAVE_TEMP_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // receipt_no 공백 정리 후 전송
+      body: JSON.stringify({ ...payload, receipt_no: receipt }),
+      // 캐시 관련 불필요하지만 혹시 모를 프록시 이슈 방지
+      cache: "no-store",
+      credentials: "omit",
+    });
+
+    if (!response.ok) {
+      let errorMessage = `API 오류: ${response.status} ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        if (errorData && errorData.message) errorMessage = errorData.message;
+      } catch {}
+      throw new Error(errorMessage);
+    }
+
+    const responseData = await response.json();
+    console.log("[SAVE] Firestore 임시 저장 성공:", responseData);
+
+    return { message: responseData.message || "Firestore에 성공적으로 저장되었습니다." };
+  } catch (error: any) {
+    console.error("[SAVE] Firestore 임시 저장 실패:", error);
+    throw new Error(error?.message || "Firestore에 임시 저장 중 알 수 없는 오류가 발생했습니다.");
   }
-
-  const receipt = normalizeReceiptNo(payload.receipt_no);
-  if (!hasDetailSegment(receipt)) {
-    throw new Error(`세부번호가 누락되었습니다: ${receipt}`);
-  }
-
-  const response = await fetch(SAVE_TEMP_API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, receipt_no: receipt }),
-  });
-
-  if (!response.ok) {
-    let msg = `API 오류: ${response.status} ${response.statusText}`;
-    try {
-      const err = await response.json();
-      if (err?.message) msg = err.message;
-    } catch {}
-    throw new Error(msg);
-  }
-
-  const json = await response.json();
-  return { message: json.message || "Firestore에 성공적으로 저장되었습니다." };
 };
 
-// ===== 임시 불러오기 =====
-export const callLoadTempApi = async (
-  receiptNumber: string
-): Promise<LoadedData> => {
-  if (!LOAD_TEMP_API_URL) {
-    throw new Error("VITE_LOAD_TEMP_API_URL 환경변수가 없습니다.");
-  }
+/**
+ * Firestore API에서 임시 저장된 데이터를 불러옵니다.
+ * @param receiptNumber 불러올 데이터의 접수번호 (예: "17-020915-01-10")
+ * @returns 불러온 데이터
+ */
+export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData> => {
+  try {
+    const receipt = trim(receiptNumber);
+    if (!receipt) throw new Error("불러오기용 접수번호 누락");
+    if (!hasDetailSegment(receipt)) throw new Error(`세부번호가 포함된 접수번호가 필요합니다 (받은 값: "${receipt}")`);
 
-  const receipt = normalizeReceiptNo(receiptNumber);
-  if (!hasDetailSegment(receipt)) {
-    throw new Error(`세부번호가 누락되었습니다: ${receipt}`);
-  }
+    console.log("[LOAD] Firestore 데이터 로딩 API 호출:", LOAD_TEMP_API_URL, receipt);
 
-  // 1차: snake_case (receipt_no)
-  let url = new URL(LOAD_TEMP_API_URL);
-  url.searchParams.append("receipt_no", receipt);
+    // 1차: snake_case (서버 스펙대로)
+    const url1 = new URL(LOAD_TEMP_API_URL);
+    url1.searchParams.append("receipt_no", receipt);
+    // 캐시 무효(엣지/중간 프록시 대비)
+    url1.searchParams.append("_", Date.now().toString());
 
-  let res = await fetch(url.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
-
-  // 실패 시 2차: camelCase (receiptNo)로 재시도
-  if (!res.ok) {
-    const retryUrl = new URL(LOAD_TEMP_API_URL);
-    retryUrl.searchParams.append("receiptNo", receipt);
-
-    res = await fetch(retryUrl.toString(), {
+    let response = await fetch(url1.toString(), {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+      cache: "no-store",
+      credentials: "omit",
     });
+
+    // 2차: camelCase fallback (서버 구현 차이 대비)
+    if (!response.ok) {
+      console.warn("[LOAD] receipt_no 실패 → receiptNo로 재시도");
+      const url2 = new URL(LOAD_TEMP_API_URL);
+      url2.searchParams.append("receiptNo", receipt);
+      url2.searchParams.append("_", Date.now().toString());
+
+      response = await fetch(url2.toString(), {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+        cache: "no-store",
+        credentials: "omit",
+      });
+    }
+
+    const notFoundError = new Error(`저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receipt}).`);
+
+    if (!response.ok) {
+      if (response.status === 404) throw notFoundError;
+      let errorMessage = `API 오류: ${response.status} ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        if (errorData && errorData.message) {
+          if (errorData.message.toLowerCase().includes("not found")) throw notFoundError;
+          errorMessage = errorData.message;
+        }
+      } catch {}
+      throw new Error(errorMessage);
+    }
+
+    const responseData = await response.json();
+    console.log("[LOAD] Firestore 데이터 로딩 성공:", responseData);
+
+    if (!responseData || !responseData.values || Object.keys(responseData.values).length === 0) {
+      throw notFoundError;
+    }
+
+    return responseData as LoadedData;
+  } catch (error: any) {
+    console.error("[LOAD] Firestore 임시 저장 데이터 로딩 실패:", error);
+    throw new Error(error?.message || "임시 저장 데이터 로딩 중 알 수 없는 오류가 발생했습니다.");
   }
-
-  const notFound = new Error(
-    `저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receipt}).`
-  );
-
-  if (!res.ok) {
-    if (res.status === 404) throw notFound;
-    let msg = `API 오류: ${res.status} ${res.statusText}`;
-    try {
-      const err = await res.json();
-      if (err?.message?.toLowerCase().includes("not found")) throw notFound;
-      if (err?.message) msg = err.message;
-    } catch {}
-    throw new Error(msg);
-  }
-
-  const data = await res.json();
-  if (!data?.values || Object.keys(data.values).length === 0) {
-    throw notFound;
-  }
-
-  return data as LoadedData;
 };
