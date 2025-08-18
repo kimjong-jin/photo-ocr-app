@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 
 const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -44,7 +45,7 @@ interface ApiKeyCheckerProps {
   children: React.ReactNode;
 }
 
-const API_KEY = import.meta.env.VITE_API_KEY;
+const API_KEY = (import.meta as any).env.VITE_API_KEY;
 
 const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ children }) => {
   if (!API_KEY) {
