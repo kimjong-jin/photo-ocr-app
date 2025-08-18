@@ -67,7 +67,9 @@ export const callSaveTempApi = async (
   const responseData = await response.json();
   console.log("[SAVE] Firestore 임시 저장 성공:", responseData);
 
-  return { message: responseData.message || "Firestore에 성공적으로 저장되었습니다." };
+  return {
+    message: responseData.message || "Firestore에 성공적으로 저장되었습니다.",
+  };
 };
 
 /**
@@ -82,16 +84,33 @@ export const callLoadTempApi = async (
     );
   }
 
-  console.log("[LOAD] Firestore 데이터 로딩 API 호출:", LOAD_TEMP_API_URL, receiptNumber);
+  console.log(
+    "[LOAD] Firestore 데이터 로딩 API 호출:",
+    LOAD_TEMP_API_URL,
+    receiptNumber
+  );
 
-  const url = new URL(LOAD_TEMP_API_URL);
-  // ⚠️ 서버 스펙에 맞춰 snake_case 사용
+  // 1차 시도 (snake_case)
+  let url = new URL(LOAD_TEMP_API_URL);
   url.searchParams.append("receipt_no", receiptNumber);
 
-  const response = await fetch(url.toString(), {
+  let response = await fetch(url.toString(), {
     method: "GET",
     headers: { Accept: "application/json" },
   });
+
+  // 404 또는 실패 시 camelCase로 재시도
+  if (!response.ok) {
+    console.warn("[LOAD] receipt_no 실패 → receiptNo로 재시도");
+
+    const retryUrl = new URL(LOAD_TEMP_API_URL);
+    retryUrl.searchParams.append("receiptNo", receiptNumber);
+
+    response = await fetch(retryUrl.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  }
 
   const notFoundError = new Error(
     `저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receiptNumber}).`
@@ -103,7 +122,8 @@ export const callLoadTempApi = async (
     try {
       const errorData = await response.json();
       if (errorData?.message) {
-        if (errorData.message.toLowerCase().includes("not found")) throw notFoundError;
+        if (errorData.message.toLowerCase().includes("not found"))
+          throw notFoundError;
         errorMessage = errorData.message;
       }
     } catch (_) {}
