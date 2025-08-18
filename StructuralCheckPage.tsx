@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import ReactDOM from 'react-dom/client';
 import html2canvas from 'html2canvas';
 import {
   MAIN_STRUCTURAL_ITEMS,
@@ -107,7 +106,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ userName, job
   const [isRenderingChecklist, setIsRenderingChecklist] = useState(false);
   const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
   const [isSendingToClaydox, setIsSendingToClaydox] = useState<boolean>(false);
-  const snapshotHostRef = useRef<HTMLDivElement | null>(null);
+  const [jobForSnapshot, setJobForSnapshot] = useState<StructuralJob | null>(null);
 
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
@@ -602,85 +601,73 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
 
     setIsRenderingChecklist(true);
     resetActiveJobSubmissionStatus();
-    
-    // Use the snapshot component for rendering
-    if (snapshotHostRef.current) {
-        const snapshotRoot = ReactDOM.createRoot(snapshotHostRef.current);
-        // Use a promise to ensure rendering completes before capturing
-        const renderPromise = new Promise<void>(resolve => {
-            snapshotRoot.render(
-                <ChecklistSnapshot job={activeJob} />
-            );
-            // A short timeout allows React to render to the DOM
-            setTimeout(resolve, 100); 
-        });
-        await renderPromise;
+    setJobForSnapshot(activeJob); // Set state to render the snapshot component
 
-        const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
-        if (!elementToCapture) {
-            alert("체크리스트 스냅샷 요소를 찾을 수 없습니다.");
-            setIsRenderingChecklist(false);
-            snapshotRoot.unmount();
-            return;
-        }
+    // Wait for the next render cycle for the component to be in the DOM
+    await new Promise(resolve => setTimeout(resolve, 100));
 
-        try {
-            const canvas = await html2canvas(elementToCapture, {
-                backgroundColor: '#1e293b',
-                width: elementToCapture.offsetWidth,
-                height: elementToCapture.offsetHeight,
-                scale: 1.5,
-            });
-            const dataUrl = canvas.toDataURL('image/png');
-            const blob = await (await fetch(dataUrl)).blob();
-            const base64 = dataUrl.split(',')[1];
-            
-            const sanitizedReceipt = sanitizeFilenameComponent(activeJob.receiptNumber);
-            let itemPart = "";
-            if (activeJob.mainItemKey === 'TP') itemPart = "P";
-            else if (activeJob.mainItemKey === 'Cl') itemPart = "C";
-            else if (activeJob.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(activeJob.mainItemKey);
-            const checklistImageName = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
-            
-            const checklistImageFile = new File([blob], checklistImageName, { type: 'image/png' });
-            const checklistImageInfo: ImageInfo = { file: checklistImageFile, base64, mimeType: 'image/png' };
-
-            const compositeImageName = activeJob.photos.length > 0 ? generateCompositeImageNameForKtl(activeJob.receiptNumber) : undefined;
-            const zipFileName = activeJob.photos.length > 0 ? generateZipFileNameForKtl(activeJob.receiptNumber) : undefined;
-            const fileNamesForPreflight = [checklistImageName, compositeImageName, zipFileName].filter(Boolean) as string[];
-
-            const jsonForPreview = generateStructuralKtlJsonForPreview(
-                [{ 
-                    ...activeJob, 
-                    siteLocation: siteLocation,
-                    updateUser: userName,
-                    photoFileNames: {}, 
-                    postInspectionDateValue: activeJob.postInspectionDate 
-                }],
-                siteLocation, undefined, userName, compositeImageName, zipFileName
-            );
-
-            setKtlPreflightData({
-                jsonPayload: jsonForPreview,
-                fileNames: fileNamesForPreflight,
-                context: {
-                    receiptNumber: activeJob.receiptNumber,
-                    siteLocation,
-                    selectedItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey,
-                    userName,
-                },
-                generatedChecklistImage: checklistImageInfo
-            });
-            setKtlPreflightModalOpen(true);
-        } catch (error) {
-            console.error("Error generating checklist image:", error);
-            updateActiveJob(job => ({ ...job, submissionStatus: 'error', submissionMessage: '체크리스트 이미지 생성 실패.' }));
-        } finally {
-            setIsRenderingChecklist(false);
-            snapshotRoot.unmount(); // Clean up the temporary React root
-        }
-    } else {
+    const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
+    if (!elementToCapture) {
+        alert("체크리스트 스냅샷 요소를 찾을 수 없습니다.");
         setIsRenderingChecklist(false);
+        setJobForSnapshot(null); // Cleanup state
+        return;
+    }
+
+    try {
+        const canvas = await html2canvas(elementToCapture, {
+            backgroundColor: '#1e293b',
+            width: elementToCapture.offsetWidth,
+            height: elementToCapture.offsetHeight,
+            scale: 1.5,
+        });
+        const dataUrl = canvas.toDataURL('image/png');
+        const blob = await (await fetch(dataUrl)).blob();
+        const base64 = dataUrl.split(',')[1];
+        
+        const sanitizedReceipt = sanitizeFilenameComponent(activeJob.receiptNumber);
+        let itemPart = "";
+        if (activeJob.mainItemKey === 'TP') itemPart = "P";
+        else if (activeJob.mainItemKey === 'Cl') itemPart = "C";
+        else if (activeJob.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(activeJob.mainItemKey);
+        const checklistImageName = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
+        
+        const checklistImageFile = new File([blob], checklistImageName, { type: 'image/png' });
+        const checklistImageInfo: ImageInfo = { file: checklistImageFile, base64, mimeType: 'image/png' };
+
+        const compositeImageName = activeJob.photos.length > 0 ? generateCompositeImageNameForKtl(activeJob.receiptNumber) : undefined;
+        const zipFileName = activeJob.photos.length > 0 ? generateZipFileNameForKtl(activeJob.receiptNumber) : undefined;
+        const fileNamesForPreflight = [checklistImageName, compositeImageName, zipFileName].filter(Boolean) as string[];
+
+        const jsonForPreview = generateStructuralKtlJsonForPreview(
+            [{ 
+                ...activeJob, 
+                siteLocation: siteLocation,
+                updateUser: userName,
+                photoFileNames: {}, 
+                postInspectionDateValue: activeJob.postInspectionDate 
+            }],
+            siteLocation, undefined, userName, compositeImageName, zipFileName
+        );
+
+        setKtlPreflightData({
+            jsonPayload: jsonForPreview,
+            fileNames: fileNamesForPreflight,
+            context: {
+                receiptNumber: activeJob.receiptNumber,
+                siteLocation,
+                selectedItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey,
+                userName,
+            },
+            generatedChecklistImage: checklistImageInfo
+        });
+        setKtlPreflightModalOpen(true);
+    } catch (error) {
+        console.error("Error generating checklist image:", error);
+        updateActiveJob(job => ({ ...job, submissionStatus: 'error', submissionMessage: '체크리스트 이미지 생성 실패.' }));
+    } finally {
+        setIsRenderingChecklist(false);
+        setJobForSnapshot(null); // Cleanup the snapshot rendering state
     }
   };
   
@@ -737,50 +724,43 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
             const job = jobs[i];
             setBatchSendProgress(`(${(i + 1)}/${jobs.length}) '${job.receiptNumber}' 체크리스트 캡처 중...`);
             
-            if (snapshotHostRef.current) {
-                const snapshotRoot = ReactDOM.createRoot(snapshotHostRef.current);
-                const renderPromise = new Promise<void>(resolve => {
-                    snapshotRoot.render(
-                        <ChecklistSnapshot job={job} />
-                    );
-                    setTimeout(resolve, 100); 
-                });
-                await renderPromise;
+            setJobForSnapshot(job);
+            await new Promise(resolve => setTimeout(resolve, 100)); // Wait for render
 
-                const elementToCapture = document.getElementById(`snapshot-container-for-${job.id}`);
-                if (elementToCapture) {
-                    try {
-                        const canvas = await html2canvas(elementToCapture, {
-                            backgroundColor: '#1e293b',
-                            width: elementToCapture.offsetWidth,
-                            height: elementToCapture.offsetHeight,
-                            scale: 1.5,
-                        });
-                        const dataUrl = canvas.toDataURL('image/png');
-                        const blob = await (await fetch(dataUrl)).blob();
+            const elementToCapture = document.getElementById(`snapshot-container-for-${job.id}`);
+            if (elementToCapture) {
+                try {
+                    const canvas = await html2canvas(elementToCapture, {
+                        backgroundColor: '#1e293b',
+                        width: elementToCapture.offsetWidth,
+                        height: elementToCapture.offsetHeight,
+                        scale: 1.5,
+                    });
+                    const dataUrl = canvas.toDataURL('image/png');
+                    const blob = await (await fetch(dataUrl)).blob();
 
-                        const sanitizedReceipt = sanitizeFilenameComponent(job.receiptNumber);
-                        let itemPart = "";
-                        if (job.mainItemKey === 'TP') itemPart = "P";
-                        else if (job.mainItemKey === 'Cl') itemPart = "C";
-                        else if (job.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(job.mainItemKey);
-                        
-                        const filename = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
-                        const file = new File([blob], filename, { type: 'image/png' });
-                        const base64 = dataUrl.split(',')[1];
-                        generatedChecklistImages.push({ file, base64, mimeType: 'image/png' });
-                    } catch (err) {
-                        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: '체크리스트 이미지 생성 실패' } : j));
-                        imageGenError = true;
-                    }
+                    const sanitizedReceipt = sanitizeFilenameComponent(job.receiptNumber);
+                    let itemPart = "";
+                    if (job.mainItemKey === 'TP') itemPart = "P";
+                    else if (job.mainItemKey === 'Cl') itemPart = "C";
+                    else if (job.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(job.mainItemKey);
+                    
+                    const filename = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
+                    const file = new File([blob], filename, { type: 'image/png' });
+                    const base64 = dataUrl.split(',')[1];
+                    generatedChecklistImages.push({ file, base64, mimeType: 'image/png' });
+                } catch (err) {
+                    setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: '체크리스트 이미지 생성 실패' } : j));
+                    imageGenError = true;
                 }
-                snapshotRoot.unmount();
             }
+            setJobForSnapshot(null); // Clean up for next iteration
         }
 
         if (imageGenError) {
             setBatchSendProgress('오류: 일부 체크리스트 이미지를 생성할 수 없습니다.');
             setIsSendingToClaydox(false);
+            setJobForSnapshot(null);
             setTimeout(() => setBatchSendProgress(null), 5000);
             return;
         }
@@ -854,7 +834,11 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
 
   return (
     <div className="w-full max-w-4xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
-      <div ref={snapshotHostRef} style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}></div>
+      {jobForSnapshot && (
+        <div style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}>
+          <ChecklistSnapshot job={jobForSnapshot} />
+        </div>
+      )}
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">구조 확인 (P4)</h2>
       
       {jobs.length > 0 && (
