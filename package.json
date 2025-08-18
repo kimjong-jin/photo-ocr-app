@@ -1,7 +1,7 @@
 {
-  "name": "photo-ocr-app",
+  "name": "(2025-08-18)-시험·검사-분석(g)",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "@google/genai": "^1.0.1",
     "jszip": "3.10.1",
     "axios": "1.6.8",
@@ -18,10 +18,8 @@
     "xlsx": "0.18.5"
   },
   "devDependencies": {
-    "@types/node": "^20.12.12",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "typescript": "^5.5.4",
-    "vite": "^5.2.0"
+    "@types/node": "^22.14.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
   }
 }
