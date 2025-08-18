@@ -396,8 +396,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   }, [receiptNumber, activePage]);
 
   const handleAddTask = useCallback(() => {
-    if (!newItemKey || !receiptNumber) {
-      alert("항목과 접수번호를 모두 입력해주세요.");
+    if (!newItemKey || !receiptNumber || !siteLocation.trim()) {
+      alert("항목, 접수번호, 현장 위치를 모두 입력해주세요.");
       return;
     }
 
