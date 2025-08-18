@@ -5,8 +5,9 @@ export interface SavedValueEntry {
   time: string;
 }
 
+// DrinkingWaterPage.tsx의 데이터 구조를 기반으로 한 인터페이스
 export interface SaveDataPayload {
-  receipt_no: string;          // ⚠️ 서버 요구사항 확인 필요: receipt_no vs receiptNo
+  receipt_no: string; // ⚠️ 서버 스펙: snake_case 유지
   site: string;
   item: string[];
   user_name: string;
@@ -25,19 +26,28 @@ export interface LoadedData {
   };
 }
 
-// ✅ 환경변수에서 모두 읽기 (하드코딩 제거)
-const SAVE_TEMP_API_URL = import.meta.env.VITE_SAVE_TEMP_API_URL;
-const LOAD_TEMP_API_URL = import.meta.env.VITE_LOAD_TEMP_API_URL;
+// ✅ 환경변수에서 읽고, 없으면 하드코딩된 URL 사용 (안전 폴백)
+const SAVE_TEMP_API_URL =
+  import.meta.env.VITE_SAVE_TEMP_API_URL ??
+  "https://api-2rhr2hjjjq-uc.a.run.app/save-temp";
+
+const LOAD_TEMP_API_URL =
+  import.meta.env.VITE_LOAD_TEMP_API_URL ??
+  "https://api-2rhr2hjjjq-uc.a.run.app/load-temp";
 
 /**
  * 임시 저장 API
  */
-export const callSaveTempApi = async (payload: SaveDataPayload): Promise<{ message: string }> => {
+export const callSaveTempApi = async (
+  payload: SaveDataPayload
+): Promise<{ message: string }> => {
   if (!SAVE_TEMP_API_URL) {
-    throw new Error("저장 API URL이 설정되지 않았습니다. VITE_SAVE_TEMP_API_URL 환경변수를 확인해주세요.");
+    throw new Error(
+      "저장 API URL이 설정되지 않았습니다. VITE_SAVE_TEMP_API_URL 환경변수를 확인해주세요."
+    );
   }
 
-  console.log("Firestore 임시 저장 API 호출, 페이로드:", payload);
+  console.log("[SAVE] Firestore 임시 저장 API 호출:", SAVE_TEMP_API_URL, payload);
 
   const response = await fetch(SAVE_TEMP_API_URL, {
     method: "POST",
@@ -55,7 +65,7 @@ export const callSaveTempApi = async (payload: SaveDataPayload): Promise<{ messa
   }
 
   const responseData = await response.json();
-  console.log("Firestore 임시 저장 성공:", responseData);
+  console.log("[SAVE] Firestore 임시 저장 성공:", responseData);
 
   return { message: responseData.message || "Firestore에 성공적으로 저장되었습니다." };
 };
@@ -63,15 +73,19 @@ export const callSaveTempApi = async (payload: SaveDataPayload): Promise<{ messa
 /**
  * 임시 불러오기 API
  */
-export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData> => {
+export const callLoadTempApi = async (
+  receiptNumber: string
+): Promise<LoadedData> => {
   if (!LOAD_TEMP_API_URL) {
-    throw new Error("불러오기 API URL이 설정되지 않았습니다. VITE_LOAD_TEMP_API_URL 환경변수를 확인해주세요.");
+    throw new Error(
+      "불러오기 API URL이 설정되지 않았습니다. VITE_LOAD_TEMP_API_URL 환경변수를 확인해주세요."
+    );
   }
 
-  console.log("Firestore 임시 저장 데이터 로딩 API 호출, 접수번호:", receiptNumber);
+  console.log("[LOAD] Firestore 데이터 로딩 API 호출:", LOAD_TEMP_API_URL, receiptNumber);
 
   const url = new URL(LOAD_TEMP_API_URL);
-  // ⚠️ 서버 스펙에 맞춰 receipt_no / receiptNo 확인
+  // ⚠️ 서버 스펙에 맞춰 snake_case 사용
   url.searchParams.append("receipt_no", receiptNumber);
 
   const response = await fetch(url.toString(), {
@@ -79,7 +93,9 @@ export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData
     headers: { Accept: "application/json" },
   });
 
-  const notFoundError = new Error(`저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receiptNumber}).`);
+  const notFoundError = new Error(
+    `저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receiptNumber}).`
+  );
 
   if (!response.ok) {
     if (response.status === 404) throw notFoundError;
@@ -95,7 +111,7 @@ export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData
   }
 
   const responseData = await response.json();
-  console.log("Firestore 데이터 로딩 성공:", responseData);
+  console.log("[LOAD] Firestore 데이터 로딩 성공:", responseData);
 
   if (!responseData?.values || Object.keys(responseData.values).length === 0) {
     throw notFoundError;
