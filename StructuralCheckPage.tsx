@@ -598,79 +598,87 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
       alert("활성 작업이 없거나 현장 위치가 입력되지 않았습니다.");
       return;
     }
-
     setIsRenderingChecklist(true);
     resetActiveJobSubmissionStatus();
-    setJobForSnapshot(activeJob); // Set state to render the snapshot component
-
-    // Wait for the next render cycle for the component to be in the DOM
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
-    if (!elementToCapture) {
-        alert("체크리스트 스냅샷 요소를 찾을 수 없습니다.");
-        setIsRenderingChecklist(false);
-        setJobForSnapshot(null); // Cleanup state
-        return;
-    }
-
-    try {
-        const canvas = await html2canvas(elementToCapture, {
-            backgroundColor: '#1e293b',
-            width: elementToCapture.offsetWidth,
-            height: elementToCapture.offsetHeight,
-            scale: 1.5,
-        });
-        const dataUrl = canvas.toDataURL('image/png');
-        const blob = await (await fetch(dataUrl)).blob();
-        const base64 = dataUrl.split(',')[1];
-        
-        const sanitizedReceipt = sanitizeFilenameComponent(activeJob.receiptNumber);
-        let itemPart = "";
-        if (activeJob.mainItemKey === 'TP') itemPart = "P";
-        else if (activeJob.mainItemKey === 'Cl') itemPart = "C";
-        else if (activeJob.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(activeJob.mainItemKey);
-        const checklistImageName = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
-        
-        const checklistImageFile = new File([blob], checklistImageName, { type: 'image/png' });
-        const checklistImageInfo: ImageInfo = { file: checklistImageFile, base64, mimeType: 'image/png' };
-
-        const compositeImageName = activeJob.photos.length > 0 ? generateCompositeImageNameForKtl(activeJob.receiptNumber) : undefined;
-        const zipFileName = activeJob.photos.length > 0 ? generateZipFileNameForKtl(activeJob.receiptNumber) : undefined;
-        const fileNamesForPreflight = [checklistImageName, compositeImageName, zipFileName].filter(Boolean) as string[];
-
-        const jsonForPreview = generateStructuralKtlJsonForPreview(
-            [{ 
-                ...activeJob, 
-                siteLocation: siteLocation,
-                updateUser: userName,
-                photoFileNames: {}, 
-                postInspectionDateValue: activeJob.postInspectionDate 
-            }],
-            siteLocation, undefined, userName, compositeImageName, zipFileName
-        );
-
-        setKtlPreflightData({
-            jsonPayload: jsonForPreview,
-            fileNames: fileNamesForPreflight,
-            context: {
-                receiptNumber: activeJob.receiptNumber,
-                siteLocation,
-                selectedItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey,
-                userName,
-            },
-            generatedChecklistImage: checklistImageInfo
-        });
-        setKtlPreflightModalOpen(true);
-    } catch (error) {
-        console.error("Error generating checklist image:", error);
-        updateActiveJob(job => ({ ...job, submissionStatus: 'error', submissionMessage: '체크리스트 이미지 생성 실패.' }));
-    } finally {
-        setIsRenderingChecklist(false);
-        setJobForSnapshot(null); // Cleanup the snapshot rendering state
-    }
+    setJobForSnapshot(activeJob);
   };
   
+  // This effect will run after the state update causes a re-render
+  useEffect(() => {
+      if (!jobForSnapshot) return;
+
+      const performSnapshot = async () => {
+          const elementToCapture = document.getElementById(`snapshot-container-for-${jobForSnapshot.id}`);
+          if (!elementToCapture) {
+              alert("체크리스트 스냅샷 요소를 찾을 수 없습니다.");
+              setIsRenderingChecklist(false);
+              setJobForSnapshot(null);
+              return;
+          }
+
+          try {
+              const canvas = await html2canvas(elementToCapture, {
+                  backgroundColor: '#1e293b',
+                  width: elementToCapture.offsetWidth,
+                  height: elementToCapture.offsetHeight,
+                  scale: 1.5,
+              });
+              const dataUrl = canvas.toDataURL('image/png');
+              const blob = await (await fetch(dataUrl)).blob();
+              const base64 = dataUrl.split(',')[1];
+              
+              const sanitizedReceipt = sanitizeFilenameComponent(jobForSnapshot.receiptNumber);
+              let itemPart = "";
+              if (jobForSnapshot.mainItemKey === 'TP') itemPart = "P";
+              else if (jobForSnapshot.mainItemKey === 'Cl') itemPart = "C";
+              else if (jobForSnapshot.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(jobForSnapshot.mainItemKey);
+              const checklistImageName = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
+              
+              const checklistImageFile = new File([blob], checklistImageName, { type: 'image/png' });
+              const checklistImageInfo: ImageInfo = { file: checklistImageFile, base64, mimeType: 'image/png' };
+
+              const compositeImageName = jobForSnapshot.photos.length > 0 ? generateCompositeImageNameForKtl(jobForSnapshot.receiptNumber) : undefined;
+              const zipFileName = jobForSnapshot.photos.length > 0 ? generateZipFileNameForKtl(jobForSnapshot.receiptNumber) : undefined;
+              const fileNamesForPreflight = [checklistImageName, compositeImageName, zipFileName].filter(Boolean) as string[];
+
+              const jsonForPreview = generateStructuralKtlJsonForPreview(
+                  [{ 
+                      ...jobForSnapshot, 
+                      siteLocation: siteLocation,
+                      updateUser: userName,
+                      photoFileNames: {}, 
+                      postInspectionDateValue: jobForSnapshot.postInspectionDate 
+                  }],
+                  siteLocation, undefined, userName, compositeImageName, zipFileName
+              );
+
+              setKtlPreflightData({
+                  jsonPayload: jsonForPreview,
+                  fileNames: fileNamesForPreflight,
+                  context: {
+                      receiptNumber: jobForSnapshot.receiptNumber,
+                      siteLocation,
+                      selectedItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === jobForSnapshot.mainItemKey)?.name || jobForSnapshot.mainItemKey,
+                      userName,
+                  },
+                  generatedChecklistImage: checklistImageInfo
+              });
+              setKtlPreflightModalOpen(true);
+          } catch (error) {
+              console.error("Error generating checklist image:", error);
+              updateActiveJob(job => ({ ...job, submissionStatus: 'error', submissionMessage: '체크리스트 이미지 생성 실패.' }));
+          } finally {
+              setIsRenderingChecklist(false);
+              setJobForSnapshot(null);
+          }
+      };
+      
+      // Use a timeout to ensure the DOM is painted after the state change.
+      const timer = setTimeout(performSnapshot, 100);
+      return () => clearTimeout(timer);
+
+  }, [jobForSnapshot, siteLocation, userName, updateActiveJob]);
+
   const handleConfirmSendToKtl = async () => {
     if (!activeJob || !ktlPreflightData || !ktlPreflightData.generatedChecklistImage) {
       alert("전송 확인을 위한 데이터가 부족합니다.");
@@ -724,6 +732,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
             const job = jobs[i];
             setBatchSendProgress(`(${(i + 1)}/${jobs.length}) '${job.receiptNumber}' 체크리스트 캡처 중...`);
             
+            // This relies on the useEffect hook to perform the snapshot now
             setJobForSnapshot(job);
             await new Promise(resolve => setTimeout(resolve, 100)); // Wait for render
 
