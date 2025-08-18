@@ -297,7 +297,8 @@ export const generateCompositeImage = (
       ctx.fillStyle = 'white';
       textLines.forEach((line, index) => {
         const textY = rectY + (index * lineHeight) + fontSize + (textPadding / 2) - (lineHeight - fontSize) / 2;
-        ctx.fillText(line, rectX + textPadding, textY);
+        // Add maxWidth to fillText for robustness
+        ctx.fillText(line, rectX + textPadding, textY, maxTextWidth);
       });
     }
     
