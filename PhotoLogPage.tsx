@@ -101,11 +101,8 @@ const safeNameWithExt = (originalName: string, mime: string) => {
   const dotIdx = originalName.lastIndexOf('.');
   const baseRaw = dotIdx > 0 ? originalName.slice(0, dotIdx) : originalName;
   const extFromNameRaw = dotIdx > 0 ? originalName.slice(dotIdx + 1).toLowerCase() : '';
-
-  // 베이스만 sanitize (sanitizeFilename이 점(.)을 제거할 수 있으니 확장자는 따로 처리)
   const sanitizedBase = sanitizeFilename(baseRaw) || 'image';
 
-  // 이름상의 확장자가 정상적인 이미지 확장자인지 점검
   let finalExt: string;
   if (['jpg', 'jpeg', 'png', 'webp'].includes(extFromNameRaw)) {
     finalExt = extFromNameRaw === 'jpeg' ? 'jpg' : extFromNameRaw;
@@ -739,7 +736,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setKtlPreflightModalOpen(true);
   }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
 
-  /** 전송: “컴포지트”는 첫 번째 원본을 그대로 사용 (무스탬프) */
+  /** 전송: composite = 첫 장 스탬프 가공본, ZIP = 모든 원본 */
   const handleSendToClaydoxConfirmed = useCallback(async () => {
     setKtlPreflightModalOpen(false);
     if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
@@ -760,13 +757,24 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
       const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
 
-      // 첫 번째 원본 이미지를 “composite” 이름으로 사용 (무스탬프 원본 그대로)
+      // ✅ composite: 첫 장 스탬프 적용 (가공 데이터)
       const first = activeJob.photos[0];
-      const ext = mimeToExt(first.mimeType);
-      const rawDataUrl = `data:${first.mimeType};base64,${first.base64}`;
-      const compositeFile = new File([dataURLtoBlob(rawDataUrl)], `${baseName}_composite.${ext}`, { type: first.mimeType });
+      const stampedDataUrl = await generateStampedImage(
+        first.base64,
+        first.mimeType,
+        activeJob.receiptNumber,
+        siteLocation,
+        activeJob.details ?? '',
+        activeJob.selectedItem,
+        undefined
+      );
+      const compositeMime =
+        stampedDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+      const compositeExt = compositeMime === 'image/png' ? 'png' : 'jpg';
+      const compositeBlob = dataURLtoBlob(stampedDataUrl);
+      const compositeFile = new File([compositeBlob], `${baseName}_composite.${compositeExt}`, { type: compositeMime });
 
-      // 원본 전부 ZIP (무스탬프) — 파일명 확장자 보정
+      // ✅ ZIP: 원본(무스탬프)
       const zip = new JSZip();
       for (const imageInfo of activeJob.photos) {
         const raw = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
@@ -809,13 +817,24 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
         const baseName = buildBaseName(job.receiptNumber, siteLocation, job.selectedItem);
 
-        // 첫 번째 원본을 composite 파일로 사용 (무스탬프)
+        // ✅ composite: 첫 장 스탬프 적용 (가공 데이터)
         const first = job.photos[0];
-        const ext = mimeToExt(first.mimeType);
-        const raw = `data:${first.mimeType};base64,${first.base64}`;
-        const compositeFile = new File([dataURLtoBlob(raw)], `${baseName}_composite.${ext}`, { type: first.mimeType });
+        const stampedDataUrl = await generateStampedImage(
+          first.base64,
+          first.mimeType,
+          job.receiptNumber,
+          siteLocation,
+          job.details ?? '',
+          job.selectedItem,
+          undefined
+        );
+        const compositeMime =
+          stampedDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+        const compositeExt = compositeMime === 'image/png' ? 'png' : 'jpg';
+        const compositeBlob = dataURLtoBlob(stampedDataUrl);
+        const compositeFile = new File([compositeBlob], `${baseName}_composite.${compositeExt}`, { type: compositeMime });
 
-        // 원본 ZIP (무스탬프) — 파일명 확장자 보정
+        // ✅ ZIP: 전부 원본(무스탬프)
         const zip = new JSZip();
         for (const imageInfo of job.photos) {
           const dataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
@@ -863,7 +882,6 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           comment
         );
 
-        // 결과 MIME 타입에 따라 확장자 결정
         const outExt =
           stampedDataUrl.startsWith('data:image/jpeg') || stampedDataUrl.startsWith('data:image/jpg')
             ? 'jpg'
@@ -874,14 +892,11 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
 
-      // [FIX] 안전한 링크 생성/삭제 (중복 제거 방지)
       const link = document.createElement('a');
       const url = URL.createObjectURL(zipBlob);
       link.href = url;
       link.download = `${baseName}_stamped_images.zip`;
 
-      // body에 붙이기 전에 혹시 연결되어 있으면 제거
-      // (이 케이스는 드물지만 idempotent 보장)
       if (link.isConnected && link.parentNode) {
         link.parentNode.removeChild(link);
       }
@@ -889,11 +904,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       document.body.appendChild(link);
       link.click();
 
-      // 클릭 직후 브라우저가 다운로드 핸들러를 잡을 시간을 주고 제거
-      // (동기 removeChild로 인한 Edge 케이스 회피)
       requestAnimationFrame(() => {
         if (link.isConnected) {
-          link.remove(); // [FIX] 안전 제거
+          link.remove();
         }
         URL.revokeObjectURL(url);
       });
