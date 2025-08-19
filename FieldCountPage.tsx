@@ -14,12 +14,10 @@ import { PhotoLogJob as BasePhotoLogJob, ExtractedEntry as BaseExtractedEntry } 
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
 import { TN_IDENTIFIERS, TP_IDENTIFIERS } from './shared/constants';
-import { dataURLtoBlob, generateCompositeImage } from './services/imageStampingService'; // ★ 여기! 합성 함수 사용
+import { dataURLtoBlob, generateCompositeImage } from './services/imageStampingService';
 
 type KtlApiCallStatus = 'idle' | 'success' | 'error';
-
 type JobPhoto = BasePhotoLogJob['photos'][number];
-
 type ExtractedEntry = BaseExtractedEntry;
 
 interface RawEntrySingle { time: string; value: string; }
@@ -36,7 +34,6 @@ interface FieldCountPageProps {
   onDeleteJob: (jobId: string) => void;
 }
 
-// helpers
 const TrashIcon: React.FC = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
     <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
@@ -44,13 +41,6 @@ const TrashIcon: React.FC = () => (
 );
 
 const sanitizeFilenameComponent = (s: string) => (s || '').replace(/[/\\[\]:*?"<>|]/g, '_').replace(/__+/g, '_');
-const mimeToExt = (mime: string) => {
-  const t = (mime || '').toLowerCase();
-  if (t.includes('jpeg') || t.includes('jpg')) return 'jpg';
-  if (t.includes('png')) return 'png';
-  if (t.includes('webp')) return 'webp';
-  return 'jpg';
-};
 
 const generateIdentifierSequence = (ocrData: ExtractedEntry[] | null): string => {
   if (!ocrData) return '';
@@ -133,7 +123,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
     if (!activeJob || activeJob.photos.length === 0) return [];
     const sanitizedItem = sanitizeFilenameComponent(activeJob.selectedItem === 'TN/TP' ? 'TN_TP' : activeJob.selectedItem);
     const base = `${activeJob.receiptNumber}_${sanitizeFilenameComponent(siteLocation)}_${sanitizedItem}`;
-    return [`${base}_composite.jpg`, `${base}_Compression.zip`]; // ★ composite은 JPG로 고정 (원하면 PNG로 바꿔도 됨)
+    return [`${base}_composite.jpg`, `${base}_Compression.zip`];
   }, [activeJob, siteLocation]);
 
   const ktlJsonPreview = useMemo(() => {
@@ -151,18 +141,28 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
     return generateKtlJsonForPreview(payload, activeJob.selectedItem, hypotheticalKtlFileNamesForPreview);
   }, [activeJob, userName, siteLocation, hypotheticalKtlFileNamesForPreview]);
 
+  // ✅ FIX: base64 콘텐츠 기준으로만 중복 제거 (이전: name+size+lastModified)
   const handleImagesSet = useCallback((files: BaseImageInfo[]) => {
     if (files.length === 0 && activeJob?.photos?.length) return;
     const withUid: JobPhoto[] = files.map(img => ({ ...img, uid: self.crypto.randomUUID() }));
     updateActiveJob(job => {
       const existing = job.photos || [];
       const all = [...existing, ...withUid];
+
+      // base64 내용으로 유니크 처리
       const uniq = new Map<string, JobPhoto>();
       all.forEach(img => {
-        const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
+        const key = `${img.mimeType}:${img.base64.length}:${img.base64.slice(0,64)}:${img.base64.slice(-64)}`;
         if (!uniq.has(key)) uniq.set(key, img);
       });
-      return { ...job, photos: Array.from(uniq.values()), processedOcrData: null, submissionStatus: 'idle', submissionMessage: undefined };
+
+      return {
+        ...job,
+        photos: Array.from(uniq.values()),
+        processedOcrData: null,
+        submissionStatus: 'idle',
+        submissionMessage: undefined
+      };
     });
     setProcessingError(null);
   }, [activeJob, updateActiveJob]);
@@ -293,7 +293,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
     setKtlPreflightModalOpen(true);
   }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
 
-  // ★ 전송: composite=여러 장 합성(스탬프 포함), ZIP=모든 원본(무가공)
+  // 합성 JPG(모든 사진) + 원본 ZIP
   const handleSendToClaydoxConfirmed = useCallback(async () => {
     setKtlPreflightModalOpen(false);
     if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
@@ -311,7 +311,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
       const sanitizedItem = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
       const base = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItem}`;
 
-      // 1) 합성 이미지(JPG) 생성 (여러 장 + 하단 스탬프, 사진별 코멘트 있으면 표시)
+      // ★ 모든 사진으로 합성
       const imageInfosForComposite = activeJob.photos.map(p => ({
         base64: p.base64,
         mimeType: p.mimeType,
@@ -325,7 +325,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
       const compositeBlob = dataURLtoBlob(compositeDataUrl);
       const compositeFile = new File([compositeBlob], `${base}_composite.jpg`, { type: 'image/jpeg' });
 
-      // 2) 원본 ZIP(무가공)
+      // 원본 ZIP
       const zip = new JSZip();
       for (const image of activeJob.photos) {
         const raw = `data:${image.mimeType};base64,${image.base64}`;
@@ -334,7 +334,6 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const zipFile = new File([zipBlob], `${base}_Compression.zip`, { type: 'application/zip' });
 
-      // 3) 전송
       const res = await sendToClaydoxApi(payload, [compositeFile, zipFile], activeJob.selectedItem, [compositeFile.name, zipFile.name]);
       updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: res.message }));
     } catch (e: any) {
@@ -361,7 +360,6 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
         };
         const base = `${job.receiptNumber}_${sanitizeFilenameComponent(siteLocation)}_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}`;
 
-        // ★ 합성 JPG 생성(모든 사진 사용 + 하단 스탬프)
         const imageInfosForComposite = job.photos.map(p => ({
           base64: p.base64,
           mimeType: p.mimeType,
@@ -375,7 +373,6 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
         const compositeBlob = dataURLtoBlob(compositeDataUrl);
         const compositeFile = new File([compositeBlob], `${base}_composite.jpg`, { type: 'image/jpeg' });
 
-        // ZIP 원본
         const zip = new JSZip();
         for (const image of job.photos) {
           const raw = `data:${image.mimeType};base64,${image.base64}`;
@@ -409,7 +406,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
 
   return (
     <div className="w-full max-w-4xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
-      <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">현장 계수 (P2)</h2>
+      <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">현장 계수 (P1)</h2>
 
       {jobs.length > 0 && (
         <div className="space-y-2">
@@ -452,7 +449,6 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
                   receiptNumber={activeJob.receiptNumber}
                   siteLocation={siteLocation}
                   item={activeJob.selectedItem}
-                  /* 오버레이 혼동 방지를 위해 OFF */
                   showOverlay={false}
                   totalSelectedImages={activeJob.photos.length}
                   currentImageIndex={currentImageIndex}
