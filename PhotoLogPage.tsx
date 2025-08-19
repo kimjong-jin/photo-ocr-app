@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ImageInput, ImageInfo as BaseImageInfo } from './components/ImageInput';
 import { CameraView } from './components/CameraView';
@@ -401,9 +400,6 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
         newRangeResults = { low: calculateRangeDetails(lowValues), medium: calculateRangeDetails(mediumValues), high: calculateRangeDetails(highValues) };
     }
     
-    // This effect should only synchronize derived data and should not interfere with submission status,
-    // which is managed by explicit user actions (e.g., sending to KTL, modifying data).
-    // We only update if the derived data has actually changed to prevent re-render loops.
     if (
         JSON.stringify(activeJob.concentrationBoundaries) !== JSON.stringify(boundaries) ||
         JSON.stringify(activeJob.rangeDifferenceResults) !== JSON.stringify(newRangeResults) ||
@@ -569,7 +565,6 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         if (allRawExtractedEntries.length > 0) {
             const normalizeTime = (timeStr: string): string => {
                 if (!timeStr) return '';
-                // Standardize date separators and remove seconds
                 const standardized = timeStr.replace(/-/g, '/');
                 const match = standardized.match(/(\d{4}\/\d{2}\/\d{2}\s\d{2}:\d{2})/);
                 return match ? match[1] : standardized;
@@ -769,11 +764,12 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
         const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
         
+        // ✅ ZIP: 원본만 포함 (스탬프 X)
         const zip = new JSZip();
         for (let i = 0; i < activeJob.photos.length; i++) {
             const imageInfo = activeJob.photos[i];
-            const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, siteLocation, '', activeJob.selectedItem, activeJob.photoComments[imageInfo.uid]);
-            zip.file(`${baseName}_${i + 1}.png`, dataURLtoBlob(stampedDataUrl));
+            const rawDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
+            zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}`, dataURLtoBlob(rawDataUrl));
         }
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
@@ -822,10 +818,11 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
             const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
             
+            // ✅ ZIP: 원본만 포함 (스탬프 X)
             const zip = new JSZip();
             for (const imageInfo of job.photos) {
-                const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, job.receiptNumber, siteLocation, '', job.selectedItem, job.photoComments[imageInfo.uid]);
-                zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`, dataURLtoBlob(stampedDataUrl));
+                const rawDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
+                zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}`, dataURLtoBlob(rawDataUrl));
             }
             const zipBlob = await zip.generateAsync({ type: "blob" });
             const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
@@ -842,7 +839,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setTimeout(() => setBatchSendProgress(null), 5000);
   };
   
-    const handleDownloadStampedImages = useCallback(async () => {
+  const handleDownloadStampedImages = useCallback(async () => {
     if (!activeJob || activeJob.photos.length === 0) {
         alert("다운로드할 이미지가 없습니다.");
         return;
