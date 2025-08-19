@@ -762,25 +762,14 @@ export const sendBatchStructuralChecksToKtlApi = async (
         let photoIndexInZip = 1;
         for (const photo of photosForThisReceipt) {
             try {
-                const sourceJob = jobs.find(j => j.id === photo.jobId);
-                const comment = sourceJob?.photoComments[photo.uid];
-
-                const stampedPhotoDataUrl = await generateStampedImage(
-                    photo.base64,
-                    photo.mimeType,
-                    photo.jobReceipt,
-                    siteLocationGlobal,
-                    inspectionStartDateFromUi || '', 
-                    photo.jobItemName,
-                    comment
-                );
-                const stampedBlob = dataURLtoBlob(stampedPhotoDataUrl);
+                const rawDataUrl = `data:${photo.mimeType};base64,${photo.base64}`;
+                const rawBlob = dataURLtoBlob(rawDataUrl);
                 const sanitizedItemKey = sanitizeFilename(photo.jobItemKey);
                 const extension = getFileExtensionFromMime(photo.mimeType);
                 const fileNameInZip = `${sanitizeFilename(photo.jobReceipt)}_${sanitizedItemKey}_${photoIndexInZip++}.${extension}`;
-                zip.file(fileNameInZip, stampedBlob);
-            } catch (stampError: any) {
-                 console.error(`[ClaydoxAPI - Page 2] Error stamping individual photo ${photo.file.name} for ZIP for ${receiptNo}:`, stampError);
+                zip.file(fileNameInZip, rawBlob);
+            } catch (zipError: any) {
+                 console.error(`[ClaydoxAPI - Page 2] Error adding raw photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
             }
         }
         if (Object.keys(zip.files).length > 0) { 
@@ -1048,4 +1037,3 @@ export const sendKakaoTalkMessage = async (
 };
 
 // --- END: Page 3 (KakaoTalk) Functionality ---
-
