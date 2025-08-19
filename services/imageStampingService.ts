@@ -18,6 +18,10 @@ interface StampDetails {
   item: string;
 }
 
+/**
+ * 👉 텍스트 크기 = 이미지의 짧은 변 * 0.10 (최소 12px 보장)
+ * 필요하면 0.10 값을 조절하면 되고, 가로 기준으로 쓸 거면 Math.min(...) 대신 img.width * 0.10 을 쓰면 됨.
+ */
 export const generateStampedImage = (
   base64Image: string, // Can be full dataURL or just base64 part
   mimeType: string,
@@ -42,47 +46,45 @@ export const generateStampedImage = (
 
       ctx.drawImage(img, 0, 0);
 
-      // Massively increased font size based on user feedback ("10x bigger")
-      const fontSize = Math.max(120, Math.min(img.width / 4, img.height / 3)); 
-      
+      // ⚙️ 폰트 크기: 사진 짧은 변의 1/10
+      const baseDim = Math.min(img.width, img.height);
+      const fontSize = Math.max(12, Math.round(baseDim * 0.10));
+
       const textLines: { text: string; isComment: boolean }[] = [];
       if (receiptNumber && receiptNumber.trim() !== '') textLines.push({ text: `접수번호: ${receiptNumber}`, isComment: false });
       if (siteLocation && siteLocation.trim() !== '') textLines.push({ text: `현장: ${siteLocation}`, isComment: false });
       if (item && item.trim() !== '') textLines.push({ text: `항목: ${item}`, isComment: false }); 
-      if (inspectionDate && inspectionDate.trim() !== '') textLines.push({ text: `검사시작일: ${inspectionDate}`, isComment: false }); // This line will only add if inspectionDate is non-empty
-      if (comment && comment.trim() !== '') textLines.push({ text: `코멘트: ${comment}`, isComment: true }); // Add comment line
+      if (inspectionDate && inspectionDate.trim() !== '') textLines.push({ text: `검사시작일: ${inspectionDate}`, isComment: false });
+      if (comment && comment.trim() !== '') textLines.push({ text: `코멘트: ${comment}`, isComment: true });
 
-      
       if (textLines.length === 0) {
         // If no text to stamp, return original image dataURL (if it was one) or create one
         if (base64Image.startsWith('data:')) {
-            resolve(base64Image);
+          resolve(base64Image);
         } else {
-            resolve(`data:${mimeType};base64,${base64Image}`);
+          resolve(`data:${mimeType};base64,${base64Image}`);
         }
         return;
       }
-      
+
       const padding = fontSize * 0.5;
       const lineHeight = fontSize * 1.4;
-      
+
       let maxTextWidth = 0;
       ctx.font = `bold ${fontSize}px Arial, sans-serif`; // Set font once before measuring
       textLines.forEach(line => {
-          const metrics = ctx.measureText(line.text);
-          if (metrics.width > maxTextWidth) {
-              maxTextWidth = metrics.width;
-          }
+        const metrics = ctx.measureText(line.text);
+        if (metrics.width > maxTextWidth) {
+          maxTextWidth = metrics.width;
+        }
       });
-      
-      const textBlockWidth = maxTextWidth + (padding * 2);
-      // Ensure text block height is at least one line, even if padding calculation makes it smaller
-      const textBlockHeight = Math.max(lineHeight + padding, (textLines.length * lineHeight) - (lineHeight - fontSize) + padding);
 
+      const textBlockWidth = maxTextWidth + (padding * 2);
+      const textBlockHeight = Math.max(lineHeight + padding, (textLines.length * lineHeight) - (lineHeight - fontSize) + padding);
 
       const rectX = padding / 2; // Position from left edge
       const rectY = canvas.height - textBlockHeight - (padding / 2); // Position from bottom edge
-      
+
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
       ctx.fillRect(rectX , rectY , textBlockWidth, textBlockHeight);
 
@@ -102,13 +104,13 @@ export const generateStampedImage = (
       reject(new Error('Failed to load image for stamping. The image might be corrupt or in an unsupported format.'));
     };
     try {
-        if (base64Image.startsWith('data:')) {
-            img.src = base64Image;
-        } else {
-            img.src = `data:${mimeType};base64,${base64Image}`;
-        }
+      if (base64Image.startsWith('data:')) {
+        img.src = base64Image;
+      } else {
+        img.src = `data:${mimeType};base64,${base64Image}`;
+      }
     } catch (e) {
-        reject(new Error('Error setting image source for stamping. Invalid image data or MIME type.'));
+      reject(new Error('Error setting image source for stamping. Invalid image data or MIME type.'));
     }
   });
 };
@@ -148,13 +150,13 @@ export const generateCompositeImage = (
         const img = new Image();
         img.onload = () => resolveImg(img);
         img.onerror = (err) => {
-            console.error("Error loading an image for composite. MIME:", imgInfo.mimeType, "Base64(start):", imgInfo.base64.substring(0, 30) + "...", "Error:", err);
-            rejectImg(new Error(`Failed to load an image (MIME: ${imgInfo.mimeType}) for composite generation. Check console for details.`));
+          console.error("Error loading an image for composite. MIME:", imgInfo.mimeType, "Base64(start):", imgInfo.base64.substring(0, 30) + "...", "Error:", err);
+          rejectImg(new Error(`Failed to load an image (MIME: ${imgInfo.mimeType}) for composite generation. Check console for details.`));
         };
         if (imgInfo.base64.startsWith('data:')) {
-            img.src = imgInfo.base64;
+          img.src = imgInfo.base64;
         } else {
-            img.src = `data:${imgInfo.mimeType};base64,${imgInfo.base64}`;
+          img.src = `data:${imgInfo.mimeType};base64,${imgInfo.base64}`;
         }
       }))
     ).catch(err => {
@@ -184,10 +186,10 @@ export const generateCompositeImage = (
     
     let scaleFactor = 1;
     if (tentativeCanvasWidth > MAX_COMPOSITE_DIMENSION || tentativeCanvasHeight > MAX_COMPOSITE_DIMENSION) {
-        scaleFactor = Math.min(
-            MAX_COMPOSITE_DIMENSION / tentativeCanvasWidth,
-            MAX_COMPOSITE_DIMENSION / tentativeCanvasHeight
-        );
+      scaleFactor = Math.min(
+        MAX_COMPOSITE_DIMENSION / tentativeCanvasWidth,
+        MAX_COMPOSITE_DIMENSION / tentativeCanvasHeight
+      );
     }
 
     const finalCanvasWidth = tentativeCanvasWidth * scaleFactor;
@@ -196,7 +198,6 @@ export const generateCompositeImage = (
     const cellWidth = cellWidthOriginal * scaleFactor;
     const cellHeight = cellHeightOriginal * scaleFactor;
     PADDING = PADDING * scaleFactor;
-
 
     const canvas = document.createElement('canvas');
     canvas.width = finalCanvasWidth;
@@ -233,38 +234,41 @@ export const generateCompositeImage = (
       // Add comment overlay to individual image
       const comment = images[index].comment;
       if (comment && comment.trim() !== '') {
-          // Massively increased font size based on user feedback ("10x bigger")
-          const commentFontSize = Math.max(96 * scaleFactor, Math.min(drawWidth / 2, drawHeight / 1.7, 240 * scaleFactor));
-          ctx.font = `bold ${commentFontSize}px Arial, sans-serif`;
-          const commentPadding = commentFontSize * 0.4;
-          
-          const commentText = `코멘트: ${comment}`;
-          const commentMetrics = ctx.measureText(commentText);
-          
-          // Ensure comment block doesn't exceed image width
-          const commentBlockWidth = Math.min(drawWidth - (commentPadding * 2), commentMetrics.width + (commentPadding * 2));
-          const commentBlockHeight = commentFontSize + (commentPadding * 2);
+        // ⚙️ 코멘트 폰트 크기: 셀(그려진 이미지)의 짧은 변 * 0.10
+        const cellBaseDim = Math.min(drawWidth, drawHeight);
+        const commentFontSize = Math.max(12 * scaleFactor, Math.round(cellBaseDim * 0.10));
+        ctx.font = `bold ${commentFontSize}px Arial, sans-serif`;
+        const commentPadding = commentFontSize * 0.4;
+        
+        const commentText = `코멘트: ${comment}`;
+        const commentMetrics = ctx.measureText(commentText);
+        
+        // Ensure comment block doesn't exceed image width
+        const commentBlockWidth = Math.min(drawWidth - (commentPadding * 2), commentMetrics.width + (commentPadding * 2));
+        const commentBlockHeight = commentFontSize + (commentPadding * 2);
 
-          // Position at top-left of the drawn image to act as a title.
-          const commentRectX = centerX + commentPadding;
-          const commentRectY = centerY + commentPadding;
+        // Position at top-left of the drawn image to act as a title.
+        const commentRectX = centerX + commentPadding;
+        const commentRectY = centerY + commentPadding;
 
-          // Draw background
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-          ctx.fillRect(commentRectX, commentRectY, commentBlockWidth, commentBlockHeight);
+        // Draw background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.fillRect(commentRectX, commentRectY, commentBlockWidth, commentBlockHeight);
 
-          // Draw text
-          ctx.fillStyle = '#FFD700'; // Gold color for comments
-          ctx.textBaseline = 'top'; // Set baseline for predictable positioning
-          ctx.fillText(commentText, commentRectX + commentPadding, commentRectY + commentPadding, commentBlockWidth - (commentPadding * 2));
-          ctx.textBaseline = 'alphabetic'; // Reset baseline to default for other drawing operations
+        // Draw text
+        ctx.fillStyle = '#FFD700'; // Gold color for comments
+        ctx.textBaseline = 'top'; // Set baseline for predictable positioning
+        ctx.fillText(commentText, commentRectX + commentPadding, commentRectY + commentPadding, commentBlockWidth - (commentPadding * 2));
+        ctx.textBaseline = 'alphabetic'; // Reset baseline to default for other drawing operations
       }
     });
 
-    // Apply stamp to composite image
+    // Apply stamp to composite image (하단 큰 블록)
     const { receiptNumber, siteLocation, inspectionStartDate, item } = stampDetails;
-     // Massively increased font size based on user feedback ("10x bigger")
-    const fontSize = Math.max(120 * scaleFactor, Math.min(canvas.width / 5, canvas.height / 4, 240 * scaleFactor));
+
+    // ⚙️ 폰트 크기: 합성 캔버스의 짧은 변 * 0.10
+    const canvasBaseDim = Math.min(canvas.width, canvas.height);
+    const fontSize = Math.max(12 * scaleFactor, Math.round(canvasBaseDim * 0.10));
     ctx.font = `bold ${fontSize}px Arial, sans-serif`;
 
     const textLines: string[] = [];
@@ -279,10 +283,10 @@ export const generateCompositeImage = (
       
       let maxTextWidth = 0;
       textLines.forEach(line => {
-          const metrics = ctx.measureText(line); 
-          if (metrics.width > maxTextWidth) {
-              maxTextWidth = metrics.width;
-          }
+        const metrics = ctx.measureText(line); 
+        if (metrics.width > maxTextWidth) {
+          maxTextWidth = metrics.width;
+        }
       });
 
       const textBlockWidth = maxTextWidth + (textPadding * 2);
