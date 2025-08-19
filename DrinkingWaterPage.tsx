@@ -62,10 +62,24 @@ const extFromMime = (mime: string): string => {
 };
 
 const buildSafeImageFilename = (origName: string, mime: string): string => {
-  const m = origName.match(/^(.*?)(\.[A-Za-z0-9]{1,5})?$/);
-  let base = (m?.[1] ?? origName);
-  let ext = (m?.[2] ?? '').toLowerCase();
+  let base = origName;
+  let ext = '';
 
+  // 점 있는 경우
+  const m = origName.match(/^(.*?)(\.[A-Za-z0-9]{1,5})$/);
+  if (m) {
+    base = m[1];
+    ext = m[2].toLowerCase();
+  } else {
+    // 점이 없고 "_jpg" 같은 케이스
+    const underscored = origName.match(/^(.*)(_jpg|_png|_jpeg)$/i);
+    if (underscored) {
+      base = underscored[1];
+      ext = '.' + underscored[2].replace(/^_/, ''); // "_jpg" → ".jpg"
+    }
+  }
+
+  // 보정
   if (ext === '.jpeg') ext = '.jpg';
   if (!ext) ext = extFromMime(mime);
 
