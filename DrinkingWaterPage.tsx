@@ -32,7 +32,7 @@ export interface DrinkingWaterJob {
   processedOcrData: ExtractedEntry[] | null;
   decimalPlaces: number;
   decimalPlacesCl?: number;
-  photos: ImageInfo[];
+  photos: (ImageInfo & { uid?: string })[];
   submissionStatus: 'idle' | 'sending' | 'success' | 'error';
   submissionMessage?: string;
 }
@@ -64,21 +64,18 @@ const buildSafeImageFilename = (origName: string, mime: string): string => {
   let base = origName;
   let ext = '';
 
-  // 점 있는 경우
   const m = origName.match(/^(.*?)(\.[A-Za-z0-9]{1,5})$/);
   if (m) {
     base = m[1];
     ext = m[2].toLowerCase();
   } else {
-    // 점이 없고 "_jpg" 같은 케이스
     const underscored = origName.match(/^(.*)(_jpg|_png|_jpeg)$/i);
     if (underscored) {
       base = underscored[1];
-      ext = '.' + underscored[2].replace(/^_/, ''); // "_jpg" → ".jpg"
+      ext = '.' + underscored[2].replace(/^_/, '');
     }
   }
 
-  // 보정
   if (ext === '.jpeg') ext = '.jpg';
   if (!ext) ext = extFromMime(mime);
 
@@ -161,7 +158,6 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
       fileNames.push(`${baseName}_Compression.zip`);
     }
 
-    // 데이터가 있으면 datatable 이미지도 가정
     if (activeJob.processedOcrData?.some(d => d.value.trim() !== '' || (d.valueTP && d.valueTP.trim() !== ''))) {
       fileNames.push(`${baseName}_datatable.png`);
     }
@@ -296,7 +292,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
         const hasTPValue = (valueType === 'tp' ? newValue : (entry.valueTP || ''))?.trim() !== '';
 
         if (hasPrimaryValue || hasTPValue) {
-          if (!entry.time) { // Only set timestamp if it's not already set
+          if (!entry.time) {
             updatedEntry.time = getCurrentTimestampForInput();
           }
         } else {
@@ -312,10 +308,9 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
   const handleEntryValueBlur = (entryId: string, valueType: 'primary' | 'tp') => {
     if (!activeJob || !activeJob.processedOcrData) return;
 
-    // Simplified formatter for non-response time values.
     const formatValue = (value: string | undefined, places: number): string => {
       if (value === null || value === undefined || value.trim() === '') return '';
-      if (value.trim().startsWith('[')) return value; // Don't format JSON strings
+      if (value.trim().startsWith('[')) return value;
       const num = parseFloat(value);
       if (isNaN(num)) return value as string;
       return num.toFixed(places);
@@ -326,10 +321,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
         const updatedEntry = { ...entry };
         const isResponseTime = entry.identifier?.startsWith('응답');
 
-        if (isResponseTime) {
-          // Do nothing. The user has full control over the response time input.
-        } else {
-          // Apply decimal place formatting for all other measurement entries.
+        if (!isResponseTime) {
           if (valueType === 'primary') {
             updatedEntry.value = formatValue(entry.value, activeJob.decimalPlaces);
           } else if (valueType === 'tp' && activeJob.selectedItem === 'TU/CL') {
@@ -354,13 +346,18 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
 
   const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
 
+  // ✅ 파일 유입 시 uid 부여 + 불변 key용 중복 제거
   const handleActiveJobPhotosSet = useCallback((images: ImageInfo[]) => {
     if (!activeJobId || images.length === 0) return;
+
+    const withUid: (ImageInfo & { uid: string })[] =
+      images.map(img => ({ ...img, uid: self.crypto.randomUUID() }));
+
     updateActiveJob(job => {
       const wasInitialSet = job.photos.length === 0;
-      const combined = [...job.photos, ...images];
+      const combined = [...job.photos, ...withUid];
 
-      const uniqueImageMap = new Map<string, ImageInfo>();
+      const uniqueImageMap = new Map<string, ImageInfo & { uid?: string }>();
       combined.forEach(img => {
         const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
         if (!uniqueImageMap.has(key)) {
@@ -378,9 +375,10 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
     resetSubmissionState();
   }, [activeJobId, resetSubmissionState, updateActiveJob]);
 
+  // ✅ 카메라 캡처에도 uid 부여
   const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
     if (!activeJobId) return;
-    const capturedImageInfo: ImageInfo = { file, base64, mimeType };
+    const capturedImageInfo: ImageInfo & { uid: string } = { file, base64, mimeType, uid: self.crypto.randomUUID() };
 
     let newIndex = -1;
     updateActiveJob(job => {
@@ -446,12 +444,11 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
     setIsKtlPreflightModalOpen(true);
   }, [activeJob, userName, ktlJsonPreview, siteLocation, hypotheticalKtlFileNamesForPreview]);
 
-  // 🔧 오프스크린 스냅샷 캡처 (동일 트리 내 렌더 → html2canvas)
+  // 🔧 오프스크린 스냅샷 캡처
   const captureDataTablePng = useCallback(async (): Promise<File | null> => {
     if (!activeJob) return null;
 
     setShowSnapshotHost(true);
-    // 레이아웃/페인트 안정화 대기
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
     const elementToCapture = snapshotRef.current;
@@ -500,14 +497,12 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
     let actualKtlFileNames: string[] = [];
 
     try {
-      // 1) 데이터 테이블 스냅샷 (동일 트리 내부에서 안전 캡처)
       const dataTableFile = await captureDataTablePng();
       if (dataTableFile) {
         filesToUpload.push(dataTableFile);
         actualKtlFileNames.push(dataTableFile.name);
       }
 
-      // 2) 사진이 있으면 composite + ZIP
       if (activeJob.photos.length > 0) {
         const imageInfosForComposite = activeJob.photos.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
         const baseName = `${activeJob.receiptNumber}_${sanitizeFilename(siteLocation)}_${sanitizeFilename(activeJob.selectedItem.replace('/', '_'))}`;
@@ -554,20 +549,6 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
         : null,
     [activeJob, currentPhotoIndexOfActiveJob]
   );
-
-  const copyToClipboard = async (text: string | null | undefined, type: string) => {
-    if (!text) {
-      alert(`${type} 내용이 없습니다.`);
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      alert(`${type} 복사 완료!`);
-    } catch (err: any) {
-      console.error(`클립보드에 ${type} 복사 실패:`, err);
-      alert(`${type} 복사에 실패했습니다. 콘솔을 확인해주세요.`);
-    }
-  };
 
   const isControlsDisabled = isLoading;
   const isClaydoxDisabled = !activeJob || isControlsDisabled || !siteLocation.trim() || !activeJob.processedOcrData?.some(e => e.value.trim() || (e.valueTP && e.valueTP.trim()));
@@ -737,7 +718,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
               error={processingError}
               isLoading={false}
               contextProvided={true}
-              hasImage={true} // 이 페이지는 수동 입력 테이블이 항상 있으므로 true 유지
+              hasImage={true}
               selectedItem={activeJob.selectedItem}
               onEntryPrimaryValueChange={(id, val) => handleEntryValueChange(id, 'primary', val)}
               onEntryValueTPChange={(id, val) => handleEntryValueChange(id, 'tp', val)}
