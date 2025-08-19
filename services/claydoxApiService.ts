@@ -23,17 +23,17 @@ interface KtlApiResponseData {
   [key: string]: any; 
 }
 
-const sanitizeFilename = (name: string): string => {
+export const sanitizeFilename = (name: string): string => {
   if (!name) return 'untitled';
   return name.replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_').replace(/__+/g, '_');
 };
 
-const getFileExtensionFromMime = (mimeType: string): string => {
-    if (mimeType.includes('image/jpeg')) return 'jpg';
-    if (mimeType.includes('image/png')) return 'png';
-    if (mimeType.includes('image/webp')) return 'webp';
-    if (mimeType.includes('image/gif')) return 'gif';
-    return 'bin';
+export const getFileExtensionFromMime = (mimeType: string): string => {
+  if (mimeType.includes('image/jpeg')) return 'jpg';
+  if (mimeType.includes('image/png')) return 'png';
+  if (mimeType.includes('image/webp')) return 'webp';
+  if (mimeType.includes('image/gif')) return 'gif';
+  return 'bin';
 };
 
 async function retryKtlApiCall<TResponseData>(
@@ -65,7 +65,7 @@ async function retryKtlApiCall<TResponseData>(
           throw enhancedError;
         }
       } else if (!isRetryable) { 
-         console.error(`[ClaydoxAPI] ${operationName} call failed with non-retryable error (attempt ${attempt + 1}). Error:`, lastError.message || lastError);
+        console.error(`[ClaydoxAPI] ${operationName} call failed with non-retryable error (attempt ${attempt + 1}). Error:`, lastError.message || lastError);
         break; 
       }
 
@@ -129,100 +129,99 @@ const constructPhotoLogKtlJsonObject = (
   const getNextKtlIdentifier = (baseIdentifier: string): string => {
     const remapping = baseIdentifier.endsWith('P') ? identifierRemappingTP : identifierRemapping;
     if (remapping[baseIdentifier]) {
-        const count = identifierCounters[baseIdentifier] || 0;
-        const newIdentifier = remapping[baseIdentifier][count] || baseIdentifier; // Fallback to base
-        identifierCounters[baseIdentifier] = count + 1;
-        return newIdentifier;
+      const count = identifierCounters[baseIdentifier] || 0;
+      const newIdentifier = remapping[baseIdentifier][count] || baseIdentifier; // Fallback to base
+      identifierCounters[baseIdentifier] = count + 1;
+      return newIdentifier;
     }
     return baseIdentifier;
   };
   // --- End of new logic ---
 
-
   payload.ocrData.forEach(entry => {
     if (payload.pageType === 'DrinkingWater') {
-        const dividerIdentifiers = ['Z 2시간 시작 - 종료', '드리프트 완료', '반복성 완료'];
-        if (entry.identifier && dividerIdentifiers.includes(entry.identifier)) {
-            return; // Skip divider rows
-        }
+      const dividerIdentifiers = ['Z 2시간 시작 - 종료', '드리프트 완료', '반복성 완료'];
+      if (entry.identifier && dividerIdentifiers.includes(entry.identifier)) {
+        return; // Skip divider rows
+      }
 
-        // Handle Response Time row ("응답") for both TU and Cl
-        if (entry.identifier === '응답') {
-            // TU part
-            if (entry.value && entry.value.trim().startsWith('[')) {
-                try {
-                    const responseTimeArray = JSON.parse(entry.value);
-                    if (Array.isArray(responseTimeArray)) {
-                        const [seconds, minutes, length] = responseTimeArray.map(v => String(v || '').trim());
-                        if (seconds) labviewItemObject['응답시간_초'] = seconds;
-                        if (minutes) labviewItemObject['응답시간_분'] = minutes;
-                        if (length) labviewItemObject['응답시간_길이'] = length;
-                    }
-                } catch (e) {
-                    console.warn("Could not parse TU response time value for KTL JSON:", entry.value, e);
-                }
+      // Handle Response Time row ("응답") for both TU and Cl
+      if (entry.identifier === '응답') {
+        // TU part
+        if (entry.value && entry.value.trim().startsWith('[')) {
+          try {
+            const responseTimeArray = JSON.parse(entry.value);
+            if (Array.isArray(responseTimeArray)) {
+              const [seconds, minutes, length] = responseTimeArray.map(v => String(v || '').trim());
+              if (seconds) labviewItemObject['응답시간_초'] = seconds;
+              if (minutes) labviewItemObject['응답시간_분'] = minutes;
+              if (length) labviewItemObject['응답시간_길이'] = length;
             }
-            // Cl part (only for TU/CL item)
-            if (payload.item === 'TU/CL' && entry.valueTP && entry.valueTP.trim().startsWith('[')) {
-                 try {
-                    const responseTimeArray = JSON.parse(entry.valueTP);
-                    if (Array.isArray(responseTimeArray)) {
-                        const [seconds, minutes, length] = responseTimeArray.map(v => String(v || '').trim());
-                        if (seconds) labviewItemObject['응답시간_초C'] = seconds;
-                        if (minutes) labviewItemObject['응답시간_분C'] = minutes;
-                        if (length) labviewItemObject['응답시간_길이C'] = length;
-                    }
-                } catch (e) {
-                    console.warn("Could not parse Cl response time value for KTL JSON:", entry.valueTP, e);
-                }
-            }
-            return; // Continue to next entry
+          } catch (e) {
+            console.warn("Could not parse TU response time value for KTL JSON:", entry.value, e);
+          }
         }
-        
-        // Handle other measurement rows (M, Z1, S1, etc.)
-        if (entry.identifier) {
-            // TU value (primary value for TU and TU/CL items)
-            if (typeof entry.value === 'string' && entry.value.trim()) {
-                const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
-                if (valueToUse !== null) {
-                    labviewItemObject[entry.identifier] = valueToUse;
-                }
+        // Cl part (only for TU/CL item)
+        if (payload.item === 'TU/CL' && entry.valueTP && entry.valueTP.trim().startsWith('[')) {
+          try {
+            const responseTimeArray = JSON.parse(entry.valueTP);
+            if (Array.isArray(responseTimeArray)) {
+              const [seconds, minutes, length] = responseTimeArray.map(v => String(v || '').trim());
+              if (seconds) labviewItemObject['응답시간_초C'] = seconds;
+              if (minutes) labviewItemObject['응답시간_분C'] = minutes;
+              if (length) labviewItemObject['응답시간_길이C'] = length;
             }
-            // Cl value (secondary value for TU/CL item)
-            if (payload.item === 'TU/CL' && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
-                 const valueTPToUse = entry.valueTP.match(/^-?\d+(\.\d+)?/)?.[0] || null;
-                 if (valueTPToUse !== null) {
-                    const key = entry.identifier === 'M' ? 'MC' : `${entry.identifier}C`;
-                    labviewItemObject[key] = valueTPToUse;
-                 }
-            }
+          } catch (e) {
+            console.warn("Could not parse Cl response time value for KTL JSON:", entry.valueTP, e);
+          }
         }
+        return; // Continue to next entry
+      }
+      
+      // Handle other measurement rows (M, Z1, S1, etc.)
+      if (entry.identifier) {
+        // TU value (primary value for TU and TU/CL items)
+        if (typeof entry.value === 'string' && entry.value.trim()) {
+          const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+          if (valueToUse !== null) {
+            labviewItemObject[entry.identifier] = valueToUse;
+          }
+        }
+        // Cl value (secondary value for TU/CL item)
+        if (payload.item === 'TU/CL' && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
+          const valueTPToUse = entry.valueTP.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+          if (valueTPToUse !== null) {
+            const key = entry.identifier === 'M' ? 'MC' : `${entry.identifier}C`;
+            labviewItemObject[key] = valueTPToUse;
+          }
+        }
+      }
     } else if (payload.item === "TN/TP") {
-        if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
-            const numericValueMatch = entry.value.match(/^-?\d+(\.\d+)?/);
-            const valueToUse = numericValueMatch ? numericValueMatch[0] : null;
-            if (valueToUse !== null) {
-                const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
-                labviewItemObject[ktlIdentifier] = valueToUse;
-            }
+      if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
+        const numericValueMatch = entry.value.match(/^-?\d+(\.\d+)?/);
+        const valueToUse = numericValueMatch ? numericValueMatch[0] : null;
+        if (valueToUse !== null) {
+          const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
+          labviewItemObject[ktlIdentifier] = valueToUse;
         }
-        if (entry.identifierTP && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
-            const numericValueTPMatch = entry.valueTP.match(/^-?\d+(\.\d+)?/);
-            const valueTPToUse = numericValueTPMatch ? numericValueTPMatch[0] : null;
-            if (valueTPToUse !== null) {
-                const ktlIdentifierTP = getNextKtlIdentifier(entry.identifierTP);
-                labviewItemObject[ktlIdentifierTP] = valueTPToUse;
-            }
+      }
+      if (entry.identifierTP && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
+        const numericValueTPMatch = entry.valueTP.match(/^-?\d+(\.\d+)?/);
+        const valueTPToUse = numericValueTPMatch ? numericValueTPMatch[0] : null;
+        if (valueTPToUse !== null) {
+          const ktlIdentifierTP = getNextKtlIdentifier(entry.identifierTP);
+          labviewItemObject[ktlIdentifierTP] = valueTPToUse;
         }
+      }
     } else { // Original Logic for other single items on P1/P2
-        if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
-            const numericValueMatch = entry.value.match(/^-?\d+(\.\d+)?/);
-            const valueToUse = numericValueMatch ? numericValueMatch[0] : null;
-            if (valueToUse !== null) {
-                const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
-                labviewItemObject[ktlIdentifier] = valueToUse;
-            }
+      if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
+        const numericValueMatch = entry.value.match(/^-?\d+(\.\d+)?/);
+        const valueToUse = numericValueMatch ? numericValueMatch[0] : null;
+        if (valueToUse !== null) {
+          const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
+          labviewItemObject[ktlIdentifier] = valueToUse;
         }
+      }
     }
   });
 
@@ -251,16 +250,16 @@ const constructPhotoLogKtlJsonObject = (
   }
 
   if (payload.ocrData.length === 0) {
-      if (compositePhotoFileName && !labviewItemObject["PHOTO_사진"] && (!photoKeyBase || !labviewItemObject[`${photoKeyBase}_사진`])) {
-           labviewItemObject["PHOTO_사진"] = compositePhotoFileName;
-      }
-      if (zipPhotoFileName && !labviewItemObject["PHOTO_압축"] && (!photoKeyBase || !labviewItemObject[`${photoKeyBase}_압축`])) {
-           labviewItemObject["PHOTO_압축"] = zipPhotoFileName;
-      }
+    if (compositePhotoFileName && !labviewItemObject["PHOTO_사진"] && (!photoKeyBase || !labviewItemObject[`${photoKeyBase}_사진`])) {
+      labviewItemObject["PHOTO_사진"] = compositePhotoFileName;
+    }
+    if (zipPhotoFileName && !labviewItemObject["PHOTO_압축"] && (!photoKeyBase || !labviewItemObject[`${photoKeyBase}_압축`])) {
+      labviewItemObject["PHOTO_압축"] = zipPhotoFileName;
+    }
   }
   
   if (dataTableFileName) {
-      labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName;
+    labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName;
   }
 
 
@@ -366,8 +365,8 @@ export const sendToClaydoxApi = async (
     const jsonResponse = await retryKtlApiCall<KtlApiResponseData>(
       () => axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, ktlJsonObject, {
         headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         timeout: KTL_API_TIMEOUT,
       }),
@@ -379,26 +378,26 @@ export const sendToClaydoxApi = async (
   } catch (error: any) {
     let errorMsg = `알 수 없는 오류 발생 (${pageIdentifier})`;
     if (axios.isAxiosError(error)) {
-        const axiosError = error as AxiosError; 
-        const responseData = axiosError.response?.data;
-        console.error(`${logIdentifier} KTL API Error after retries:`, responseData || axiosError.message);
-        
-        if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof responseData.message === 'string') {
-            errorMsg = responseData.message;
-        } else if (typeof responseData === 'string') { 
-            if (responseData.trim().length > 0 && responseData.length < 500) {
-                errorMsg = responseData.trim();
-            } else {
-                 errorMsg = axiosError.message || `KTL API 응답 문자열 처리 오류 (${pageIdentifier})`;
-            }
-        } else if (axiosError.message) {
-            errorMsg = axiosError.message;
+      const axiosError = error as AxiosError; 
+      const responseData = axiosError.response?.data;
+      console.error(`${logIdentifier} KTL API Error after retries:`, responseData || axiosError.message);
+      
+      if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof (responseData as any).message === 'string') {
+        errorMsg = (responseData as any).message;
+      } else if (typeof responseData === 'string') { 
+        if (responseData.trim().length > 0 && responseData.length < 500) {
+          errorMsg = responseData.trim();
         } else {
-            errorMsg = `KTL API와 통신 중 알 수 없는 오류가 발생했습니다. (${pageIdentifier})`;
+          errorMsg = axiosError.message || `KTL API 응답 문자열 처리 오류 (${pageIdentifier})`;
         }
+      } else if (axiosError.message) {
+        errorMsg = axiosError.message;
+      } else {
+        errorMsg = `KTL API와 통신 중 알 수 없는 오류가 발생했습니다. (${pageIdentifier})`;
+      }
     } else { 
-        // @ts-ignore
-        errorMsg = error.isNetworkError ? error.message : (error.message || `알 수 없는 비-Axios 오류 발생 (${pageIdentifier})`);
+      // @ts-ignore
+      errorMsg = error.isNetworkError ? error.message : (error.message || `알 수 없는 비-Axios 오류 발생 (${pageIdentifier})`);
     }
     console.error(`${logIdentifier} Final error message to throw:`, errorMsg);
     throw new Error(errorMsg);
@@ -424,12 +423,17 @@ interface StructuralCheckPayloadForKtl {
   postInspectionDateValue?: string; 
 }
 
+// 확장: ZIP에는 원본을 넣기 위해 base64Original/base64Stamped를 옵션으로 지원
 export interface ClaydoxJobPhoto extends ImageInfo {
-    uid: string;
-    jobId: string;
-    jobReceipt: string;
-    jobItemKey: MainStructuralItemKey;
-    jobItemName: string;
+  uid: string;
+  jobId: string;
+  jobReceipt: string;
+  jobItemKey: MainStructuralItemKey;
+  jobItemName: string;
+  /** 스탬프 없는 원본 (ZIP용). 없으면 base64를 사용 */
+  base64Original?: string;
+  /** 스탬프된 버전 (UI/미리보기용) */
+  base64Stamped?: string;
 }
 
 const constructMergedLabviewItemForStructural = (
@@ -441,177 +445,177 @@ const constructMergedLabviewItemForStructural = (
   const mergedItems: any = {};
   jobsInGroup.forEach(payload => {
     if (payload.postInspectionDateValue) {
-        let periodValue = payload.postInspectionDateValue; 
-        let ktlPeriodValue = "";
+      let periodValue = payload.postInspectionDateValue; 
+      let ktlPeriodValue = "";
 
-        if (periodValue === "1년 후") {
-            ktlPeriodValue = "1년후";
-        } else if (periodValue === "2년 후") {
-            ktlPeriodValue = "2년후";
-        }
-        
-        if (ktlPeriodValue) { 
-            const periodKeySuffix = payload.mainItemKey === 'TP' ? 'P' : payload.mainItemKey === 'Cl' ? 'C' : '';
-            const periodKey = `구조_사후검사일${periodKeySuffix}_주기`;
-            mergedItems[periodKey] = ktlPeriodValue;
-        }
+      if (periodValue === "1년 후") {
+        ktlPeriodValue = "1년후";
+      } else if (periodValue === "2년 후") {
+        ktlPeriodValue = "2년후";
+      }
+      
+      if (ktlPeriodValue) { 
+        const periodKeySuffix = payload.mainItemKey === 'TP' ? 'P' : payload.mainItemKey === 'Cl' ? 'C' : '';
+        const periodKey = `구조_사후검사일${periodKeySuffix}_주기`;
+        mergedItems[periodKey] = ktlPeriodValue;
+      }
     }
 
     if (payload.mainItemKey === 'TOC') {
-        const emissionStandardData = payload.checklistData[EMISSION_STANDARD_ITEM_NAME];
-        if (emissionStandardData && emissionStandardData.notes && emissionStandardData.notes.trim() !== '') {
-            mergedItems["구조_배출기준_입력값"] = emissionStandardData.notes.trim();
-        }
-        const responseTimeData = payload.checklistData[RESPONSE_TIME_ITEM_NAME];
-        if (responseTimeData && responseTimeData.notes && responseTimeData.notes.trim() !== '') {
-            mergedItems["구조_응답시간_입력값"] = responseTimeData.notes.trim();
-        }
+      const emissionStandardData = payload.checklistData[EMISSION_STANDARD_ITEM_NAME];
+      if (emissionStandardData && emissionStandardData.notes && emissionStandardData.notes.trim() !== '') {
+        mergedItems["구조_배출기준_입력값"] = emissionStandardData.notes.trim();
+      }
+      const responseTimeData = payload.checklistData[RESPONSE_TIME_ITEM_NAME];
+      if (responseTimeData && responseTimeData.notes && responseTimeData.notes.trim() !== '') {
+        mergedItems["구조_응답시간_입력값"] = responseTimeData.notes.trim();
+      }
     }
 
     Object.entries(payload.checklistData).forEach(([checklistItemName, data]) => {
-        // Skip special TOC items as they are handled above or don't fit the standard pattern
-        if (payload.mainItemKey === 'TOC' && (checklistItemName === EMISSION_STANDARD_ITEM_NAME || checklistItemName === RESPONSE_TIME_ITEM_NAME)) {
-            return; 
+      // Skip special TOC items as they are handled above or don't fit the standard pattern
+      if (payload.mainItemKey === 'TOC' && (checklistItemName === EMISSION_STANDARD_ITEM_NAME || checklistItemName === RESPONSE_TIME_ITEM_NAME)) {
+        return; 
+      }
+
+      const sanitizedChecklistItemName = sanitizeFilename(checklistItemName).replace(/_/g, '');
+      
+      // Default logic for all items
+      let baseKeyForData = `구조_${sanitizedChecklistItemName}`;
+      if (payload.mainItemKey === 'TP') {
+        baseKeyForData = `구조_${sanitizedChecklistItemName}P`;
+      } else if (payload.mainItemKey === 'Cl') {
+        baseKeyForData = `구조_${sanitizedChecklistItemName}C`;
+      }
+
+      if (checklistItemName !== "기기번호 확인") {
+        let statusForKtl: string;
+        if (data.status === '선택 안됨') {
+          statusForKtl = '';
+        } else if (data.status === '적합') {
+          statusForKtl = '적 합'; 
+        } else {
+          statusForKtl = data.status;
         }
+        mergedItems[`${baseKeyForData}_상태`] = statusForKtl;
 
-        const sanitizedChecklistItemName = sanitizeFilename(checklistItemName).replace(/_/g, '');
-        
-        // Default logic for all items
-        let baseKeyForData = `구조_${sanitizedChecklistItemName}`;
-        if (payload.mainItemKey === 'TP') {
-            baseKeyForData = `구조_${sanitizedChecklistItemName}P`;
-        } else if (payload.mainItemKey === 'Cl') {
-            baseKeyForData = `구조_${sanitizedChecklistItemName}C`;
+        if (data.confirmedAt && data.confirmedAt.trim() !== '') {
+          mergedItems[`${baseKeyForData}_확인일시`] = data.confirmedAt.trim();
         }
+      }
 
-        if (checklistItemName !== "기기번호 확인") {
-          let statusForKtl: string;
-          if (data.status === '선택 안됨') {
-              statusForKtl = '';
-          } else if (data.status === '적합') {
-              statusForKtl = '적 합'; 
-          } else {
-              statusForKtl = data.status;
-          }
-          mergedItems[`${baseKeyForData}_상태`] = statusForKtl;
-
-          if (data.confirmedAt && data.confirmedAt.trim() !== '') {
-              mergedItems[`${baseKeyForData}_확인일시`] = data.confirmedAt.trim();
-          }
-        }
-
-        if (checklistItemName === "측정범위확인") {
-            mergedItems[`${baseKeyForData}_노트`] = data.notes || '';
-            let upperLimitValue = '';
-            const notesTrimmed = data.notes?.trim();
-            if (notesTrimmed && notesTrimmed !== ANALYSIS_IMPOSSIBLE_OPTION) {
-                let effectiveRangeString = notesTrimmed;
-                if (notesTrimmed.startsWith(OTHER_DIRECT_INPUT_OPTION)) {
-                    const matchInParentheses = notesTrimmed.match(/\(([^)]+)\)/);
-                    if (matchInParentheses && matchInParentheses[1]) {
-                        effectiveRangeString = matchInParentheses[1].trim();
-                    } else {
-                        effectiveRangeString = ''; 
-                    }
-                }
-                if (effectiveRangeString) {
-                    const numbersInString = effectiveRangeString.match(/\d+(\.\d+)?/g);
-                    if (numbersInString && numbersInString.length > 0) {
-                        upperLimitValue = numbersInString[numbersInString.length - 1];
-                    }
-                }
+      if (checklistItemName === "측정범위확인") {
+        mergedItems[`${baseKeyForData}_노트`] = data.notes || '';
+        let upperLimitValue = '';
+        const notesTrimmed = data.notes?.trim();
+        if (notesTrimmed && notesTrimmed !== ANALYSIS_IMPOSSIBLE_OPTION) {
+          let effectiveRangeString = notesTrimmed;
+          if (notesTrimmed.startsWith(OTHER_DIRECT_INPUT_OPTION)) {
+            const matchInParentheses = notesTrimmed.match(/\(([^)]+)\)/);
+            if (matchInParentheses && matchInParentheses[1]) {
+              effectiveRangeString = matchInParentheses[1].trim();
+            } else {
+              effectiveRangeString = ''; 
             }
-            mergedItems[`${baseKeyForData}_상한값`] = upperLimitValue;
-        } else if (data.specialNotes && data.specialNotes.trim() !== '') {
-             mergedItems[`${baseKeyForData}_특이사항`] = data.specialNotes.trim();
-        }
-
-
-        if (checklistItemName === "정도검사 증명서" && data.notes) {
-            try {
-                const certDetails: CertificateDetails = JSON.parse(data.notes);
-                let statusText = '';
-                switch(certDetails.presence) {
-                    case 'present': statusText = '있음'; break;
-                    case 'initial_new': statusText = '최초정도검사'; break;
-                    case 'reissued_lost': statusText = '분실 후 재발행'; break;
-                    default: statusText = certDetails.presence && certDetails.presence !== 'not_selected' ? String(certDetails.presence) : '선택 안됨';
-                }
-                mergedItems[`${baseKeyForData}_세부상태`] = statusText;
-
-                if (certDetails.productName && certDetails.productName.trim() !== '') {
-                    mergedItems[`${baseKeyForData}_품명`] = certDetails.productName.trim();
-                }
-                if (certDetails.manufacturer && certDetails.manufacturer.trim() !== '') {
-                    mergedItems[`${baseKeyForData}_제작사`] = certDetails.manufacturer.trim();
-                }
-                if (certDetails.serialNumber && certDetails.serialNumber.trim() !== '') {
-                    mergedItems[`${baseKeyForData}_기기번호`] = certDetails.serialNumber.trim();
-                }
-                if (certDetails.typeApprovalNumber && certDetails.typeApprovalNumber.trim() !== '') {
-                    mergedItems[`${baseKeyForData}_번호`] = certDetails.typeApprovalNumber.trim();
-                }
-                if (certDetails.inspectionDate && certDetails.inspectionDate.trim() !== '') {
-                    const formattedInspectionDate = certDetails.inspectionDate.replace(/\s/g, '').replace(/\./g, '-');
-                    mergedItems[`${baseKeyForData}_검사일자`] = formattedInspectionDate;
-                }
-                if (certDetails.validity && certDetails.validity.trim() !== '') {
-                    const formattedValidity = certDetails.validity.replace(/\s/g, '').replace(/\./g, '-');
-                    mergedItems[`${baseKeyForData}_유효기간`] = formattedValidity;
-                }
-                if (certDetails.previousReceiptNumber && certDetails.previousReceiptNumber.trim() !== '') {
-                    mergedItems[`${baseKeyForData}_직전접수번호`] = certDetails.previousReceiptNumber.trim();
-                }
-                if (certDetails.specialNotes && certDetails.specialNotes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) { 
-                   mergedItems[`${baseKeyForData}_특이사항`] = certDetails.specialNotes.trim();
-                }
-
-            } catch (e) { 
-                if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
-                     mergedItems[`${baseKeyForData}_노트`] = data.notes.trim(); 
-                }
+          }
+          if (effectiveRangeString) {
+            const numbersInString = effectiveRangeString.match(/\d+(\.\d+)?/g);
+            if (numbersInString && numbersInString.length > 0) {
+              upperLimitValue = numbersInString[numbersInString.length - 1];
             }
-        } else if (checklistItemName === "표시사항확인") {
-          let successfullyParsedAndExpanded = false;
-          if (data.notes && data.notes.trim().startsWith("{") && data.notes.trim().endsWith("}")) {
-            try {
-              const parsedNotes = JSON.parse(data.notes);
-              if (typeof parsedNotes === 'object' && parsedNotes !== null) {
-                for (const [key, value] of Object.entries(parsedNotes)) {
-                  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-                    const sanitizedExtractedKey = sanitizeFilename(key).replace(/_/g, '');
-                    mergedItems[`${baseKeyForData}_${sanitizedExtractedKey}`] = String(value);
-                  }
+          }
+        }
+        mergedItems[`${baseKeyForData}_상한값`] = upperLimitValue;
+      } else if (data.specialNotes && data.specialNotes.trim() !== '') {
+        mergedItems[`${baseKeyForData}_특이사항`] = data.specialNotes.trim();
+      }
+
+
+      if (checklistItemName === "정도검사 증명서" && data.notes) {
+        try {
+          const certDetails: CertificateDetails = JSON.parse(data.notes);
+          let statusText = '';
+          switch(certDetails.presence) {
+            case 'present': statusText = '있음'; break;
+            case 'initial_new': statusText = '최초정도검사'; break;
+            case 'reissued_lost': statusText = '분실 후 재발행'; break;
+            default: statusText = certDetails.presence && certDetails.presence !== 'not_selected' ? String(certDetails.presence) : '선택 안됨';
+          }
+          mergedItems[`${baseKeyForData}_세부상태`] = statusText;
+
+          if (certDetails.productName && certDetails.productName.trim() !== '') {
+            mergedItems[`${baseKeyForData}_품명`] = certDetails.productName.trim();
+          }
+          if (certDetails.manufacturer && certDetails.manufacturer.trim() !== '') {
+            mergedItems[`${baseKeyForData}_제작사`] = certDetails.manufacturer.trim();
+          }
+          if (certDetails.serialNumber && certDetails.serialNumber.trim() !== '') {
+            mergedItems[`${baseKeyForData}_기기번호`] = certDetails.serialNumber.trim();
+          }
+          if (certDetails.typeApprovalNumber && certDetails.typeApprovalNumber.trim() !== '') {
+            mergedItems[`${baseKeyForData}_번호`] = certDetails.typeApprovalNumber.trim();
+          }
+          if (certDetails.inspectionDate && certDetails.inspectionDate.trim() !== '') {
+            const formattedInspectionDate = certDetails.inspectionDate.replace(/\s/g, '').replace(/\./g, '-');
+            mergedItems[`${baseKeyForData}_검사일자`] = formattedInspectionDate;
+          }
+          if (certDetails.validity && certDetails.validity.trim() !== '') {
+            const formattedValidity = certDetails.validity.replace(/\s/g, '').replace(/\./g, '-');
+            mergedItems[`${baseKeyForData}_유효기간`] = formattedValidity;
+          }
+          if (certDetails.previousReceiptNumber && certDetails.previousReceiptNumber.trim() !== '') {
+            mergedItems[`${baseKeyForData}_직전접수번호`] = certDetails.previousReceiptNumber.trim();
+          }
+          if (certDetails.specialNotes && certDetails.specialNotes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) { 
+            mergedItems[`${baseKeyForData}_특이사항`] = certDetails.specialNotes.trim();
+          }
+
+        } catch (e) { 
+          if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
+            mergedItems[`${baseKeyForData}_노트`] = data.notes.trim(); 
+          }
+        }
+      } else if (checklistItemName === "표시사항확인") {
+        let successfullyParsedAndExpanded = false;
+        if (data.notes && data.notes.trim().startsWith("{") && data.notes.trim().endsWith("}")) {
+          try {
+            const parsedNotes = JSON.parse(data.notes);
+            if (typeof parsedNotes === 'object' && parsedNotes !== null) {
+              for (const [key, value] of Object.entries(parsedNotes)) {
+                if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                  const sanitizedExtractedKey = sanitizeFilename(key).replace(/_/g, '');
+                  mergedItems[`${baseKeyForData}_${sanitizedExtractedKey}`] = String(value);
                 }
-                successfullyParsedAndExpanded = true;
               }
-            } catch (parseError) { /* console.warn(...) */ }
-          }
-          if (!successfullyParsedAndExpanded && data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
-            mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
-          }
-        } else { 
-          if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) { 
-            mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
-          }
+              successfullyParsedAndExpanded = true;
+            }
+          } catch (parseError) { /* console.warn(...) */ }
         }
+        if (!successfullyParsedAndExpanded && data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
+          mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
+        }
+      } else { 
+        if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) { 
+          mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
+        }
+      }
     });
 
     let baseFileKey = "구조";
     if (payload.mainItemKey === 'TP') {
-        baseFileKey = "구조P";
+      baseFileKey = "구조P";
     } else if (payload.mainItemKey === 'Cl') {
-        baseFileKey = "구조C";
+      baseFileKey = "구조C";
     }
 
     if (payload.checklistImageFileName) {
-        mergedItems[`${baseFileKey}_체크리스트사진`] = payload.checklistImageFileName;
+      mergedItems[`${baseFileKey}_체크리스트사진`] = payload.checklistImageFileName;
     }
     if (masterCompositeImageNameOnServer) { 
-        mergedItems[`${baseFileKey}_개별사진묶음`] = masterCompositeImageNameOnServer;
+      mergedItems[`${baseFileKey}_개별사진묶음`] = masterCompositeImageNameOnServer;
     }
     if (masterZipFileNameOnServer) {
-        mergedItems[`${baseFileKey}_압축`] = masterZipFileNameOnServer;
+      mergedItems[`${baseFileKey}_압축`] = masterZipFileNameOnServer;
     }
   });
 
@@ -640,11 +644,11 @@ export const generateStructuralKtlJsonForPreview = (
     let itemPartForFilename = "";
     if (p.mainItemKey === 'TN') {
     } else if (p.mainItemKey === 'TP') {
-        itemPartForFilename = "P"; 
+      itemPartForFilename = "P"; 
     } else if (p.mainItemKey === 'Cl') {
-        itemPartForFilename = "C"; 
+      itemPartForFilename = "C"; 
     } else {
-        itemPartForFilename = sanitizeFilename(p.mainItemKey);
+      itemPartForFilename = sanitizeFilename(p.mainItemKey);
     }
     const finalChecklistImageName = `${receiptSanitized}${itemPartForFilename ? `_${itemPartForFilename}` : ''}_checklist.png`;
 
@@ -687,19 +691,28 @@ export const generateStructuralKtlJsonForPreview = (
 };
 
 export const generateCompositeImageNameForKtl = ( 
-    receiptNumber: string
+  receiptNumber: string
 ): string => {
-    const sanitizedReceipt = sanitizeFilename(receiptNumber);
-    return `${sanitizedReceipt}_composite.png`;
+  const sanitizedReceipt = sanitizeFilename(receiptNumber);
+  return `${sanitizedReceipt}_composite.png`;
 };
 
 export const generateZipFileNameForKtl = (
-    receiptNumber: string
+  receiptNumber: string
 ): string => {
-    const sanitizedReceipt = sanitizeFilename(receiptNumber);
-    return `${sanitizedReceipt}_압축.zip`;
-}
+  const sanitizedReceipt = sanitizeFilename(receiptNumber);
+  return `${sanitizedReceipt}_압축.zip`;
+};
 
+
+// --- ZIP에 원본만 담기 위한 유틸: 사진에서 ZIP용 base64 선택 ---
+function pickZipBase64(photo: ClaydoxJobPhoto): string {
+  // 우선순위: base64Original > base64 (기존 필드) > base64Stamped
+  // (마지막은 안전 폴백: 만약 원본을 못 받았더라도 동작은 하도록)
+  // @ts-ignore - ImageInfo에 base64가 존재한다고 가정
+  const fallback = (photo as any).base64 || photo.base64Stamped || '';
+  return photo.base64Original || fallback;
+}
 
 export const sendBatchStructuralChecksToKtlApi = async (
   jobs: StructuralJob[],
@@ -720,7 +733,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
   for (const job of jobs) {
     job.photos.forEach(photo => {
       allJobPhotosForService.push({
-        ...photo,
+        ...photo as ClaydoxJobPhoto,
         jobId: job.id,
         jobReceipt: job.receiptNumber,
         jobItemKey: job.mainItemKey,
@@ -745,13 +758,16 @@ export const sendBatchStructuralChecksToKtlApi = async (
     
     if (photosForThisReceipt.length > 0) {
       const imageSourcesForComposite: CompositeImageInput[] = photosForThisReceipt.map(p => {
-          const sourceJob = jobs.find(j => j.id === p.jobId);
-          const comment = sourceJob?.photoComments[p.uid];
-          return {
-              base64: p.base64,
-              mimeType: p.mimeType,
-              comment: comment,
-          };
+        const sourceJob = jobs.find(j => j.id === p.jobId);
+        const comment = sourceJob?.photoComments[p.uid];
+        // 합성(미리보기)에는 스탬프 버전 사용: base64Stamped가 있으면 그걸, 없으면 기존 base64
+        // @ts-ignore
+        const stampedBase64 = p.base64Stamped || (p as any).base64;
+        return {
+          base64: stampedBase64,
+          mimeType: p.mimeType,
+          comment: comment,
+        };
       });
       const itemsForThisReceipt = jobs
         .filter(job => job.receiptNumber === receiptNo)
@@ -794,41 +810,40 @@ export const sendBatchStructuralChecksToKtlApi = async (
     }
 
     if (photosForThisReceipt.length > 0) {
-        const zip = new JSZip();
-        let photoIndexInZip = 1;
-        for (const photo of photosForThisReceipt) {
-            try {
-                const rawDataUrl = `data:${photo.mimeType};base64,${photo.base64}`;
-                const rawBlob = dataURLtoBlob(rawDataUrl);
-                const sanitizedItemKey = sanitizeFilename(photo.jobItemKey);
-                const extension = getFileExtensionFromMime(photo.mimeType);
-                const fileNameInZip = `${sanitizeFilename(photo.jobReceipt)}_${sanitizedItemKey}_${photoIndexInZip++}.${extension}`;
-                zip.file(fileNameInZip, rawBlob);
-            } catch (zipError: any) {
-                 console.error(`[ClaydoxAPI - Page 2] Error adding raw photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
-            }
+      const zip = new JSZip();
+      for (const photo of photosForThisReceipt) {
+        try {
+          // *** ZIP에는 원본(base64Original)만 사용 ***
+          const base64ForZip = pickZipBase64(photo);
+          const rawDataUrl = `data:${photo.mimeType};base64,${base64ForZip}`;
+          const rawBlob = dataURLtoBlob(rawDataUrl);
+          const fileNameInZip = sanitizeFilename(photo.file.name);
+          zip.file(fileNameInZip, rawBlob);
+        } catch (zipError: any) {
+          console.error(`[ClaydoxAPI - Page 2] Error adding raw photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
         }
-        if (Object.keys(zip.files).length > 0) { 
-            try {
-                const zipBlob = await zip.generateAsync({ type: 'blob' });
-                const zipFileNameOnServer = generateZipFileNameForKtl(receiptNo);
-                const zipFile = new File([zipBlob], zipFileNameOnServer, { type: 'application/zip' });
-                filesToUploadDirectly.push(zipFile);
-                receiptToZipFileNameMap.set(receiptNo, zipFileNameOnServer);
-            } catch (zipGenError: any) {
-                 console.error(`[ClaydoxAPI - Page 2] Error generating ZIP file for ${receiptNo}:`, zipGenError);
-                 jobs.filter(j => j.receiptNumber === receiptNo).forEach(job => {
-                    if (!results.find(r => r.receiptNo === job.receiptNumber && r.mainItem === (MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey) && r.message.includes("ZIP 생성 실패"))) {
-                        results.push({
-                          receiptNo: job.receiptNumber,
-                          mainItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
-                          success: false,
-                          message: `참고사진 ZIP 생성 실패: ${zipGenError.message || '알 수 없는 오류'}`,
-                        });
-                    }
-                 });
+      }
+      if (Object.keys(zip.files).length > 0) { 
+        try {
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          const zipFileNameOnServer = generateZipFileNameForKtl(receiptNo);
+          const zipFile = new File([zipBlob], zipFileNameOnServer, { type: 'application/zip' });
+          filesToUploadDirectly.push(zipFile);
+          receiptToZipFileNameMap.set(receiptNo, zipFileNameOnServer);
+        } catch (zipGenError: any) {
+          console.error(`[ClaydoxAPI - Page 2] Error generating ZIP file for ${receiptNo}:`, zipGenError);
+          jobs.filter(j => j.receiptNumber === receiptNo).forEach(job => {
+            if (!results.find(r => r.receiptNo === job.receiptNumber && r.mainItem === (MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey) && r.message.includes("ZIP 생성 실패"))) {
+              results.push({
+                receiptNo: job.receiptNumber,
+                mainItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
+                success: false,
+                message: `참고사진 ZIP 생성 실패: ${zipGenError.message || '알 수 없는 오류'}`,
+              });
             }
+          });
         }
+      }
     }
   }
   
@@ -838,52 +853,52 @@ export const sendBatchStructuralChecksToKtlApi = async (
     filesToUploadDirectly.push(file);
     
     const relatedJobStrict = payloadsForKtlService.find(jp => {
-        const receiptSanitized = sanitizeFilename(jp.receiptNumber);
-        let itemPartForFilename = "";
-        if (jp.mainItemKey === 'TN') itemPartForFilename = ""; 
-        else if (jp.mainItemKey === 'TP') itemPartForFilename = "P";
-        else if (jp.mainItemKey === 'Cl') itemPartForFilename = "C";
-        else itemPartForFilename = sanitizeFilename(jp.mainItemKey);
-        
-        const expectedFilename = `${receiptSanitized}${itemPartForFilename ? `_${itemPartForFilename}` : ''}_checklist.png`;
-        return chkImgInfo.file.name === expectedFilename;
+      const receiptSanitized = sanitizeFilename(jp.receiptNumber);
+      let itemPartForFilename = "";
+      if (jp.mainItemKey === 'TN') itemPartForFilename = ""; 
+      else if (jp.mainItemKey === 'TP') itemPartForFilename = "P";
+      else if (jp.mainItemKey === 'Cl') itemPartForFilename = "C";
+      else itemPartForFilename = sanitizeFilename(jp.mainItemKey);
+      
+      const expectedFilename = `${receiptSanitized}${itemPartForFilename ? `_${itemPartForFilename}` : ''}_checklist.png`;
+      return chkImgInfo.file.name === expectedFilename;
     });
 
     if (relatedJobStrict) {
-        relatedJobStrict.checklistImageFileName = chkImgInfo.file.name;
+      relatedJobStrict.checklistImageFileName = chkImgInfo.file.name;
     } else {
-        console.warn(`[ClaydoxAPI - Page 2] Could not find related job for checklist image: ${chkImgInfo.file.name}`);
+      console.warn(`[ClaydoxAPI - Page 2] Could not find related job for checklist image: ${chkImgInfo.file.name}`);
     }
   });
 
   if (filesToUploadDirectly.length > 0) {
     const formDataForAllUploads = new FormData();
     filesToUploadDirectly.forEach(file => {
-        formDataForAllUploads.append('files', file, file.name);
+      formDataForAllUploads.append('files', file, file.name);
     });
     try {
-        console.log('[ClaydoxAPI - Page 2] Uploading all files directly to KTL /uploadfiles:', filesToUploadDirectly.map(f => f.name));
-        await retryKtlApiCall<KtlApiResponseData>( 
-          () => axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formDataForAllUploads, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            timeout: KTL_API_TIMEOUT,
-          }),
-          2, 2000, "Page 2 All Files Upload (Direct to KTL /uploadfiles)"
-        );
-        console.log('[ClaydoxAPI - Page 2] All files for Page 2 uploaded successfully to KTL /uploadfiles.');
+      console.log('[ClaydoxAPI - Page 2] Uploading all files directly to KTL /uploadfiles:', filesToUploadDirectly.map(f => f.name));
+      await retryKtlApiCall<KtlApiResponseData>( 
+        () => axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formDataForAllUploads, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: KTL_API_TIMEOUT,
+        }),
+        2, 2000, "Page 2 All Files Upload (Direct to KTL /uploadfiles)"
+      );
+      console.log('[ClaydoxAPI - Page 2] All files for Page 2 uploaded successfully to KTL /uploadfiles.');
     } catch (filesUploadError: any) {
-        console.error('[ClaydoxAPI - Page 2] Files upload to KTL /uploadfiles failed:', filesUploadError);
-         jobs.forEach(job => {
-            if (!results.find(r => r.receiptNo === job.receiptNumber && (MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey) === r.mainItem)) {
-              results.push({
-                  receiptNo: job.receiptNumber,
-                  mainItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
-                  success: false,
-                  message: `파일 업로드 실패 (KTL /uploadfiles): ${filesUploadError.message || '알 수 없는 파일 업로드 오류'}`,
-              });
-            }
-         });
-        return results; 
+      console.error('[ClaydoxAPI - Page 2] Files upload to KTL /uploadfiles failed:', filesUploadError);
+      jobs.forEach(job => {
+        if (!results.find(r => r.receiptNo === job.receiptNumber && (MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey) === r.mainItem)) {
+          results.push({
+            receiptNo: job.receiptNumber,
+            mainItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
+            success: false,
+            message: `파일 업로드 실패 (KTL /uploadfiles): ${filesUploadError.message || '알 수 없는 파일 업로드 오류'}`,
+          });
+        }
+      });
+      return results; 
     }
   }
 
@@ -902,10 +917,10 @@ export const sendBatchStructuralChecksToKtlApi = async (
     const zipFileNameForThisReceipt = receiptToZipFileNameMap.get(receiptNo); 
 
     const mergedLabviewItem = constructMergedLabviewItemForStructural(
-        currentGroupOfJobs, 
-        userNameGlobal, 
-        compositeFileNameForThisReceipt, 
-        zipFileNameForThisReceipt       
+      currentGroupOfJobs, 
+      userNameGlobal, 
+      compositeFileNameForThisReceipt, 
+      zipFileNameForThisReceipt       
     );
     
     const today = new Date();
@@ -955,12 +970,12 @@ export const sendBatchStructuralChecksToKtlApi = async (
 
       console.log(`[ClaydoxAPI - Page 2] MERGED JSON for ${receiptNo} sent. Response:`, jsonResponse.data);
       currentGroupOfJobs.forEach(job => {
-          results.push({
-              receiptNo: job.receiptNumber,
-              mainItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
-              success: true, 
-              message: jsonResponse.data?.message || `성공`,
-          });
+        results.push({
+          receiptNo: job.receiptNumber,
+          mainItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
+          success: true, 
+          message: jsonResponse.data?.message || `성공`,
+        });
       });
     } catch (error: any) {
       let errorMsg = `알 수 없는 오류 (직접 전송)`;
@@ -969,18 +984,18 @@ export const sendBatchStructuralChecksToKtlApi = async (
         const responseData = axiosError.response?.data;
         console.error(`[ClaydoxAPI - Page 2] Axios MERGED JSON send for ${receiptNo} directly to /env failed. TargetURL: ${jsonTargetUrl}. Error:`, responseData || axiosError.message);
         
-        if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof responseData.message === 'string') {
-            errorMsg = responseData.message;
+        if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof (responseData as any).message === 'string') {
+          errorMsg = (responseData as any).message;
         } else if (typeof responseData === 'string') { 
-            if (responseData.trim().length > 0 && responseData.length < 500 ) {
-                errorMsg = responseData.trim();
-            } else {
-                errorMsg = axiosError.message || `KTL API 응답 문자열 처리 오류 (${receiptNo}, 직접 Axios 오류)`;
-            }
+          if (responseData.trim().length > 0 && responseData.length < 500 ) {
+            errorMsg = responseData.trim();
+          } else {
+            errorMsg = axiosError.message || `KTL API 응답 문자열 처리 오류 (${receiptNo}, 직접 Axios 오류)`;
+          }
         } else if (axiosError.message) { 
-            errorMsg = axiosError.message;
+          errorMsg = axiosError.message;
         } else {
-            errorMsg = `KTL 서버와 통신 중 알 수 없는 오류 (${receiptNo}, 직접 Axios 오류)`;
+          errorMsg = `KTL 서버와 통신 중 알 수 없는 오류 (${receiptNo}, 직접 Axios 오류)`;
         }
       } else { 
         // @ts-ignore
@@ -988,12 +1003,12 @@ export const sendBatchStructuralChecksToKtlApi = async (
       }
       console.error(`[ClaydoxAPI - Page 2] Final error message for ${receiptNo} (direct to /env):`, errorMsg);
       currentGroupOfJobs.forEach(job => {
-          results.push({
-              receiptNo: job.receiptNumber,
-              mainItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
-              success: false,
-              message: `JSON 전송 실패 (직접 전송): ${errorMsg}`,
-          });
+        results.push({
+          receiptNo: job.receiptNumber,
+          mainItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
+          success: false,
+          message: `JSON 전송 실패 (직접 전송): ${errorMsg}`,
+        });
       });
     }
   }
@@ -1053,19 +1068,19 @@ export const sendKakaoTalkMessage = async (
   } catch (error: any) {
     let errorMsg = '알 수 없는 오류 발생 (Page 3)';
     if (axios.isAxiosError(error)) {
-        const axiosError = error as AxiosError;
-        const responseData = axiosError.response?.data;
-         if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof responseData.message === 'string') {
-            errorMsg = responseData.message;
-        } else if (typeof responseData === 'string' && responseData.length < 500 && responseData.trim()) {
-            errorMsg = responseData.trim();
-        } else if (axiosError.message) {
-            errorMsg = axiosError.message;
-        } else {
-            errorMsg = 'KTL API와 통신 중 알 수 없는 오류가 발생했습니다. (Page 3)';
-        }
+      const axiosError = error as AxiosError;
+      const responseData = axiosError.response?.data;
+      if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof (responseData as any).message === 'string') {
+        errorMsg = (responseData as any).message;
+      } else if (typeof responseData === 'string' && responseData.length < 500 && responseData.trim()) {
+        errorMsg = responseData.trim();
+      } else if (axiosError.message) {
+        errorMsg = axiosError.message;
+      } else {
+        errorMsg = 'KTL API와 통신 중 알 수 없는 오류가 발생했습니다. (Page 3)';
+      }
     } else {
-        errorMsg = error.message || '알 수 없는 비-Axios 오류 발생 (Page 3)';
+      errorMsg = error.message || '알 수 없는 비-Axios 오류 발생 (Page 3)';
     }
     console.error('[ClaydoxAPI - Page 3] Final error message to throw:', errorMsg);
     throw new Error(errorMsg);
