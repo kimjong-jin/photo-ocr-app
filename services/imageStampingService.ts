@@ -19,8 +19,8 @@ interface StampDetails {
 }
 
 /**
- * 👉 텍스트 크기 = 이미지의 짧은 변 * 0.10 (최소 12px 보장)
- * 필요하면 0.10 값을 조절하면 되고, 가로 기준으로 쓸 거면 Math.min(...) 대신 img.width * 0.10 을 쓰면 됨.
+ * 👉 텍스트 크기 = 이미지의 짧은 변 * 0.05 (최소 12px 보장)
+ * 필요하면 0.05 값을 조절하면 되고, 가로 기준으로 쓸 거면 Math.min(...) 대신 img.width * 0.05 을 쓰면 됨.
  */
 export const generateStampedImage = (
   base64Image: string, // Can be full dataURL or just base64 part
@@ -48,7 +48,7 @@ export const generateStampedImage = (
 
       // ⚙️ 폰트 크기: 사진 짧은 변의 1/10
       const baseDim = Math.min(img.width, img.height);
-      const fontSize = Math.max(12, Math.round(baseDim * 0.10));
+      const fontSize = Math.max(12, Math.round(baseDim * 0.05));
 
       const textLines: { text: string; isComment: boolean }[] = [];
       if (receiptNumber && receiptNumber.trim() !== '') textLines.push({ text: `접수번호: ${receiptNumber}`, isComment: false });
@@ -236,7 +236,7 @@ export const generateCompositeImage = (
       if (comment && comment.trim() !== '') {
         // ⚙️ 코멘트 폰트 크기: 셀(그려진 이미지)의 짧은 변 * 0.10
         const cellBaseDim = Math.min(drawWidth, drawHeight);
-        const commentFontSize = Math.max(12 * scaleFactor, Math.round(cellBaseDim * 0.10));
+        const commentFontSize = Math.max(12 * scaleFactor, Math.round(cellBaseDim * 0.05));
         ctx.font = `bold ${commentFontSize}px Arial, sans-serif`;
         const commentPadding = commentFontSize * 0.4;
         
@@ -266,9 +266,9 @@ export const generateCompositeImage = (
     // Apply stamp to composite image (하단 큰 블록)
     const { receiptNumber, siteLocation, inspectionStartDate, item } = stampDetails;
 
-    // ⚙️ 폰트 크기: 합성 캔버스의 짧은 변 * 0.10
+    // ⚙️ 폰트 크기: 합성 캔버스의 짧은 변 * 0.05
     const canvasBaseDim = Math.min(canvas.width, canvas.height);
-    const fontSize = Math.max(12 * scaleFactor, Math.round(canvasBaseDim * 0.10));
+    const fontSize = Math.max(12 * scaleFactor, Math.round(canvasBaseDim * 0.05));
     ctx.font = `bold ${fontSize}px Arial, sans-serif`;
 
     const textLines: string[] = [];
