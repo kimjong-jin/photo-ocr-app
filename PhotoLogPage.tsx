@@ -14,7 +14,7 @@ import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { Type } from '@google/genai';
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
-import { dataURLtoBlob, generateStampedImage } from './services/imageStampingService';
+import { dataURLtoBlob, generateCompositeImage, generateStampedImage } from './services/imageStampingService';
 import { autoAssignIdentifiersByConcentration } from './services/identifierAutomationService';
 
 export interface JobPhoto extends BaseImageInfo {
@@ -338,8 +338,7 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
     const sanitizedSite = sanitizeFilename(siteLocation);
     const sanitizedItemName = sanitizeFilename(activeJob.selectedItem === 'TN/TP' ? 'TN_TP' : activeJob.selectedItem);
     const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
-    const ext = mimeToExt(activeJob.photos[0].mimeType);
-    return [`${baseName}_composite.${ext}`, `${baseName}_Compression.zip`];
+    return [`${baseName}_composite.jpg`, `${baseName}_Compression.zip`];
   }, [activeJob, siteLocation]);
 
   const ktlJsonPreview = useMemo(() => {
@@ -757,22 +756,20 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
       const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
 
-      // ✅ composite: 첫 장 스탬프 적용 (가공 데이터)
-      const first = activeJob.photos[0];
-      const stampedDataUrl = await generateStampedImage(
-        first.base64,
-        first.mimeType,
-        activeJob.receiptNumber,
-        siteLocation,
-        activeJob.details ?? '',
-        activeJob.selectedItem,
-        undefined
+      // ✅ composite: 모든 사진을 겹치지 않는 그리드로 1장 합성
+      const imagesForComposite = activeJob.photos.map(p => ({
+      base64: p.base64,
+      mimeType: p.mimeType,
+      comment: activeJob.photoComments?.[p.uid] // 사진별 코멘트가 있으면 타일 좌상단 표시
+      }));
+      const compositeDataUrl = await generateCompositeImage(
+      imagesForComposite,
+      { receiptNumber: activeJob.receiptNumber, siteLocation, inspectionStartDate: '', item: activeJob.selectedItem },
+      'image/jpeg',
+      0.9
       );
-      const compositeMime =
-        stampedDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
-      const compositeExt = compositeMime === 'image/png' ? 'png' : 'jpg';
-      const compositeBlob = dataURLtoBlob(stampedDataUrl);
-      const compositeFile = new File([compositeBlob], `${baseName}_composite.${compositeExt}`, { type: compositeMime });
+      const compositeBlob = dataURLtoBlob(compositeDataUrl);
+      const compositeFile = new File([compositeBlob], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
 
       // ✅ ZIP: 원본(무스탬프)
       const zip = new JSZip();
@@ -811,28 +808,31 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       try {
         const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
         const payload: ClaydoxPayload = {
-          receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
-          identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: 'PhotoLog',
+         receiptNumber: job.receiptNumber,
+         siteLocation,
+         item: job.selectedItem,
+         updateUser: userName,
+         ocrData: job.processedOcrData!,           // 이 시점엔 필터링되어 null 아님
+         identifierSequence,
+         maxDecimalPlaces: job.decimalPlaces,
+         pageType: 'PhotoLog',
         };
-
         const baseName = buildBaseName(job.receiptNumber, siteLocation, job.selectedItem);
 
-        // ✅ composite: 첫 장 스탬프 적용 (가공 데이터)
-        const first = job.photos[0];
-        const stampedDataUrl = await generateStampedImage(
-          first.base64,
-          first.mimeType,
-          job.receiptNumber,
-          siteLocation,
-          job.details ?? '',
-          job.selectedItem,
-          undefined
+        // ✅ composite: 모든 사진을 겹치지 않는 그리드로 1장 합성
+        const imagesForComposite = job.photos.map(p => ({
+        base64: p.base64,
+        mimeType: p.mimeType,
+        comment: (job as any).photoComments?.[p.uid]
+        }));
+        const compositeDataUrl = await generateCompositeImage(
+        imagesForComposite,
+        { receiptNumber: job.receiptNumber, siteLocation, inspectionStartDate: '', item: job.selectedItem },
+        'image/jpeg',
+        0.9
         );
-        const compositeMime =
-          stampedDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
-        const compositeExt = compositeMime === 'image/png' ? 'png' : 'jpg';
-        const compositeBlob = dataURLtoBlob(stampedDataUrl);
-        const compositeFile = new File([compositeBlob], `${baseName}_composite.${compositeExt}`, { type: compositeMime });
+        const compositeBlob = dataURLtoBlob(compositeDataUrl);
+        const compositeFile = new File([compositeBlob], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
 
         // ✅ ZIP: 전부 원본(무스탬프)
         const zip = new JSZip();
