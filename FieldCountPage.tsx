@@ -14,10 +14,12 @@ import { PhotoLogJob as BasePhotoLogJob, ExtractedEntry as BaseExtractedEntry } 
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
 import { TN_IDENTIFIERS, TP_IDENTIFIERS } from './shared/constants';
-import { dataURLtoBlob, generateStampedImage } from './services/imageStampingService';
+import { dataURLtoBlob, generateCompositeImage } from './services/imageStampingService'; // ★ 여기! 합성 함수 사용
 
 type KtlApiCallStatus = 'idle' | 'success' | 'error';
+
 type JobPhoto = BasePhotoLogJob['photos'][number];
+
 type ExtractedEntry = BaseExtractedEntry;
 
 interface RawEntrySingle { time: string; value: string; }
@@ -126,12 +128,12 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
     setProcessingError(null);
   }, [updateActiveJob]);
 
+  // 미리보기용 파일명(합성 JPG + 원본 ZIP)
   const hypotheticalKtlFileNamesForPreview = useMemo(() => {
     if (!activeJob || activeJob.photos.length === 0) return [];
     const sanitizedItem = sanitizeFilenameComponent(activeJob.selectedItem === 'TN/TP' ? 'TN_TP' : activeJob.selectedItem);
     const base = `${activeJob.receiptNumber}_${sanitizeFilenameComponent(siteLocation)}_${sanitizedItem}`;
-    const ext = mimeToExt(activeJob.photos[0].mimeType);
-    return [`${base}_composite.${ext}`, `${base}_Compression.zip`];
+    return [`${base}_composite.jpg`, `${base}_Compression.zip`]; // ★ composite은 JPG로 고정 (원하면 PNG로 바꿔도 됨)
   }, [activeJob, siteLocation]);
 
   const ktlJsonPreview = useMemo(() => {
@@ -291,60 +293,49 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
     setKtlPreflightModalOpen(true);
   }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
 
-  // ★ 전송: composite=스탬프 적용본, ZIP=모든 원본(무가공)
+  // ★ 전송: composite=여러 장 합성(스탬프 포함), ZIP=모든 원본(무가공)
   const handleSendToClaydoxConfirmed = useCallback(async () => {
     setKtlPreflightModalOpen(false);
-
+    if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
+      updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: 'KTL 전송에 필요한 데이터가 없습니다.' }));
+      return;
+    }
+    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '전송 중...' }));
     try {
       const payload: ClaydoxPayload = {
-        receiptNumber: activeJob?.receiptNumber || '',
-        siteLocation,
-        item: activeJob?.selectedItem || '',
-        updateUser: userName,
-        ocrData: activeJob?.processedOcrData || [],
-        pageType: 'FieldCount',
+        receiptNumber: activeJob.receiptNumber, siteLocation, item: activeJob.selectedItem,
+        updateUser: userName, ocrData: activeJob.processedOcrData, pageType: 'FieldCount'
       };
 
-      const filesToSend: File[] = [];
-      const uploadNames: string[] = [];
+      const sanitizedSite = sanitizeFilenameComponent(siteLocation);
+      const sanitizedItem = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
+      const base = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItem}`;
 
-      if (activeJob && activeJob.photos.length > 0) {
-        const sanitizedSite = sanitizeFilenameComponent(siteLocation);
-        const sanitizedItem = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
-        const base = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItem}`;
+      // 1) 합성 이미지(JPG) 생성 (여러 장 + 하단 스탬프, 사진별 코멘트 있으면 표시)
+      const imageInfosForComposite = activeJob.photos.map(p => ({
+        base64: p.base64,
+        mimeType: p.mimeType,
+        comment: activeJob.photoComments?.[p.uid!]
+      }));
+      const compositeDataUrl = await generateCompositeImage(
+        imageInfosForComposite,
+        { receiptNumber: activeJob.receiptNumber, siteLocation, inspectionStartDate: '', item: activeJob.selectedItem },
+        'image/jpeg'
+      );
+      const compositeBlob = dataURLtoBlob(compositeDataUrl);
+      const compositeFile = new File([compositeBlob], `${base}_composite.jpg`, { type: 'image/jpeg' });
 
-        // ✅ composite: 첫 장 스탬프 적용(가공본)
-        const first = activeJob.photos[0];
-        const stampedDataUrl = await generateStampedImage(
-          first.base64,
-          first.mimeType,
-          activeJob.receiptNumber,
-          siteLocation,
-          '', // FieldCount의 details 없음
-          activeJob.selectedItem,
-          undefined
-        );
-        const compositeMime = stampedDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
-        const compositeExt = compositeMime === 'image/png' ? 'png' : 'jpg';
-        const compositeBlob = dataURLtoBlob(stampedDataUrl);
-        const compositeFile = new File([compositeBlob], `${base}_composite.${compositeExt}`, { type: compositeMime });
-        filesToSend.push(compositeFile);
-        uploadNames.push(compositeFile.name);
-
-        // ✅ ZIP: 모든 원본(무가공)
-        const zip = new JSZip();
-        for (const image of activeJob.photos) {
-          const raw = `data:${image.mimeType};base64,${image.base64}`;
-          zip.file(`${base}_${sanitizeFilenameComponent(image.file.name)}`, dataURLtoBlob(raw));
-        }
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const zipFile = new File([zipBlob], `${base}_Compression.zip`, { type: 'application/zip' });
-        filesToSend.push(zipFile);
-        uploadNames.push(zipFile.name);
+      // 2) 원본 ZIP(무가공)
+      const zip = new JSZip();
+      for (const image of activeJob.photos) {
+        const raw = `data:${image.mimeType};base64,${image.base64}`;
+        zip.file(`${base}_${sanitizeFilenameComponent(image.file.name)}`, dataURLtoBlob(raw));
       }
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipFile = new File([zipBlob], `${base}_Compression.zip`, { type: 'application/zip' });
 
-      updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '전송 중...' }));
-      const res = await sendToClaydoxApi(payload, filesToSend, activeJob?.selectedItem || '', uploadNames);
+      // 3) 전송
+      const res = await sendToClaydoxApi(payload, [compositeFile, zipFile], activeJob.selectedItem, [compositeFile.name, zipFile.name]);
       updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: res.message }));
     } catch (e: any) {
       updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${e.message}` }));
@@ -352,7 +343,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
   }, [activeJob, siteLocation, userName, updateActiveJob]);
 
   const handleBatchSendToKtl = async () => {
-    const targets = jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0);
+    const targets = jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0 && j.photos.length > 0);
     if (targets.length === 0) { alert('전송할 작업이 없습니다.'); return; }
 
     setIsSendingToClaydox(true);
@@ -368,44 +359,32 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
           receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem,
           updateUser: userName, ocrData: job.processedOcrData!, pageType: 'FieldCount'
         };
+        const base = `${job.receiptNumber}_${sanitizeFilenameComponent(siteLocation)}_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}`;
 
-        const filesToSend: File[] = [];
-        const uploadNames: string[] = [];
+        // ★ 합성 JPG 생성(모든 사진 사용 + 하단 스탬프)
+        const imageInfosForComposite = job.photos.map(p => ({
+          base64: p.base64,
+          mimeType: p.mimeType,
+          comment: (job as any).photoComments?.[p.uid!]
+        }));
+        const compositeDataUrl = await generateCompositeImage(
+          imageInfosForComposite,
+          { receiptNumber: job.receiptNumber, siteLocation, inspectionStartDate: '', item: job.selectedItem },
+          'image/jpeg'
+        );
+        const compositeBlob = dataURLtoBlob(compositeDataUrl);
+        const compositeFile = new File([compositeBlob], `${base}_composite.jpg`, { type: 'image/jpeg' });
 
-        if (job.photos.length > 0) {
-          const base = `${job.receiptNumber}_${sanitizeFilenameComponent(siteLocation)}_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}`;
-
-          // ✅ composite: 첫 장 스탬프 적용(가공본)
-          const first = job.photos[0];
-          const stampedDataUrl = await generateStampedImage(
-            first.base64,
-            first.mimeType,
-            job.receiptNumber,
-            siteLocation,
-            '',
-            job.selectedItem,
-            undefined
-          );
-          const compositeMime = stampedDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
-          const compositeExt = compositeMime === 'image/png' ? 'png' : 'jpg';
-          const compositeBlob = dataURLtoBlob(stampedDataUrl);
-          const compositeFile = new File([compositeBlob], `${base}_composite.${compositeExt}`, { type: compositeMime });
-          filesToSend.push(compositeFile);
-          uploadNames.push(compositeFile.name);
-
-          // ✅ ZIP: 모든 원본(무가공)
-          const zip = new JSZip();
-          for (const image of job.photos) {
-            const raw = `data:${image.mimeType};base64,${image.base64}`;
-            zip.file(`${base}_${sanitizeFilenameComponent(image.file.name)}`, dataURLtoBlob(raw));
-          }
-          const zipBlob = await zip.generateAsync({ type: 'blob' });
-          const zipFile = new File([zipBlob], `${base}_Compression.zip`, { type: 'application/zip' });
-          filesToSend.push(zipFile);
-          uploadNames.push(zipFile.name);
+        // ZIP 원본
+        const zip = new JSZip();
+        for (const image of job.photos) {
+          const raw = `data:${image.mimeType};base64,${image.base64}`;
+          zip.file(`${base}_${sanitizeFilenameComponent(image.file.name)}`, dataURLtoBlob(raw));
         }
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const zipFile = new File([zipBlob], `${base}_Compression.zip`, { type: 'application/zip' });
 
-        const res = await sendToClaydoxApi(payload, filesToSend, job.selectedItem, uploadNames);
+        const res = await sendToClaydoxApi(payload, [compositeFile, zipFile], job.selectedItem, [compositeFile.name, zipFile.name]);
         setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: res.message || '전송 성공' } : j));
       } catch (e: any) {
         setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${e.message}` } : j));
@@ -520,7 +499,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
       {jobs.length > 0 && (
         <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
           <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
-          <p className="text-sm text-slate-400">이 페이지의 모든 유효한 작업(데이터가 있는)을 KTL로 전송합니다.</p>
+          <p className="text-sm text-slate-400">이 페이지의 모든 유효한 작업(사진 및 데이터가 있는)을 KTL로 전송합니다.</p>
           {batchSendProgress && (
             <div className="p-3 bg-slate-700/50 rounded-md text-sky-300 text-sm flex items-center gap-2">
               <Spinner size="sm" />
@@ -529,23 +508,19 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
           )}
           <ActionButton
             onClick={handleBatchSendToKtl}
-            disabled={isControlsDisabled || jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0).length === 0}
+            disabled={isControlsDisabled || jobs.filter(j => j.processedOcrData && j.photos.length > 0).length === 0}
             fullWidth
             variant="secondary"
             className="bg-teal-600 hover:bg-teal-500"
           >
-            {isSendingToClaydox ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0).length}건)`}
+            {isSendingToClaydox ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.filter(j => j.processedOcrData && j.photos.length > 0).length}건)`}
           </ActionButton>
         </div>
       )}
 
-      {/* ✅ 모달은 항상 마운트, isOpen 으로만 토글 */}
-      <KtlPreflightModal
-        isOpen={isKtlPreflightModalOpen}
-        onClose={() => setKtlPreflightModalOpen(false)}
-        onConfirm={handleSendToClaydoxConfirmed}
-        preflightData={ktlPreflightData}
-      />
+      {isKtlPreflightModalOpen && ktlPreflightData && (
+        <KtlPreflightModal isOpen={isKtlPreflightModalOpen} onClose={() => setKtlPreflightModalOpen(false)} onConfirm={handleSendToClaydoxConfirmed} preflightData={ktlPreflightData} />
+      )}
     </div>
   );
 };
