@@ -1,9 +1,8 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import ReactDOM from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview, sanitizeFilename } from './services/claydoxApiService';
-import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
+import { ANALYSIS_ITEM_GROUPS } from './shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
 import { ActionButton } from './components/ActionButton';
 import { ImageInput, ImageInfo } from './components/ImageInput';
@@ -113,6 +112,10 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
 
+  // ✨ 오프스크린 스냅샷용 상태 & ref (새로운 root 생성/제거 없이 동일 트리 내부에서 렌더)
+  const [showSnapshotHost, setShowSnapshotHost] = useState(false);
+  const snapshotRef = useRef<HTMLDivElement | null>(null);
+
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
   const drinkingWaterItems = useMemo(
@@ -158,7 +161,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
       fileNames.push(`${baseName}_Compression.zip`);
     }
 
-    // Add hypothetical data table image name if there's data to send
+    // 데이터가 있으면 datatable 이미지도 가정
     if (activeJob.processedOcrData?.some(d => d.value.trim() !== '' || (d.valueTP && d.valueTP.trim() !== ''))) {
       fileNames.push(`${baseName}_datatable.png`);
     }
@@ -314,7 +317,7 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
       if (value === null || value === undefined || value.trim() === '') return '';
       if (value.trim().startsWith('[')) return value; // Don't format JSON strings
       const num = parseFloat(value);
-      if (isNaN(num)) return value;
+      if (isNaN(num)) return value as string;
       return num.toFixed(places);
     };
 
@@ -325,7 +328,6 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
 
         if (isResponseTime) {
           // Do nothing. The user has full control over the response time input.
-          // The value is already updated as a JSON string via onChange.
         } else {
           // Apply decimal place formatting for all other measurement entries.
           if (valueType === 'primary') {
@@ -444,6 +446,34 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
     setIsKtlPreflightModalOpen(true);
   }, [activeJob, userName, ktlJsonPreview, siteLocation, hypotheticalKtlFileNamesForPreview]);
 
+  // 🔧 오프스크린 스냅샷 캡처 (동일 트리 내 렌더 → html2canvas)
+  const captureDataTablePng = useCallback(async (): Promise<File | null> => {
+    if (!activeJob) return null;
+
+    setShowSnapshotHost(true);
+    // 레이아웃/페인트 안정화 대기
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    const elementToCapture = snapshotRef.current;
+    if (!elementToCapture) {
+      setShowSnapshotHost(false);
+      return null;
+    }
+
+    const canvas = await html2canvas(elementToCapture, {
+      backgroundColor: '#1e293b',
+      width: elementToCapture.offsetWidth,
+      height: elementToCapture.offsetHeight,
+      scale: 1.5,
+    });
+    const dataUrl = canvas.toDataURL('image/png');
+    setShowSnapshotHost(false);
+
+    const blob = dataURLtoBlob(dataUrl);
+    const fileName = `${activeJob.receiptNumber}_${sanitizeFilename(siteLocation)}_${sanitizeFilename(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
+    return new File([blob], fileName, { type: 'image/png' });
+  }, [activeJob, siteLocation]);
+
   const handleSendToClaydoxConfirmed = useCallback(async () => {
     setIsKtlPreflightModalOpen(false);
     if (!activeJob || !userName || !siteLocation.trim()) {
@@ -470,51 +500,14 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
     let actualKtlFileNames: string[] = [];
 
     try {
-      // --- 안전한 외부 호스트에 스냅샷 렌더 & 캡처 ---
-      let dataTableFile: File | null = null;
-      let host: HTMLDivElement | null = null;
-      let snapshotRoot: ReturnType<typeof ReactDOM.createRoot> | null = null;
-
-      try {
-        host = document.createElement('div');
-        host.style.position = 'fixed';
-        host.style.left = '-9999px';
-        host.style.top = '0';
-        host.style.pointerEvents = 'none';
-        host.style.opacity = '0';
-        document.body.appendChild(host);
-
-        snapshotRoot = ReactDOM.createRoot(host);
-        await new Promise<void>((resolve) => {
-          snapshotRoot!.render(
-            <DrinkingWaterSnapshot job={activeJob} siteLocation={siteLocation} />
-          );
-          // 페인트 완료까지 2프레임 대기 (layout/paint 안정화)
-          requestAnimationFrame(() => requestAnimationFrame(resolve));
-        });
-
-        const elementToCapture = host.querySelector(
-          `#snapshot-container-for-${activeJob.id}`
-        ) as HTMLElement | null;
-
-        if (elementToCapture) {
-          const canvas = await html2canvas(elementToCapture, {
-            backgroundColor: '#1e293b',
-            width: elementToCapture.offsetWidth,
-            height: elementToCapture.offsetHeight,
-            scale: 1.5,
-          });
-          const dataUrl = canvas.toDataURL('image/png');
-          const blob = dataURLtoBlob(dataUrl);
-          const dataTableFileName = `${activeJob.receiptNumber}_${sanitizeFilename(siteLocation)}_${sanitizeFilename(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
-          dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
-        }
-      } finally {
-        if (snapshotRoot) snapshotRoot.unmount();
-        if (host && host.parentNode) host.parentNode.removeChild(host);
+      // 1) 데이터 테이블 스냅샷 (동일 트리 내부에서 안전 캡처)
+      const dataTableFile = await captureDataTablePng();
+      if (dataTableFile) {
+        filesToUpload.push(dataTableFile);
+        actualKtlFileNames.push(dataTableFile.name);
       }
 
-      // 사진 처리 (있을 경우)
+      // 2) 사진이 있으면 composite + ZIP
       if (activeJob.photos.length > 0) {
         const imageInfosForComposite = activeJob.photos.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
         const baseName = `${activeJob.receiptNumber}_${sanitizeFilename(siteLocation)}_${sanitizeFilename(activeJob.selectedItem.replace('/', '_'))}`;
@@ -536,7 +529,6 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
           const rawBlob = dataURLtoBlob(rawDataUrl);
           const fileNameInZip = buildSafeImageFilename(imageInfo.file.name, imageInfo.mimeType);
           zip.file(fileNameInZip, rawBlob);
-
         }
 
         if (Object.keys(zip.files).length > 0) {
@@ -548,17 +540,12 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
         }
       }
 
-      if (dataTableFile) {
-        filesToUpload.push(dataTableFile);
-        actualKtlFileNames.push(dataTableFile.name);
-      }
-
       const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, actualKtlFileNames);
       updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
     } catch (error: any) {
       updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
     }
-  }, [activeJob, userName, siteLocation, updateActiveJob]);
+  }, [activeJob, userName, siteLocation, updateActiveJob, captureDataTablePng]);
 
   const representativeActiveJobPhoto = useMemo(
     () =>
@@ -788,6 +775,23 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
           onConfirm={handleSendToClaydoxConfirmed}
           preflightData={ktlPreflightData}
         />
+      )}
+
+      {/* 🔒 안전한 오프스크린 스냅샷 영역: 동일 React 트리 내에 조건부 렌더 */}
+      {showSnapshotHost && activeJob && (
+        <div
+          style={{
+            position: 'fixed',
+            left: '-9999px',
+            top: 0,
+            pointerEvents: 'none',
+            opacity: 0
+          }}
+        >
+          <div id={`snapshot-container-for-${activeJob.id}`} ref={snapshotRef}>
+            <DrinkingWaterSnapshot job={activeJob} siteLocation={siteLocation} />
+          </div>
+        </div>
       )}
     </div>
   );
