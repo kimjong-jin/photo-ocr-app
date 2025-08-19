@@ -771,7 +771,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       for (const imageInfo of activeJob.photos) {
         const raw = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
         const rawBlob = dataURLtoBlob(raw);
-        const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType); // ✅ 여기 수정
+        const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType);
         zip.file(fileNameInZip, rawBlob);
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -820,7 +820,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         for (const imageInfo of job.photos) {
           const dataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
           const rawBlob = dataURLtoBlob(dataUrl);
-          const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType); // ✅ 여기 수정
+          const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType);
           zip.file(fileNameInZip, rawBlob);
         }
         const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -874,13 +874,29 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
 
+      // [FIX] 안전한 링크 생성/삭제 (중복 제거 방지)
       const link = document.createElement('a');
-      link.href = URL.createObjectURL(zipBlob);
+      const url = URL.createObjectURL(zipBlob);
+      link.href = url;
       link.download = `${baseName}_stamped_images.zip`;
+
+      // body에 붙이기 전에 혹시 연결되어 있으면 제거
+      // (이 케이스는 드물지만 idempotent 보장)
+      if (link.isConnected && link.parentNode) {
+        link.parentNode.removeChild(link);
+      }
+
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+
+      // 클릭 직후 브라우저가 다운로드 핸들러를 잡을 시간을 주고 제거
+      // (동기 removeChild로 인한 Edge 케이스 회피)
+      requestAnimationFrame(() => {
+        if (link.isConnected) {
+          link.remove(); // [FIX] 안전 제거
+        }
+        URL.revokeObjectURL(url);
+      });
 
     } catch (error) {
       console.error('Error creating stamped image zip:', error);
