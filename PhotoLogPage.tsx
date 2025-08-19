@@ -96,6 +96,25 @@ const buildBaseName = (receipt: string, site: string, item: string) => {
   return `${sanitizedReceipt}_${sanitizedSite}_${sanitizedItem}`;
 };
 
+/** 파일명을 안전하게 정제하되, 최종 확장자는 보정해서 붙임 */
+const safeNameWithExt = (originalName: string, mime: string) => {
+  const dotIdx = originalName.lastIndexOf('.');
+  const baseRaw = dotIdx > 0 ? originalName.slice(0, dotIdx) : originalName;
+  const extFromNameRaw = dotIdx > 0 ? originalName.slice(dotIdx + 1).toLowerCase() : '';
+
+  // 베이스만 sanitize (sanitizeFilename이 점(.)을 제거할 수 있으니 확장자는 따로 처리)
+  const sanitizedBase = sanitizeFilename(baseRaw) || 'image';
+
+  // 이름상의 확장자가 정상적인 이미지 확장자인지 점검
+  let finalExt: string;
+  if (['jpg', 'jpeg', 'png', 'webp'].includes(extFromNameRaw)) {
+    finalExt = extFromNameRaw === 'jpeg' ? 'jpg' : extFromNameRaw;
+  } else {
+    finalExt = mimeToExt(mime);
+  }
+  return `${sanitizedBase}.${finalExt}`;
+};
+
 const getNumericValueFromString = (valueStr: string): number | null => {
   const numericValueString = String(valueStr).match(/^-?\d+(\.\d+)?/)?.[0];
   if (!numericValueString) return null;
@@ -747,12 +766,12 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       const rawDataUrl = `data:${first.mimeType};base64,${first.base64}`;
       const compositeFile = new File([dataURLtoBlob(rawDataUrl)], `${baseName}_composite.${ext}`, { type: first.mimeType });
 
-      // 원본 전부 ZIP (무스탬프)
+      // 원본 전부 ZIP (무스탬프) — 파일명 확장자 보정
       const zip = new JSZip();
       for (const imageInfo of activeJob.photos) {
         const raw = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
         const rawBlob = dataURLtoBlob(raw);
-        const fileNameInZip = sanitizeFilename(imageInfo.file.name);
+        const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType); // ✅ 여기 수정
         zip.file(fileNameInZip, rawBlob);
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -796,12 +815,12 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const raw = `data:${first.mimeType};base64,${first.base64}`;
         const compositeFile = new File([dataURLtoBlob(raw)], `${baseName}_composite.${ext}`, { type: first.mimeType });
 
-        // 원본 ZIP (무스탬프)
+        // 원본 ZIP (무스탬프) — 파일명 확장자 보정
         const zip = new JSZip();
         for (const imageInfo of job.photos) {
           const dataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
           const rawBlob = dataURLtoBlob(dataUrl);
-          const fileNameInZip = sanitizeFilename(imageInfo.file.name);
+          const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType); // ✅ 여기 수정
           zip.file(fileNameInZip, rawBlob);
         }
         const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -839,12 +858,12 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           imageInfo.mimeType,
           activeJob.receiptNumber,
           siteLocation,
-          activeJob.details ?? '',          // ✅ details 추가
+          activeJob.details ?? '',
           activeJob.selectedItem,
           comment
         );
 
-        // ✅ 결과 MIME 타입에 따라 확장자 결정
+        // 결과 MIME 타입에 따라 확장자 결정
         const outExt =
           stampedDataUrl.startsWith('data:image/jpeg') || stampedDataUrl.startsWith('data:image/jpg')
             ? 'jpg'
