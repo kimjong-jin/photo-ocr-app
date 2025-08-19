@@ -54,6 +54,25 @@ const getCurrentTimestampForInput = (): string => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
+const extFromMime = (mime: string): string => {
+  if (!mime) return '';
+  if (mime.toLowerCase() === 'image/png') return '.png';
+  if (mime.toLowerCase() === 'image/jpeg' || mime.toLowerCase() === 'image/jpg') return '.jpg';
+  return '';
+};
+
+const buildSafeImageFilename = (origName: string, mime: string): string => {
+  const m = origName.match(/^(.*?)(\.[A-Za-z0-9]{1,5})?$/);
+  let base = (m?.[1] ?? origName);
+  let ext = (m?.[2] ?? '').toLowerCase();
+
+  if (ext === '.jpeg') ext = '.jpg';
+  if (!ext) ext = extFromMime(mime);
+
+  const safeBase = sanitizeFilename(base) || 'image';
+  return `${safeBase}${ext}`;
+};
+
 // --- Component ---
 interface DrinkingWaterPageProps {
   userName: string;
