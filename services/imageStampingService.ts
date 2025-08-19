@@ -148,6 +148,7 @@ export const generateCompositeImage = (
     let rows = Math.ceil(n / cols);
     if (n === 2) { cols = 2; rows = 1; }
     else if (n === 3) { cols = 3; rows = 1; }
+    else if (n === 4) { cols = 2; rows = 2; }
 
     const maxW = Math.max(...loaded.map(i => i.width), 300);
     const maxH = Math.max(...loaded.map(i => i.height), 200);
