@@ -105,6 +105,39 @@ const constructPhotoLogKtlJsonObject = (
   const zipPhotoFileName = actualKtlFileNames.find(name => name.endsWith('.zip'));
   const dataTableFileName = actualKtlFileNames.find(name => name.includes('datatable.png'));
 
+  // --- Start of new logic for identifier remapping ---
+  const identifierRemapping: { [key: string]: string[] } = {
+    'Z1': ['Z1', 'Z3', 'Z5', 'Z7'],
+    'Z2': ['Z2', 'Z4', 'Z6'],
+    'S1': ['S1', 'S3', 'S5', 'S7'],
+    'S2': ['S2', 'S4', 'S6'],
+    '현장1': ['현장1', '현장2'],
+  };
+  const identifierRemappingTP: { [key: string]: string[] } = {
+    'Z1P': ['Z1P', 'Z3P', 'Z5P', 'Z7P'],
+    'Z2P': ['Z2P', 'Z4P', 'Z6P'],
+    'S1P': ['S1P', 'S3P', 'S5P', 'S7P'],
+    'S2P': ['S2P', 'S4P', 'S6P'],
+    '현장1P': ['현장1P', '현장2P'],
+  };
+
+  const identifierCounters: { [key: string]: number } = {
+    'Z1': 0, 'Z2': 0, 'S1': 0, 'S2': 0, '현장1': 0,
+    'Z1P': 0, 'Z2P': 0, 'S1P': 0, 'S2P': 0, '현장1P': 0,
+  };
+  
+  const getNextKtlIdentifier = (baseIdentifier: string): string => {
+    const remapping = baseIdentifier.endsWith('P') ? identifierRemappingTP : identifierRemapping;
+    if (remapping[baseIdentifier]) {
+        const count = identifierCounters[baseIdentifier] || 0;
+        const newIdentifier = remapping[baseIdentifier][count] || baseIdentifier; // Fallback to base
+        identifierCounters[baseIdentifier] = count + 1;
+        return newIdentifier;
+    }
+    return baseIdentifier;
+  };
+  // --- End of new logic ---
+
 
   payload.ocrData.forEach(entry => {
     if (payload.pageType === 'DrinkingWater') {
@@ -169,14 +202,16 @@ const constructPhotoLogKtlJsonObject = (
             const numericValueMatch = entry.value.match(/^-?\d+(\.\d+)?/);
             const valueToUse = numericValueMatch ? numericValueMatch[0] : null;
             if (valueToUse !== null) {
-                labviewItemObject[entry.identifier] = valueToUse;
+                const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
+                labviewItemObject[ktlIdentifier] = valueToUse;
             }
         }
         if (entry.identifierTP && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
             const numericValueTPMatch = entry.valueTP.match(/^-?\d+(\.\d+)?/);
             const valueTPToUse = numericValueTPMatch ? numericValueTPMatch[0] : null;
             if (valueTPToUse !== null) {
-                labviewItemObject[entry.identifierTP] = valueTPToUse;
+                const ktlIdentifierTP = getNextKtlIdentifier(entry.identifierTP);
+                labviewItemObject[ktlIdentifierTP] = valueTPToUse;
             }
         }
     } else { // Original Logic for other single items on P1/P2
@@ -184,7 +219,8 @@ const constructPhotoLogKtlJsonObject = (
             const numericValueMatch = entry.value.match(/^-?\d+(\.\d+)?/);
             const valueToUse = numericValueMatch ? numericValueMatch[0] : null;
             if (valueToUse !== null) {
-                labviewItemObject[entry.identifier] = valueToUse;
+                const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
+                labviewItemObject[ktlIdentifier] = valueToUse;
             }
         }
     }
