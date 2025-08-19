@@ -88,6 +88,14 @@ const mimeToExt = (mime: string) => {
   return 'jpg';
 };
 
+/** 공통 파일명 빌더 */
+const buildBaseName = (receipt: string, site: string, item: string) => {
+  const sanitizedReceipt = sanitizeFilename(receipt);
+  const sanitizedSite = sanitizeFilename(site);
+  const sanitizedItem = sanitizeFilename(item.replace('/', '_'));
+  return `${sanitizedReceipt}_${sanitizedSite}_${sanitizedItem}`;
+};
+
 const getNumericValueFromString = (valueStr: string): number | null => {
   const numericValueString = String(valueStr).match(/^-?\d+(\.\d+)?/)?.[0];
   if (!numericValueString) return null;
@@ -712,7 +720,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setKtlPreflightModalOpen(true);
   }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
 
-  /** 전송: “컴포지트”는 첫 번째 원본을 그대로 사용 */
+  /** 전송: “컴포지트”는 첫 번째 원본을 그대로 사용 (무스탬프) */
   const handleSendToClaydoxConfirmed = useCallback(async () => {
     setKtlPreflightModalOpen(false);
     if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
@@ -731,17 +739,15 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         pageType: 'PhotoLog',
       };
 
-      const sanitizedSite = sanitizeFilename(siteLocation);
-      const sanitizedItemName = sanitizeFilename(activeJob.selectedItem.replace('/', '_'));
-      const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
+      const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
 
-      // 첫 번째 원본 이미지를 “composite” 이름으로 사용
+      // 첫 번째 원본 이미지를 “composite” 이름으로 사용 (무스탬프 원본 그대로)
       const first = activeJob.photos[0];
       const ext = mimeToExt(first.mimeType);
       const rawDataUrl = `data:${first.mimeType};base64,${first.base64}`;
       const compositeFile = new File([dataURLtoBlob(rawDataUrl)], `${baseName}_composite.${ext}`, { type: first.mimeType });
 
-      // 원본 전부 ZIP
+      // 원본 전부 ZIP (무스탬프)
       const zip = new JSZip();
       for (const imageInfo of activeJob.photos) {
         const raw = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
@@ -781,17 +787,16 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
           identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: 'PhotoLog',
         };
-        const sanitizedSite = sanitizeFilename(siteLocation);
-        const sanitizedItemName = sanitizeFilename(job.selectedItem.replace('/', '_'));
-        const baseName = `${job.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
 
-        // 첫 번째 원본을 composite 파일로 사용
+        const baseName = buildBaseName(job.receiptNumber, siteLocation, job.selectedItem);
+
+        // 첫 번째 원본을 composite 파일로 사용 (무스탬프)
         const first = job.photos[0];
         const ext = mimeToExt(first.mimeType);
         const raw = `data:${first.mimeType};base64,${first.base64}`;
         const compositeFile = new File([dataURLtoBlob(raw)], `${baseName}_composite.${ext}`, { type: first.mimeType });
 
-        // 원본 ZIP
+        // 원본 ZIP (무스탬프)
         const zip = new JSZip();
         for (const imageInfo of job.photos) {
           const dataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
@@ -814,6 +819,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setTimeout(() => setBatchSendProgress(null), 5000);
   };
 
+  /** 가공 데이터(스탬프 적용) 묶음 다운로드: details 포함 + 결과 MIME 기반 확장자 결정 */
   const handleDownloadStampedImages = useCallback(async () => {
     if (!activeJob || activeJob.photos.length === 0) {
       alert('다운로드할 이미지가 없습니다.');
@@ -822,25 +828,30 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setIsDownloadingStamped(true);
     try {
       const zip = new JSZip();
-      const sanitizedReceipt = sanitizeFilename(activeJob.receiptNumber);
-      const sanitizedSite = sanitizeFilename(siteLocation);
-      const sanitizedItem = sanitizeFilename(activeJob.selectedItem.replace('/', '_'));
-      const baseName = `${sanitizedReceipt}_${sanitizedSite}_${sanitizedItem}`;
+      const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
 
       for (let i = 0; i < activeJob.photos.length; i++) {
         const imageInfo = activeJob.photos[i];
         const comment = activeJob.photoComments[imageInfo.uid];
+
         const stampedDataUrl = await generateStampedImage(
           imageInfo.base64,
           imageInfo.mimeType,
           activeJob.receiptNumber,
           siteLocation,
-          '',
+          activeJob.details ?? '',          // ✅ details 추가
           activeJob.selectedItem,
           comment
         );
+
+        // ✅ 결과 MIME 타입에 따라 확장자 결정
+        const outExt =
+          stampedDataUrl.startsWith('data:image/jpeg') || stampedDataUrl.startsWith('data:image/jpg')
+            ? 'jpg'
+            : 'png';
+
         const blob = dataURLtoBlob(stampedDataUrl);
-        zip.file(`${baseName}_${i + 1}.png`, blob);
+        zip.file(`${baseName}_${i + 1}.${outExt}`, blob);
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
 
