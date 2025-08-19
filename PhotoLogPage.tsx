@@ -6,7 +6,7 @@ import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
 import { RangeDifferenceDisplay, RangeResults as DisplayRangeResults, RangeStat } from './components/RangeDifferenceDisplay';
 import { extractTextFromImage } from './services/geminiService';
-import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview } from './services/claydoxApiService';
+import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview, sanitizeFilename } from './services/claydoxApiService';
 import JSZip from 'jszip';
 import { TN_IDENTIFIERS, TP_IDENTIFIERS } from './shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
@@ -205,11 +205,6 @@ const calculateConcentrationBoundariesInternal = (
   return { overallMin, overallMax, span, boundary1: b1, boundary2: b2 };
 };
 
-const sanitizeFilenameComponent = (component: string): string => {
-  if (!component) return '';
-  return component.replace(/[/\\[\]:*?"<>|]/g, '_').replace(/__+/g, '_');
-};
-
 const generateIdentifierSequence = (
     ocrData: ExtractedEntry[] | null,
     currentSelectedItem: string
@@ -309,15 +304,12 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
   }, [activeJob]);
 
   useEffect(() => {
-    if (activeJob) {
-        const numPhotos = activeJob.photos.length;
-        if (numPhotos > 0) {
-            if (currentImageIndex < 0 || currentImageIndex >= numPhotos) {
-                setCurrentImageIndex(0);
-            }
-        } else if (currentImageIndex !== -1) {
-            setCurrentImageIndex(-1);
+    if (activeJob && activeJob.photos.length > 0) {
+        if (currentImageIndex < 0 || currentImageIndex >= activeJob.photos.length) {
+            setCurrentImageIndex(0);
         }
+    } else {
+        setCurrentImageIndex(-1);
     }
   }, [activeJob, currentImageIndex]);
 
@@ -346,8 +338,8 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
 
   const hypotheticalKtlFileNamesForPreview = useMemo(() => {
     if (!activeJob || activeJob.photos.length === 0) return [];
-    const sanitizedSite = sanitizeFilenameComponent(siteLocation);
-    const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem === "TN/TP" ? "TN_TP" : activeJob.selectedItem);
+    const sanitizedSite = sanitizeFilename(siteLocation);
+    const sanitizedItemName = sanitizeFilename(activeJob.selectedItem === "TN/TP" ? "TN_TP" : activeJob.selectedItem);
     const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
     return [ `${baseName}_composite.jpg`, `${baseName}_Compression.zip` ];
   }, [activeJob, siteLocation]);
@@ -428,6 +420,10 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
         });
         const finalPhotos = Array.from(uniqueImageMap.values());
         
+        if (existingPhotos.length === 0 && finalPhotos.length > 0) {
+            setCurrentImageIndex(0);
+        }
+        
         return { ...job, photos: finalPhotos, processedOcrData: null, rangeDifferenceResults: null, submissionStatus: 'idle', submissionMessage: undefined };
     });
     setProcessingError(null);
@@ -454,10 +450,17 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
         const newPhotos = job.photos.filter((_, index) => index !== indexToDelete);
         const newComments = { ...job.photoComments };
         delete newComments[deletedPhotoUid];
+        if (newPhotos.length === 0) {
+            setCurrentImageIndex(-1);
+        } else if (currentImageIndex >= newPhotos.length) {
+            setCurrentImageIndex(newPhotos.length - 1);
+        } else if (currentImageIndex > indexToDelete) {
+            setCurrentImageIndex(prev => prev - 1);
+        }
         return { ...job, photos: newPhotos, photoComments: newComments, processedOcrData: null, rangeDifferenceResults: null, submissionStatus: 'idle', submissionMessage: undefined };
     });
     setProcessingError(null);
-  }, [activeJob, updateActiveJob]);
+  }, [activeJob, currentImageIndex, updateActiveJob]);
 
   const generatePromptForProAnalysis = ( receiptNum: string, siteLoc: string, item: string ): string => {
     let prompt = `제공된 측정 장비의 이미지를 분석해주세요.
@@ -565,6 +568,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         if (allRawExtractedEntries.length > 0) {
             const normalizeTime = (timeStr: string): string => {
                 if (!timeStr) return '';
+                // Standardize date separators and remove seconds
                 const standardized = timeStr.replace(/-/g, '/');
                 const match = standardized.match(/(\d{4}\/\d{2}\/\d{2}\s\d{2}:\d{2})/);
                 return match ? match[1] : standardized;
@@ -751,8 +755,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             pageType: 'PhotoLog',
         };
 
-        const sanitizedSite = sanitizeFilenameComponent(siteLocation);
-        const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
+        const sanitizedSite = sanitizeFilename(siteLocation);
+        const sanitizedItemName = sanitizeFilename(activeJob.selectedItem.replace('/', '_'));
         const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
         
         const imagesForComposite: CompositeImageInput[] = activeJob.photos.map(p => ({
@@ -764,12 +768,12 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
         const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
         
-        // ✅ ZIP: 원본만 포함 (스탬프 X)
         const zip = new JSZip();
-        for (let i = 0; i < activeJob.photos.length; i++) {
-            const imageInfo = activeJob.photos[i];
+        for (const imageInfo of activeJob.photos) {
             const rawDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
-            zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}`, dataURLtoBlob(rawDataUrl));
+            const rawBlob = dataURLtoBlob(rawDataUrl);
+            const fileNameInZip = sanitizeFilename(imageInfo.file.name);
+            zip.file(fileNameInZip, rawBlob);
         }
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
@@ -805,8 +809,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                 receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
                 identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: 'PhotoLog',
             };
-            const sanitizedSite = sanitizeFilenameComponent(siteLocation);
-            const sanitizedItemName = sanitizeFilenameComponent(job.selectedItem.replace('/', '_'));
+            const sanitizedSite = sanitizeFilename(siteLocation);
+            const sanitizedItemName = sanitizeFilename(job.selectedItem.replace('/', '_'));
             const baseName = `${job.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
             
             const imagesForComposite: CompositeImageInput[] = job.photos.map(p => ({
@@ -818,11 +822,12 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
             const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
             
-            // ✅ ZIP: 원본만 포함 (스탬프 X)
             const zip = new JSZip();
             for (const imageInfo of job.photos) {
                 const rawDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
-                zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}`, dataURLtoBlob(rawDataUrl));
+                const rawBlob = dataURLtoBlob(rawDataUrl);
+                const fileNameInZip = sanitizeFilename(imageInfo.file.name);
+                zip.file(fileNameInZip, rawBlob);
             }
             const zipBlob = await zip.generateAsync({ type: "blob" });
             const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
@@ -839,7 +844,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setTimeout(() => setBatchSendProgress(null), 5000);
   };
   
-  const handleDownloadStampedImages = useCallback(async () => {
+    const handleDownloadStampedImages = useCallback(async () => {
     if (!activeJob || activeJob.photos.length === 0) {
         alert("다운로드할 이미지가 없습니다.");
         return;
@@ -847,9 +852,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setIsDownloadingStamped(true);
     try {
         const zip = new JSZip();
-        const sanitizedReceipt = sanitizeFilenameComponent(activeJob.receiptNumber);
-        const sanitizedSite = sanitizeFilenameComponent(siteLocation);
-        const sanitizedItem = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
+        const sanitizedReceipt = sanitizeFilename(activeJob.receiptNumber);
+        const sanitizedSite = sanitizeFilename(siteLocation);
+        const sanitizedItem = sanitizeFilename(activeJob.selectedItem.replace('/', '_'));
         const baseName = `${sanitizedReceipt}_${sanitizedSite}_${sanitizedItem}`;
 
         for (let i = 0; i < activeJob.photos.length; i++) {
