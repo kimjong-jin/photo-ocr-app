@@ -501,8 +501,9 @@ const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, s
         for (const imageInfo of activeJob.photos) {
           const rawDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
           const rawBlob = dataURLtoBlob(rawDataUrl);
-          const fileNameInZip = sanitizeFilename(imageInfo.file.name);
+          const fileNameInZip = buildSafeImageFilename(imageInfo.file.name, imageInfo.mimeType);
           zip.file(fileNameInZip, rawBlob);
+
         }
 
         if (Object.keys(zip.files).length > 0) {
