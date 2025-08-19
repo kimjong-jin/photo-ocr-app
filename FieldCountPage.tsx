@@ -296,7 +296,6 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
     setKtlPreflightModalOpen(false);
 
     try {
-      // payload: 사진이 없어도 JSON만 전송 가능
       const payload: ClaydoxPayload = {
         receiptNumber: activeJob?.receiptNumber || '',
         siteLocation,
@@ -306,7 +305,6 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
         pageType: 'FieldCount',
       };
 
-      // 파일 준비
       const filesToSend: File[] = [];
       const uploadNames: string[] = [];
 
@@ -322,7 +320,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
           first.mimeType,
           activeJob.receiptNumber,
           siteLocation,
-          '', // FieldCount는 별도 details 없음
+          '', // FieldCount의 details 없음
           activeJob.selectedItem,
           undefined
         );
@@ -354,7 +352,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
   }, [activeJob, siteLocation, userName, updateActiveJob]);
 
   const handleBatchSendToKtl = async () => {
-    const targets = jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0); // 사진 없어도 JSON만 전송 가능
+    const targets = jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0);
     if (targets.length === 0) { alert('전송할 작업이 없습니다.'); return; }
 
     setIsSendingToClaydox(true);
@@ -536,14 +534,18 @@ const FieldCountPage: React.FC<FieldCountPageProps> = ({
             variant="secondary"
             className="bg-teal-600 hover:bg-teal-500"
           >
-            {isSendingToClaydox ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.filter(j => j.processedOcrData && j.photos.length >= 0).length}건)`}
+            {isSendingToClaydox ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0).length}건)`}
           </ActionButton>
         </div>
       )}
 
-      {isKtlPreflightModalOpen && ktlPreflightData && (
-        <KtlPreflightModal isOpen={isKtlPreflightModalOpen} onClose={() => setKtlPreflightModalOpen(false)} onConfirm={handleSendToClaydoxConfirmed} preflightData={ktlPreflightData} />
-      )}
+      {/* ✅ 모달은 항상 마운트, isOpen 으로만 토글 */}
+      <KtlPreflightModal
+        isOpen={isKtlPreflightModalOpen}
+        onClose={() => setKtlPreflightModalOpen(false)}
+        onConfirm={handleSendToClaydoxConfirmed}
+        preflightData={ktlPreflightData}
+      />
     </div>
   );
 };
