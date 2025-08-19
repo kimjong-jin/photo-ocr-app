@@ -1,10 +1,9 @@
-
 import React from 'react';
 import { ImageInfo } from './ImageInput';
 import type { AnalysisType } from '../StructuralCheckPage'; // Use type import
 
 interface GalleryImage extends ImageInfo {
-    uid?: string;
+  uid?: string;
 }
 
 interface ThumbnailGalleryProps {
@@ -45,9 +44,15 @@ export const ThumbnailGallery: React.FC<ThumbnailGalleryProps> = ({
       <h3 className="text-md font-medium text-slate-300 mb-2">선택된 사진 ({images.length}개):</h3>
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 bg-slate-700/50 p-2 rounded-lg">
         {images.map((image, index) => {
-          const hasBeenAnalyzed = analysisStatusForPhotos?.[index] && analysisStatusForPhotos[index].size > 0;
+          const hasBeenAnalyzed = !!(analysisStatusForPhotos?.[index] && analysisStatusForPhotos[index].size > 0);
+
+          // ✅ 안정적인 key: uid 우선, 없으면 (name-size-lastModified)
+          const stableKey =
+            image.uid ??
+            `${image.file.name}-${image.file.size}-${image.file.lastModified}`;
+
           return (
-            <div key={image.uid || `${image.file.name}-${index}`} className="relative group">
+            <div key={stableKey} className="relative group">
               <button
                 type="button"
                 onClick={() => onSelectImage(index)}
@@ -62,6 +67,7 @@ export const ThumbnailGallery: React.FC<ThumbnailGalleryProps> = ({
                   className="w-full h-full object-cover"
                 />
               </button>
+
               <button
                 type="button"
                 onClick={(e) => {
@@ -74,12 +80,13 @@ export const ThumbnailGallery: React.FC<ThumbnailGalleryProps> = ({
               >
                 <DeleteIcon />
               </button>
+
               {hasBeenAnalyzed && (
-                <div 
-                    className="absolute bottom-1 left-1 bg-green-500 rounded-full p-0.5 shadow-lg pointer-events-none"
-                    title="이 사진은 판별에 사용되었습니다."
+                <div
+                  className="absolute bottom-1 left-1 bg-green-500 rounded-full p-0.5 shadow-lg pointer-events-none"
+                  title="이 사진은 판별에 사용되었습니다."
                 >
-                    <CheckmarkIcon />
+                  <CheckmarkIcon />
                 </div>
               )}
             </div>
@@ -89,3 +96,4 @@ export const ThumbnailGallery: React.FC<ThumbnailGalleryProps> = ({
     </div>
   );
 };
+
