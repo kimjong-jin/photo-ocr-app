@@ -37,16 +37,26 @@ interface KtlApiResponseData {
 
 export const sanitizeFilename = (name: string): string => {
   if (!name) return 'untitled';
-  return name
-    .replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_')
-    .replace(/__+/g, '_');
+  // 점(.) 허용
+  let s = name
+    .replace(/[^\w.\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_');
+
+  // 중복 언더스코어/점 정리 + 앞/뒤 점 제거(숨김파일 방지)
+  s = s
+    .replace(/__+/g, '_')
+    .replace(/\.{2,}/g, '.')  // ..... → .
+    .replace(/^\.+/, '')      // 앞쪽 점 제거
+    .replace(/\.+$/, '');     // 뒤쪽 점 제거
+
+  return s || 'untitled';
 };
 
 export const getFileExtensionFromMime = (mimeType: string): string => {
-  if (mimeType.includes('image/jpeg')) return 'jpg';
-  if (mimeType.includes('image/png')) return 'png';
-  if (mimeType.includes('image/webp')) return 'webp';
-  if (mimeType.includes('image/gif')) return 'gif';
+  const t = (mimeType || '').toLowerCase();
+  if (t.includes('image/jpeg') || t.includes('image/jpg')) return 'jpg';
+  if (t.includes('image/png')) return 'png';
+  if (t.includes('image/webp')) return 'webp';
+  if (t.includes('image/gif')) return 'gif';
   return 'bin';
 };
 
@@ -56,9 +66,9 @@ export const safeNameWithExt = (originalName: string, mimeType: string): string 
   const extRaw  = dotIdx > 0 ? originalName.slice(dotIdx + 1).toLowerCase() : '';
 
   const sanitizedBase = sanitizeFilename(baseRaw) || 'image';
-  const known = ['jpg','jpeg','png','webp','gif'];
+  const known = new Set(['jpg','jpeg','png','webp','gif']);
 
-  let ext = known.includes(extRaw) ? (extRaw === 'jpeg' ? 'jpg' : extRaw) : getFileExtensionFromMime(mimeType);
+  let ext = known.has(extRaw) ? (extRaw === 'jpeg' ? 'jpg' : extRaw) : getFileExtensionFromMime(mimeType);
   if (!ext || ext === 'bin') ext = 'jpg';
 
   return `${sanitizedBase}.${ext}`;
