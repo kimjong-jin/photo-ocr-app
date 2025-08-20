@@ -23,8 +23,8 @@ interface StampDetails {
 }
 
 // ----- Constants -----
-/** 스탬프/코멘트 글자 스케일(짧은 변 × 0.05 = 5%) */
-export const TEXT_SCALE = 0.05;
+/** 스탬프/코멘트 글자 스케일(짧은 변 × 0.03 = 3%) */
+export const TEXT_SCALE = 0.03;
 /** 합성 캔버스 최대 한 변 픽셀 */
 export const MAX_COMPOSITE_DIMENSION = 3000;
 
@@ -36,7 +36,7 @@ const ensureDataUrl = (src: string, mimeType: string) =>
 
 /**
  * 단일 이미지에 하단 스탬프(접수번호/현장/항목/검사시작일/코멘트)를 그려 dataURL 반환.
- * 글자 크기 = 이미지의 "짧은 변 × TEXT_SCALE(기본 0.05)" (최소 12px 보장)
+ * 글자 크기 = 이미지의 "짧은 변 × TEXT_SCALE(기본 0.03)" (최소 12px 보장)
  */
 export const generateStampedImage = (
   base64Image: string,     // dataURL 전체 또는 순수 base64
