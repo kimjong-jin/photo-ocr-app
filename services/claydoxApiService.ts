@@ -50,6 +50,20 @@ export const getFileExtensionFromMime = (mimeType: string): string => {
   return 'bin';
 };
 
+export const safeNameWithExt = (originalName: string, mimeType: string): string => {
+  const dotIdx = originalName.lastIndexOf('.');
+  const baseRaw = dotIdx > 0 ? originalName.slice(0, dotIdx) : originalName;
+  const extRaw  = dotIdx > 0 ? originalName.slice(dotIdx + 1).toLowerCase() : '';
+
+  const sanitizedBase = sanitizeFilename(baseRaw) || 'image';
+  const known = ['jpg','jpeg','png','webp','gif'];
+
+  let ext = known.includes(extRaw) ? (extRaw === 'jpeg' ? 'jpg' : extRaw) : getFileExtensionFromMime(mimeType);
+  if (!ext || ext === 'bin') ext = 'jpg';
+
+  return `${sanitizedBase}.${ext}`;
+};
+
 async function retryKtlApiCall<TResponseData>(
   fn: () => Promise<AxiosResponse<TResponseData>>,
   retries: number = 2,
@@ -842,7 +856,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
           const base64ForZip = pickZipBase64(photo);
           const rawDataUrl = `data:${photo.mimeType};base64,${base64ForZip}`;
           const rawBlob = dataURLtoBlob(rawDataUrl);
-          const fileNameInZip = sanitizeFilename(photo.file.name);
+          const fileNameInZip = safeNameWithExt(photo.file.name, photo.mimeType);
           zip.file(fileNameInZip, rawBlob);
         } catch (zipError: any) {
           console.error(`[ClaydoxAPI - Page 2] Error adding raw photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
