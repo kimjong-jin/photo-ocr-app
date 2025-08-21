@@ -268,6 +268,46 @@ const calculateMaxDecimalPlaces = (ocrData: ExtractedEntry[] | null, selectedIte
   return maxPlaces;
 };
 
+const parseDataUrl = (dataUrl: string) => {
+  const m = /^data:(image\/[a-zA-Z0-9+.\-]+);base64,(.*)$/.exec(dataUrl);
+  if (m) return { mimeType: m[1], base64: m[2] };
+  // 혹시 헤더가 없으면 강제로 본문만 남김
+  return { mimeType: 'image/jpeg', base64: dataUrl.replace(/^data:.*;base64,/, '') };
+};
+
+const stampPhotosForA4 = async (job: PhotoLogJob, siteLocation: string) => {
+  const stamped = await Promise.all(
+    job.photos.map(async (p) => {
+      const stampedUrl = await generateStampedImage(
+        p.base64,
+        p.mimeType,
+        job.receiptNumber,
+        siteLocation,
+        job.details ?? '',
+        job.selectedItem,
+        job.photoComments?.[p.uid]
+      );
+      const { mimeType, base64 } = parseDataUrl(stampedUrl);
+      return { base64, mimeType };
+    })
+  );
+  return stamped;
+};
+
+const uid = () => {
+const c = globalThis.crypto as Crypto | undefined;
+if (c?.randomUUID) return c.randomUUID();
+if (c?.getRandomValues) {
+const b = new Uint8Array(16);
+c.getRandomValues(b);
+b[6] = (b[6] & 0x0f) | 0x40; // version 4
+b[8] = (b[8] & 0x3f) | 0x80; // variant
+const hex = [...b].map(v => v.toString(16).padStart(2, "0"));
+return `${hex.slice(0,4).join("")}-${hex.slice(4,6).join("")}-${hex.slice(6,8).join("")}-${hex.slice(8,10).join("")}-${hex.slice(10).join("")}`;
+}
+return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;
+};
+
 interface PhotoLogPageProps {
   userName: string;
   jobs: PhotoLogJob[];
@@ -402,14 +442,14 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
     ) {
       updateActiveJob(j => ({ ...j, concentrationBoundaries: boundaries, rangeDifferenceResults: newRangeResults, decimalPlaces: newMaxDecimalPlaces }));
     }
-  }, [activeJob?.processedOcrData, activeJob?.selectedItem, updateActiveJob, activeJob]);
+  }, [activeJob?.processedOcrData, activeJob?.selectedItem, updateActiveJob]);
 
   const handleImagesSet = useCallback((newlySelectedImages: BaseImageInfo[]) => {
     if (newlySelectedImages.length === 0 && activeJob?.photos && activeJob.photos.length > 0) return;
 
     const photosWithUids: JobPhoto[] = newlySelectedImages.map(img => ({
       ...img,
-      uid: self.crypto.randomUUID()
+      uid: uid()
     }));
 
     updateActiveJob(job => {
@@ -435,7 +475,7 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
   const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
 
   const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
-    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: self.crypto.randomUUID() };
+    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: uid() };
     updateActiveJob(job => {
       const newPhotos = [...(job.photos || []), capturedImageInfo];
       setCurrentImageIndex(newPhotos.length - 1);
@@ -606,7 +646,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           } else {
             primaryValue = (rawEntry as RawEntrySingle).value || '';
           }
-          return { id: self.crypto.randomUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue };
+          return { id: uid(), time: rawEntry.time, value: primaryValue, valueTP: tpValue };
         });
         updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
         if (batchHadError) setProcessingError('일부 이미지를 처리하지 못했습니다.');
@@ -634,7 +674,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     updateActiveJob(job => {
       if (!job) return job;
       const newEntry: ExtractedEntry = {
-        id: self.crypto.randomUUID(),
+        id: uid(),
         time: '',
         value: '',
         valueTP: job.selectedItem === 'TN/TP' ? '' : undefined,
@@ -692,115 +732,143 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
   }, [activeJob, updateActiveJob]);
 
   const handleAutoAssignIdentifiers = useCallback(() => {
-    if (!activeJob || !activeJob.processedOcrData || !activeJob.concentrationBoundaries) {
-      setProcessingError('자동 할당을 위해선 추출된 데이터와 농도 분석이 필요합니다.');
-      return;
-    }
+  if (
+    !activeJob ||
+    !activeJob.processedOcrData ||
+    !activeJob.concentrationBoundaries
+  ) {
+    setProcessingError('자동 할당을 위해선 추출된 데이터와 농도 분석이 필요합니다.');
+    return;
+  }
 
-    const isTpMode = activeJob.selectedItem === 'TN/TP';
-    const assignments = autoAssignIdentifiersByConcentration(
-      activeJob.processedOcrData,
-      activeJob.concentrationBoundaries,
-      isTpMode
-    );
+  const isTpMode = activeJob.selectedItem === 'TN/TP';
+  const assignments = autoAssignIdentifiersByConcentration(
+    activeJob.processedOcrData,
+    activeJob.concentrationBoundaries,
+    isTpMode
+  );
 
-    const updatedOcrData = activeJob.processedOcrData.map((entry, index) => {
-      const assignment = assignments[index];
-      const newIdentifier = assignment.tn !== undefined ? assignment.tn : entry.identifier;
-      const newIdentifierTP = assignment.tp !== undefined ? assignment.tp : entry.identifierTP;
+  const updatedOcrData = activeJob.processedOcrData.map((entry, index) => {
+    const a = assignments[index];
+    const newIdentifier = a.tn !== undefined ? a.tn : entry.identifier;
+    const newIdentifierTP = a.tp !== undefined ? a.tp : entry.identifierTP;
 
-      return {
-        ...entry,
-        identifier: newIdentifier,
-        identifierTP: isTpMode ? newIdentifierTP : undefined,
-      };
-    });
+    return {
+      ...entry,
+      identifier: newIdentifier,
+      identifierTP: isTpMode ? newIdentifierTP : undefined,
+    };
+  });
 
-    updateActiveJob(j => ({
-      ...j,
-      processedOcrData: updatedOcrData,
-      submissionStatus: 'idle',
-      submissionMessage: undefined
-    }));
-    setProcessingError(null);
-  }, [activeJob, updateActiveJob]);
+  updateActiveJob(j => ({
+    ...j,
+    processedOcrData: updatedOcrData,
+    submissionStatus: 'idle',
+    submissionMessage: undefined,
+  }));
+  setProcessingError(null);
+}, [activeJob, updateActiveJob]);
 
   const handleInitiateSendToKtl = useCallback(() => {
     if (!activeJob || !ktlJsonPreview) {
       alert('KTL 전송을 위한 모든 조건(작업 선택, 데이터, 사진, 필수정보)이 충족되지 않았습니다.');
       return;
     }
+
     setKtlPreflightData({
       jsonPayload: ktlJsonPreview,
       fileNames: hypotheticalKtlFileNamesForPreview,
-      context: { receiptNumber: activeJob.receiptNumber, siteLocation: siteLocation, selectedItem: activeJob.selectedItem, userName }
+      context: {
+        receiptNumber: activeJob.receiptNumber,
+        siteLocation,
+        selectedItem: activeJob.selectedItem,
+        userName,
+      },
     });
     setKtlPreflightModalOpen(true);
   }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
 
-  /** 전송: composite = 첫 장 스탬프 가공본, ZIP = 모든 원본 */
-  const handleSendToClaydoxConfirmed = useCallback(async () => {
-    setKtlPreflightModalOpen(false);
-    if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
-      updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: 'KTL 전송을 위한 필수 데이터가 누락되었습니다.' }));
-      return;
+ const handleSendToClaydoxConfirmed = useCallback(async () => {
+  setKtlPreflightModalOpen(false);
+
+  if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
+    updateActiveJob(j => ({
+      ...j,
+      submissionStatus: 'error',
+      submissionMessage: 'KTL 전송을 위한 필수 데이터가 누락되었습니다.',
+    }));
+    return;
+  }
+
+  // 전송 상태 표시
+  updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '전송 중...' }));
+
+  try {
+    // 1) 페이로드 구성
+    const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
+    const payload: ClaydoxPayload = {
+      receiptNumber: activeJob.receiptNumber,
+      siteLocation,
+      item: activeJob.selectedItem,
+      updateUser: userName,
+      ocrData: activeJob.processedOcrData,
+      identifierSequence,
+      maxDecimalPlaces: activeJob.decimalPlaces,
+      pageType: 'PhotoLog',
+    };
+
+    const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
+
+    // 2) 스탬프 적용본으로 A4 합성 JPG 생성
+    const stampedForA4 = await stampPhotosForA4(activeJob, siteLocation);
+    const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
+      dpi: 300,
+      marginPx: 0,
+      gutterPx: 0,
+      quality: 0.95,
+      fitMode: 'cover'
+    });
+
+    // 3) 합성 JPG -> File[]
+    const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
+      const blob = dataURLtoBlob(dataUrl);
+      const no = String(idx + 1).padStart(2, '0');
+      return new File([blob], `${baseName}_composite_${no}.jpg`, { type: 'image/jpeg' });
+    });
+
+    // 4) 원본(무스탬프) ZIP 생성
+    const zip = new JSZip();
+    for (const imageInfo of activeJob.photos) {
+      const raw = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
+      const rawBlob = dataURLtoBlob(raw);
+      const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType);
+      zip.file(fileNameInZip, rawBlob);
     }
-    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '전송 중...' }));
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
 
-    try {
-      const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
-      const payload: ClaydoxPayload = {
-        receiptNumber: activeJob.receiptNumber, siteLocation, item: activeJob.selectedItem, updateUser: userName,
-        ocrData: activeJob.processedOcrData,
-        identifierSequence: identifierSequence,
-        maxDecimalPlaces: activeJob.decimalPlaces,
-        pageType: 'PhotoLog',
-      };
+    // 5) 전송
+    const response = await sendToClaydoxApi(
+      payload,
+      [...compositeFiles, zipFile],
+      activeJob.selectedItem,
+      [...compositeFiles.map(f => f.name), zipFile.name]
+    );
 
-      const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
-
-     // ✅ A4 JPG 페이지로 최대 4장씩 타일링(1~N장)
-     const imagesForA4 = activeJob.photos.map(p => ({
-       base64: p.base64,
-       mimeType: p.mimeType,
-       comment: activeJob.photoComments?.[p.uid]
-     }));
-
-     const a4Pages = await generateA4CompositeJPEGPages(imagesForA4, {
-       dpi: 300,
-       marginPx: 48,
-       gutterPx: 24,
-       quality: 0.95,
-     });
-
-     const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
-       const blob = dataURLtoBlob(dataUrl);
-       const no = String(idx + 1).padStart(2, '0');
-       return new File([blob], `${baseName}_composite_${no}.jpg`, { type: 'image/jpeg' });
-     });
-
-      // ✅ ZIP: 원본(무스탬프)
-      const zip = new JSZip();
-      for (const imageInfo of activeJob.photos) {
-        const raw = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
-        const rawBlob = dataURLtoBlob(raw);
-        const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType);
-        zip.file(fileNameInZip, rawBlob);
-      }
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
-
-      const response = await sendToClaydoxApi(
-       payload,
-       [...compositeFiles, zipFile],
-       activeJob.selectedItem,
-       [...compositeFiles.map(f => f.name), zipFile.name]
-     );
-      updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
-    } catch (error: any) {
-      updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
-    }
-  }, [activeJob, siteLocation, userName, updateActiveJob]);
+    // 6) 상태 갱신
+    updateActiveJob(j => ({
+      ...j,
+      submissionStatus: 'success',
+      submissionMessage: response.message,
+    }));
+  } catch (error: any) {
+    updateActiveJob(j => ({
+      ...j,
+      submissionStatus: 'error',
+      submissionMessage: `KTL 전송 실패: ${error.message}`,
+    }));
+  }
+}, [activeJob, siteLocation, userName, updateActiveJob]);
 
 const handleBatchSendToKtl = async () => {
   const jobsToSend = jobs.filter(
@@ -842,19 +910,15 @@ const handleBatchSendToKtl = async () => {
       const baseName = buildBaseName(job.receiptNumber, siteLocation, job.selectedItem);
 
       // ✅ A4 JPG 페이지로 최대 4장씩 타일링
-      const imagesForA4 = job.photos.map(p => ({
-        base64: p.base64,
-        mimeType: p.mimeType,
-        comment: (job as any).photoComments?.[p.uid],
-      }));
+      const stampedForA4 = await stampPhotosForA4(job, siteLocation);
 
-      const a4Pages = await generateA4CompositeJPEGPages(imagesForA4, {
+      const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
         dpi: 300,
-        marginPx: 48,
-        gutterPx: 24,
+        marginPx: 0,
+        gutterPx: 0,
         quality: 0.95,
+        // fitMode: 'cover'
       });
-
       const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
         const blob = dataURLtoBlob(dataUrl);
         const no = String(idx + 1).padStart(2, '0');
