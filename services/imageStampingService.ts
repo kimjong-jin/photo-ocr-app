@@ -28,7 +28,7 @@ export interface A4CompositeOptions {
   gutterPx?: number;     // 타일 간격, 기본 24px
   background?: string;   // 배경색, 기본 '#ffffff'
   quality?: number;      // JPEG 품질(0~1), 기본 0.95
-  fitMode?: 'contain' | 'cover'; // ✅ 추가
+  fitMode?: 'contain' | 'cover'; // ← contain=안잘림(여백), cover=꽉참(잘릴수있음)
 }
 
 // ----- Constants -----
@@ -211,7 +211,7 @@ export const generateCompositeImage = (
       const comment = images[idx].comment?.trim();
       if (comment) {
         const baseDim = Math.min(dw, dh);
-        const fontSize = Math.max(12, Math.round(baseDim * TEXT_SCALE)); // 셀 기준 5%
+        const fontSize = Math.max(12, Math.round(baseDim * TEXT_SCALE)); // 셀 기준 3%
         const pad = Math.round(fontSize * 0.4);
 
         ctx.font = `bold ${fontSize}px Arial, sans-serif`;
@@ -236,7 +236,7 @@ export const generateCompositeImage = (
     // (4) 하단 공통 스탬프
     const { receiptNumber, siteLocation, inspectionStartDate, item } = stampDetails;
     const canvasBase = Math.min(canvas.width, canvas.height);
-    const stampFont = Math.max(12, Math.round(canvasBase * TEXT_SCALE)); // 캔버스 기준 5%
+    const stampFont = Math.max(12, Math.round(canvasBase * TEXT_SCALE)); // 캔버스 기준 3%
     const stampPad = Math.round(stampFont * 0.5);
     const lineH = Math.round(stampFont * 1.4);
 
@@ -358,8 +358,8 @@ export async function generateA4CompositeJPEGPages(
   opts: A4CompositeOptions = {}
 ): Promise<string[]> {
   const dpi = opts.dpi ?? 300;
-  const pageW = Math.round(8.27 * dpi);   // 2480 @300dpi
-  const pageH = Math.round(11.69 * dpi);  // 3508 @300dpi
+  const pageW = Math.round(8.27 * dpi);   // ≈2481 @300dpi
+  const pageH = Math.round(11.69 * dpi);  // ≈3507 @300dpi
   const margin = opts.marginPx ?? 48;
   const gutter = opts.gutterPx ?? 24;
   const bg = opts.background ?? '#ffffff';
