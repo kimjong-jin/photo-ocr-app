@@ -429,7 +429,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                       ) : (
                         <>
                           {/* ⬇️ 식별자: 모바일 최소폭 8.5rem 보장, md+ 해제 */}
-                          <td className="px-2 py-2.5 text-sm align-top min-w-[8.5rem] md:min-w-0">
+                          <td className="px-2 py-2.5 text-sm align-top min-w-[1.5rem] md:min-w-0">
                             <select
                               value={entry.identifier || ''}
                               onChange={(e) => onEntryIdentifierChange(entry.id, e.target.value)}
@@ -450,7 +450,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                           </td>
 
                           {isTnTpMode && (
-                            <td className="px-2 py-2.5 text-sm align-top min-w-[8.5rem] md:min-w-0">
+                            <td className="px-2 py-2.5 text-sm align-top min-w-[1.5rem] md:min-w-0">
                               <select
                                 value={entry.identifierTP || ''}
                                 onChange={(e) => onEntryIdentifierTPChange(entry.id, e.target.value)}
