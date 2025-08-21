@@ -275,14 +275,14 @@ const parseDataUrl = (dataUrl: string) => {
   return { mimeType: 'image/jpeg', base64: dataUrl.replace(/^data:.*;base64,/, '') };
 };
 
-const stampPhotosForA4 = async (job: PhotoLogJob, siteLocation: string) => {
+const stampPhotosForA4 = async (job: PhotoLogJob) => {
   const stamped = await Promise.all(
     job.photos.map(async (p) => {
       const stampedUrl = await generateStampedImage(
         p.base64,
         p.mimeType,
         job.receiptNumber,
-        siteLocation,
+        job.siteLocation,
         job.details ?? '',
         job.selectedItem,
         job.photoComments?.[p.uid]
@@ -376,21 +376,21 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
     const hypotheticalKtlFileNamesForPreview = useMemo(() => {
       if (!activeJob || activeJob.photos.length === 0) return [];
       const itemForName = activeJob.selectedItem === 'TN/TP' ? 'TN_TP' : activeJob.selectedItem;
-      const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, itemForName);
+      const baseName = buildBaseName(activeJob.receiptNumber, activeJob.siteLocation, itemForName);
       const pages = Math.ceil(activeJob.photos.length / 4); // A4 1장당 최대 4장 타일링
       const composites = Array.from({ length: pages }, (_, i) =>
         `${baseName}_composite_${String(i + 1).padStart(2, '0')}.jpg`
       );
       return [...composites, `${baseName}_Compression.zip`];
-    }, [activeJob?.receiptNumber, activeJob?.selectedItem, activeJob?.photos.length, siteLocation]);
+    }, [activeJob?.receiptNumber, activeJob?.selectedItem, activeJob?.photos.length, activeJob?.siteLocation]);
 
   const ktlJsonPreview = useMemo(() => {
     if (!activeJob || !userName) return null;
     const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
     const payload: ClaydoxPayload = {
-      receiptNumber: activeJob.receiptNumber,
-      siteLocation: siteLocation,
-      item: activeJob.selectedItem,
+      receiptNumber: job.receiptNumber,
+      siteLocation: job.siteLocation,
+      item: job.selectedItem,
       ocrData: activeJob.processedOcrData || [],
       updateUser: userName,
       identifierSequence: identifierSequence,
@@ -584,7 +584,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       const imageProcessingPromises = activeJob.photos.map(async (image) => {
         let jsonStr = '';
         try {
-          const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
+          const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, activeJob.siteLocation, activeJob.selectedItem);
           const modelConfig = { responseMimeType: 'application/json', responseSchema: responseSchema };
           jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
           const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
@@ -780,7 +780,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       fileNames: hypotheticalKtlFileNamesForPreview,
       context: {
         receiptNumber: activeJob.receiptNumber,
-        siteLocation,
+        siteLocation: activeJob.siteLocation,
         selectedItem: activeJob.selectedItem,
         userName,
       },
@@ -808,7 +808,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
     const payload: ClaydoxPayload = {
       receiptNumber: activeJob.receiptNumber,
-      siteLocation,
+      siteLocation: activeJob.siteLocation,
       item: activeJob.selectedItem,
       updateUser: userName,
       ocrData: activeJob.processedOcrData,
@@ -817,10 +817,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       pageType: 'PhotoLog',
     };
 
-    const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
+    const baseName = buildBaseName(activeJob.receiptNumber, activeJob.siteLocation, activeJob.selectedItem);
 
     // 2) 스탬프 적용본으로 A4 합성 JPG 생성
-    const stampedForA4 = await stampPhotosForA4(activeJob, siteLocation);
+    const stampedForA4 = await stampPhotosForA4(activeJob);
     const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
       dpi: 300,
       marginPx: 0,
@@ -898,7 +898,7 @@ const handleBatchSendToKtl = async () => {
       const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
       const payload: ClaydoxPayload = {
         receiptNumber: job.receiptNumber,
-        siteLocation,
+        siteLocation: activeJob.siteLocation,
         item: job.selectedItem,
         updateUser: userName,
         ocrData: job.processedOcrData!, // 여긴 존재 보장됨
@@ -907,17 +907,17 @@ const handleBatchSendToKtl = async () => {
         pageType: 'PhotoLog',
       };
 
-      const baseName = buildBaseName(job.receiptNumber, siteLocation, job.selectedItem);
+      const baseName = buildBaseName(job.receiptNumber, job.siteLocation, job.selectedItem);
 
       // ✅ A4 JPG 페이지로 최대 4장씩 타일링
-      const stampedForA4 = await stampPhotosForA4(job, siteLocation);
+      const stampedForA4 = await stampPhotosForA4(job);
 
       const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
         dpi: 300,
         marginPx: 0,
         gutterPx: 0,
         quality: 0.95,
-        // fitMode: 'cover'
+        fitMode: 'cover',
       });
       const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
         const blob = dataURLtoBlob(dataUrl);
@@ -976,7 +976,7 @@ const handleBatchSendToKtl = async () => {
     setIsDownloadingStamped(true);
     try {
       const zip = new JSZip();
-      const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
+      const baseName = buildBaseName(activeJob.receiptNumber, activeJob.siteLocation, activeJob.selectedItem);
 
       for (let i = 0; i < activeJob.photos.length; i++) {
         const imageInfo = activeJob.photos[i];
@@ -986,7 +986,7 @@ const handleBatchSendToKtl = async () => {
           imageInfo.base64,
           imageInfo.mimeType,
           activeJob.receiptNumber,
-          siteLocation,
+          activeJob.siteLocation,
           activeJob.details ?? '',
           activeJob.selectedItem,
           comment
