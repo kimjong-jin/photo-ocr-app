@@ -22,6 +22,15 @@ interface StampDetails {
   item: string;
 }
 
+export interface A4CompositeOptions {
+  dpi?: number;          // 기본 300
+  marginPx?: number;     // 페이지 여백, 기본 48px
+  gutterPx?: number;     // 타일 간격, 기본 24px
+  background?: string;   // 배경색, 기본 '#ffffff'
+  quality?: number;      // JPEG 품질(0~1), 기본 0.95
+  fitMode?: 'contain' | 'cover'; // ← 추가 (기본 'contain')
+}
+
 // ----- Constants -----
 /** 스탬프/코멘트 글자 스케일(짧은 변 × 0.03 = 3%) */
 export const TEXT_SCALE = 0.03;
@@ -302,13 +311,25 @@ export interface A4CompositeOptions {
 
 type A4Base64Image = { base64: string; mimeType: string; comment?: string };
 
-function a4FitContain(srcW: number, srcH: number, boxW: number, boxH: number) {
-  const r = Math.min(boxW / srcW, boxH / srcH);
-  const w = Math.round(srcW * r);
-  const h = Math.round(srcH * r);
-  const x = Math.round((boxW - w) / 2);
-  const y = Math.round((boxH - h) / 2);
-  return { x, y, w, h };
+function a4CoverCrop(srcW: number, srcH: number, boxW: number, boxH: number) {
+  const srcR = srcW / srcH;
+  const boxR = boxW / boxH;
+
+  if (srcR > boxR) {
+    // 가로가 더 넓음 → 가로를 자름
+    const sw = Math.round(srcH * boxR);
+    const sh = srcH;
+    const sx = Math.round((srcW - sw) / 2);
+    const sy = 0;
+    return { sx, sy, sw, sh };
+  } else {
+    // 세로가 더 김 → 세로를 자름
+    const sw = srcW;
+    const sh = Math.round(srcW / boxR);
+    const sx = 0;
+    const sy = Math.round((srcH - sh) / 2);
+    return { sx, sy, sw, sh };
+  }
 }
 
 async function loadImageFromBase64(dataUrl: string): Promise<HTMLImageElement> {
@@ -339,6 +360,7 @@ export async function generateA4CompositeJPEGPages(
   const gutter = opts.gutterPx ?? 24;
   const bg = opts.background ?? '#ffffff';
   const quality = opts.quality ?? 0.95;
+  const mode = opts.fitMode ?? 'contain'; // ← cover/contain 모드
 
   // 4개씩 끊기
   const groups: A4Base64Image[][] = [];
@@ -357,8 +379,10 @@ export async function generateA4CompositeJPEGPages(
     let cells: Array<{ x: number; y: number; w: number; h: number }> = [];
 
     if (group.length === 1) {
+      // 1장: 전체
       cells = [{ x: margin, y: margin, w: pageW - margin * 2, h: pageH - margin * 2 }];
     } else if (group.length === 2) {
+      // 2장: 좌/우 반반
       const tileW = Math.floor((pageW - margin * 2 - gutter) / 2);
       const tileH = pageH - margin * 2;
       const y = margin;
@@ -369,6 +393,7 @@ export async function generateA4CompositeJPEGPages(
         { x: x2, y, w: tileW, h: tileH },
       ];
     } else {
+      // 3~4장: 2x2 (3장일 때 마지막 칸 비움)
       const tileW = Math.floor((pageW - margin * 2 - gutter) / 2);
       const tileH = Math.floor((pageH - margin * 2 - gutter) / 2);
       const x1 = margin;
@@ -381,22 +406,32 @@ export async function generateA4CompositeJPEGPages(
         { x: x1, y: y2, w: tileW, h: tileH },
         { x: x2, y: y2, w: tileW, h: tileH },
       ];
-      // 3장은 4번째 칸 비워짐
     }
 
+    // === 이미지 그리기(cover/contain 선택) ===
     for (let i = 0; i < group.length; i++) {
       const g = group[i];
       const cell = cells[i];
       const img = await loadImageFromBase64(
-        g.base64.startsWith('data:') ? g.base64 : `data:${g.mimeType};base64,${g.base64}`
+        g.base64.startsWith('data:')
+          ? g.base64
+          : `data:${g.mimeType};base64,${g.base64}`
       );
 
-      const fit = a4FitContain(img.width, img.height, cell.w, cell.h);
-      ctx.drawImage(img, cell.x + fit.x, cell.y + fit.y, fit.w, fit.h);
+      if (mode === 'cover') {
+        // 칸을 꽉 채움(중앙 크롭)
+        const { sx, sy, sw, sh } = a4CoverCrop(img.width, img.height, cell.w, cell.h);
+        ctx.drawImage(img, sx, sy, sw, sh, cell.x, cell.y, cell.w, cell.h);
+      } else {
+        // contain (여백이 생길 수 있음)
+        const fit = a4FitContain(img.width, img.height, cell.w, cell.h);
+        ctx.drawImage(img, cell.x + fit.x, cell.y + fit.y, fit.w, fit.h);
+      }
 
-      // 필요시 코멘트 텍스트 렌더링 위치 추가 가능
+      // 필요하면 타일 코멘트 등 추가 렌더링 여기서
     }
 
+    // 페이지 완료
     pages.push(canvas.toDataURL('image/jpeg', quality));
   }
 
