@@ -14,7 +14,7 @@ import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { Type } from '@google/genai';
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
-import { dataURLtoBlob, generateCompositeImage, generateStampedImage } from './services/imageStampingService';
+import { dataURLtoBlob, generateA4CompositeJPEGPages, generateStampedImage, generateCompositeImage } from './services/imageStampingService';
 import { autoAssignIdentifiersByConcentration } from './services/identifierAutomationService';
 
 export interface JobPhoto extends BaseImageInfo {
@@ -756,20 +756,25 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 
       const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
 
-      // ✅ composite: 모든 사진을 겹치지 않는 그리드로 1장 합성
-      const imagesForComposite = activeJob.photos.map(p => ({
-      base64: p.base64,
-      mimeType: p.mimeType,
-      comment: activeJob.photoComments?.[p.uid] // 사진별 코멘트가 있으면 타일 좌상단 표시
-      }));
-      const compositeDataUrl = await generateCompositeImage(
-      imagesForComposite,
-      { receiptNumber: activeJob.receiptNumber, siteLocation, inspectionStartDate: '', item: activeJob.selectedItem },
-      'image/jpeg',
-      0.9
-      );
-      const compositeBlob = dataURLtoBlob(compositeDataUrl);
-      const compositeFile = new File([compositeBlob], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
+     // ✅ A4 JPG 페이지로 최대 4장씩 타일링(1~N장)
+     const imagesForA4 = activeJob.photos.map(p => ({
+       base64: p.base64,
+       mimeType: p.mimeType,
+       comment: activeJob.photoComments?.[p.uid]
+     }));
+
+     const a4Pages = await generateA4CompositeJPEGPages(imagesForA4, {
+       dpi: 300,
+       marginPx: 48,
+       gutterPx: 24,
+       quality: 0.95,
+     });
+
+     const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
+       const blob = dataURLtoBlob(dataUrl);
+       const no = String(idx + 1).padStart(2, '0');
+       return new File([blob], `${baseName}_composite_${no}.jpg`, { type: 'image/jpeg' });
+     });
 
       // ✅ ZIP: 원본(무스탬프)
       const zip = new JSZip();
@@ -782,7 +787,12 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
 
-      const response = await sendToClaydoxApi(payload, [compositeFile, zipFile], activeJob.selectedItem, [compositeFile.name, zipFile.name]);
+      const response = await sendToClaydoxApi(
+       payload,
+       [...compositeFiles, zipFile],
+       activeJob.selectedItem,
+       [...compositeFiles.map(f => f.name), zipFile.name]
+     );
       updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
     } catch (error: any) {
       updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
