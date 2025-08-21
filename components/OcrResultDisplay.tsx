@@ -313,7 +313,8 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                 <tbody className="bg-slate-800 divide-y divide-slate-700">
                 {ocrData.map((entry, index) => {
                     const baseInputClass = "w-full bg-slate-700 p-2 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500";
-                    const identifierSelectClass = (ident?: string) => `${baseInputClass} ${ident ? 'text-red-400 font-bold' : 'text-slate-200'}`;
+                    const identifierSelectClass = (ident?: string) =>
+                        `${baseInputClass} text-base md:text-sm ${ident ? 'text-red-400 font-bold' : 'text-slate-200'}`;
                     const isDividerRow = isManualEntryMode && !!entry.identifier && dividerIdentifiers.has(entry.identifier);
                     const isSequenceRow = isManualEntryMode && !!entry.identifier && sequenceRelatedIdentifiers.has(entry.identifier);
                     const isResponseTimeRow = isManualEntryMode && entry.identifier === '응답';
