@@ -836,7 +836,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       marginPx: 0,
       gutterPx: 0,
       quality: 0.95,
-      fitMode: 'cover'
+      fitMode: 'contain'
     });
 
     // 3) 합성 JPG -> File[]
@@ -927,7 +927,7 @@ const handleBatchSendToKtl = async () => {
         marginPx: 0,
         gutterPx: 0,
         quality: 0.95,
-        fitMode: 'cover',
+        fitMode: 'contain',
       });
       const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
         const blob = dataURLtoBlob(dataUrl);
