@@ -386,20 +386,29 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
 
   const ktlJsonPreview = useMemo(() => {
     if (!activeJob || !userName) return null;
-    const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
+
+    const identifierSequence = generateIdentifierSequence(
+      activeJob.processedOcrData,
+      activeJob.selectedItem
+    );
+
     const payload: ClaydoxPayload = {
-      receiptNumber: job.receiptNumber,
-      siteLocation: job.siteLocation,
-      item: job.selectedItem,
+      receiptNumber: activeJob.receiptNumber,
+      siteLocation: activeJob.siteLocation,
+      item: activeJob.selectedItem,
       updateUser: userName,
-      ocrData: job.processedOcrData!,
+      ocrData: activeJob.processedOcrData || [],
       identifierSequence,
-      maxDecimalPlaces: job.decimalPlaces,
+      maxDecimalPlaces: activeJob.decimalPlaces,
       pageType: 'PhotoLog',
     };
-    
-    return generateKtlJsonForPreview(payload, activeJob.selectedItem, hypotheticalKtlFileNamesForPreview);
-  }, [activeJob, userName, siteLocation, hypotheticalKtlFileNamesForPreview]);
+
+  return generateKtlJsonForPreview(
+    payload,
+    activeJob.selectedItem,
+    hypotheticalKtlFileNamesForPreview
+  );
+}, [activeJob, userName, hypotheticalKtlFileNamesForPreview]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -899,7 +908,7 @@ const handleBatchSendToKtl = async () => {
       const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
       const payload: ClaydoxPayload = {
         receiptNumber: job.receiptNumber,
-        siteLocation: activeJob.siteLocation,
+        siteLocation: job.siteLocation,
         item: job.selectedItem,
         updateUser: userName,
         ocrData: job.processedOcrData!, // 여긴 존재 보장됨
