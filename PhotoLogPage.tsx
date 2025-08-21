@@ -391,12 +391,13 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
       receiptNumber: job.receiptNumber,
       siteLocation: job.siteLocation,
       item: job.selectedItem,
-      ocrData: activeJob.processedOcrData || [],
       updateUser: userName,
-      identifierSequence: identifierSequence,
+      ocrData: job.processedOcrData!,
+      identifierSequence,
+      maxDecimalPlaces: job.decimalPlaces,
       pageType: 'PhotoLog',
-      maxDecimalPlaces: activeJob.decimalPlaces,
     };
+    
     return generateKtlJsonForPreview(payload, activeJob.selectedItem, hypotheticalKtlFileNamesForPreview);
   }, [activeJob, userName, siteLocation, hypotheticalKtlFileNamesForPreview]);
 
