@@ -292,7 +292,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
         )}
         {ocrData.length > 0 && (
             <div className="overflow-x-auto bg-slate-800 p-1 rounded-lg shadow-md border border-slate-700">
-            <table className="min-w-full divide-y divide-slate-700 table-fixed">
+            <table className="min-w-full divide-y divide-slate-700 table-auto md:table-fixed">
                 <thead className="bg-slate-700/50">
                 <tr>
                     <th scope="col" className="px-2 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider w-12">No.</th>
