@@ -314,7 +314,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                 {ocrData.map((entry, index) => {
                     const baseInputClass = "w-full bg-slate-700 p-2 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500";
                     const identifierSelectClass = (ident?: string) =>
-                       `${baseInputClass} min-w-8 ${ident ? 'text-red-400 font-bold' : 'text-slate-200'}`;
+                       `${baseInputClass} h-10 md:h-auto min-w-8 ${ident ? 'text-red-400 font-bold' : 'text-slate-200'}`;
                     const isDividerRow = isManualEntryMode && !!entry.identifier && dividerIdentifiers.has(entry.identifier);
                     const isSequenceRow = isManualEntryMode && !!entry.identifier && sequenceRelatedIdentifiers.has(entry.identifier);
                     const isResponseTimeRow = isManualEntryMode && entry.identifier === '응답';
@@ -337,7 +337,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     }
                     
                     return (
-                    <tr key={entry.id} className={`${isSequenceRow ? 'bg-slate-900' : 'hover:bg-slate-700/30'} transition-colors duration-100`}>
+                    <tr key={entry.id} className={`${isSequenceRow ? 'bg-slate-900' : 'hover:bg-slate-700/30'} transition-colors duration-100 [&>td]:h-10 md:[&>td]:h-auto [&>td]:align-middle md:[&>td]:align-top`}>
                         <td className="px-2 py-2.5 whitespace-nowrap text-sm text-slate-400 text-center align-top">{index + 1}</td>
                         <td className="px-2 py-2.5 whitespace-nowrap align-top">
                             <input type="text" value={entry.time} onChange={(e) => onEntryTimeChange(entry.id, e.target.value)} className={`${baseInputClass} text-slate-200 disabled:bg-slate-800/50 disabled:text-slate-400`} aria-label={`시간 입력 필드 ${index + 1}`} disabled={isDividerRow || isManualEntryMode} />
