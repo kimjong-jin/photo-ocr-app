@@ -66,72 +66,72 @@ const getDisplayValue = (originalValue: string | undefined): string => {
 };
 
 const renderResponseTimeMultiInputCell = (
-    entry: ExtractedEntry,
-    valueSource: 'primary' | 'tp',
-    onValueChange: (entryId: string, newValue: string) => void,
-    onBlur: ((entryId: string, valueType: 'primary' | 'tp') => void) | undefined
-  ) => {
-    const rawValue = valueSource === 'primary' ? entry.value : entry.valueTP;
-    let values: string[] = ['', '', ''];
-    try {
-      if (rawValue && rawValue.trim().startsWith('[')) {
-        const parsed = JSON.parse(rawValue);
-        if (Array.isArray(parsed) && parsed.length <= 3) {
-          values = [String(parsed[0] || ''), String(parsed[1] || ''), String(parsed[2] || '')];
-        }
+  entry: ExtractedEntry,
+  valueSource: 'primary' | 'tp',
+  onValueChange: (entryId: string, newValue: string) => void,
+  onBlur: ((entryId: string, valueType: 'primary' | 'tp') => void) | undefined
+) => {
+  const rawValue = valueSource === 'primary' ? entry.value : entry.valueTP;
+  let values: string[] = ['', '', ''];
+  try {
+    if (rawValue && rawValue.trim().startsWith('[')) {
+      const parsed = JSON.parse(rawValue);
+      if (Array.isArray(parsed) && parsed.length <= 3) {
+        values = [String(parsed[0] || ''), String(parsed[1] || ''), String(parsed[2] || '')];
       }
-    } catch (e) { /* ignore parse error */ }
-  
-    const handleInputChange = (index: number, inputValue: string) => {
-      const newValues = [...values];
-      newValues[index] = inputValue;
-      const hasAnyValue = newValues.some(v => v.trim() !== '');
-      onValueChange(entry.id, hasAnyValue ? JSON.stringify(newValues) : '');
-    };
-  
-    const baseInputClass = "w-full bg-slate-700 border border-slate-600 rounded-md p-1.5 text-xs focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400 text-slate-200 text-center";
-  
-    return (
-      <div className="flex items-start gap-1.5">
-        <div className="flex-1 flex flex-col items-center gap-1">
-          <input type="text" value={values[0]} onChange={(e) => handleInputChange(0, e.target.value)} onBlur={() => onBlur?.(entry.id, valueSource)} className={baseInputClass} placeholder="." />
-          <label className="text-xs text-slate-400 whitespace-nowrap">초</label>
-        </div>
-        <div className="flex-1 flex flex-col items-center gap-1">
-          <input type="text" value={values[1]} onChange={(e) => handleInputChange(1, e.target.value)} onBlur={() => onBlur?.(entry.id, valueSource)} className={baseInputClass} placeholder=".." />
-          <label className="text-xs text-slate-400 whitespace-nowrap">분</label>
-        </div>
-         <div className="flex-1 flex flex-col items-center gap-1">
-          <input type="text" value={values[2]} onChange={(e) => handleInputChange(2, e.target.value)} onBlur={() => onBlur?.(entry.id, valueSource)} className={baseInputClass} placeholder="---" />
-          <label className="text-xs text-slate-400 whitespace-nowrap">mm</label>
-        </div>
-      </div>
-    );
+    }
+  } catch (e) { /* ignore parse error */ }
+
+  const handleInputChange = (index: number, inputValue: string) => {
+    const newValues = [...values];
+    newValues[index] = inputValue;
+    const hasAnyValue = newValues.some(v => v.trim() !== '');
+    onValueChange(entry.id, hasAnyValue ? JSON.stringify(newValues) : '');
   };
 
+  const baseInputClass = "w-full bg-slate-700 border border-slate-600 rounded-md p-1.5 text-xs focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400 text-slate-200 text-center";
+
+  return (
+    <div className="flex items-start gap-1.5">
+      <div className="flex-1 flex flex-col items-center gap-1">
+        <input type="text" value={values[0]} onChange={(e) => handleInputChange(0, e.target.value)} onBlur={() => onBlur?.(entry.id, valueSource)} className={baseInputClass} placeholder="." />
+        <label className="text-xs text-slate-400 whitespace-nowrap">초</label>
+      </div>
+      <div className="flex-1 flex flex-col items-center gap-1">
+        <input type="text" value={values[1]} onChange={(e) => handleInputChange(1, e.target.value)} onBlur={() => onBlur?.(entry.id, valueSource)} className={baseInputClass} placeholder=".." />
+        <label className="text-xs text-slate-400 whitespace-nowrap">분</label>
+      </div>
+      <div className="flex-1 flex flex-col items-center gap-1">
+        <input type="text" value={values[2]} onChange={(e) => handleInputChange(2, e.target.value)} onBlur={() => onBlur?.(entry.id, valueSource)} className={baseInputClass} placeholder="---" />
+        <label className="text-xs text-slate-400 whitespace-nowrap">mm</label>
+      </div>
+    </div>
+  );
+};
+
 export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({ 
-    ocrData, 
-    error, 
-    isLoading,
-    contextProvided, 
-    hasImage,
-    selectedItem,
-    onEntryIdentifierChange,
-    onEntryIdentifierTPChange,
-    onEntryTimeChange,
-    onEntryPrimaryValueChange,
-    onEntryValueTPChange,
-    onEntryValueBlur,
-    onAddEntry,
-    onReorderRows,
-    availableIdentifiers,
-    tnIdentifiers,
-    tpIdentifiers,
-    rawJsonForCopy,
-    ktlJsonToPreview,
-    draftJsonToPreview,
-    isManualEntryMode = false,
-    timeColumnHeader,
+  ocrData, 
+  error, 
+  isLoading,
+  contextProvided, 
+  hasImage,
+  selectedItem,
+  onEntryIdentifierChange,
+  onEntryIdentifierTPChange,
+  onEntryTimeChange,
+  onEntryPrimaryValueChange,
+  onEntryValueTPChange,
+  onEntryValueBlur,
+  onAddEntry,
+  onReorderRows,
+  availableIdentifiers,
+  tnIdentifiers,
+  tpIdentifiers,
+  rawJsonForCopy,
+  ktlJsonToPreview,
+  draftJsonToPreview,
+  isManualEntryMode = false,
+  timeColumnHeader,
 }) => {
   const [rowToMoveInput, setRowToMoveInput] = useState('');
   const [newPositionInput, setNewPositionInput] = useState('');
@@ -210,19 +210,19 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
     return (
       <div className="mt-6 space-y-4">
         <div className="flex justify-between items-center">
-            <h3 className="text-xl font-semibold text-sky-400 flex items-center">
-                <TableIcon className="w-6 h-6 mr-2"/> {isManualEntryMode ? "데이터 입력" : "추출된 데이터"}
-            </h3>
-            {rawJsonForCopy && !isManualEntryMode && (
-                <ActionButton 
-                    onClick={() => copyToClipboard(rawJsonForCopy, "JSON 데이터")}
-                    variant="secondary"
-                    disabled={!rawJsonForCopy || ocrData.length === 0}
-                    aria-label="추출된 원시 JSON 데이터 클립보드에 복사"
-                >
-                    JSON 복사
-                </ActionButton>
-            )}
+          <h3 className="text-xl font-semibold text-sky-400 flex items-center">
+            <TableIcon className="w-6 h-6 mr-2"/> {isManualEntryMode ? "데이터 입력" : "추출된 데이터"}
+          </h3>
+          {rawJsonForCopy && !isManualEntryMode && (
+            <ActionButton 
+              onClick={() => copyToClipboard(rawJsonForCopy, "JSON 데이터")}
+              variant="secondary"
+              disabled={!rawJsonForCopy || ocrData.length === 0}
+              aria-label="추출된 원시 JSON 데이터 클립보드에 복사"
+            >
+              JSON 복사
+            </ActionButton>
+          )}
         </div>
 
         {!isManualEntryMode && ocrData.length > 0 && (
@@ -272,46 +272,28 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
         )}
 
         {ocrData.length === 0 && !isLoading && (
-             <div className="p-4 bg-slate-700/30 border border-slate-600/50 rounded-lg shadow text-center">
-                <InfoIcon className="w-10 h-10 text-sky-400 mx-auto mb-2" />
-                <p className="text-sm text-slate-300">
-                {isManualEntryMode ? "데이터가 없습니다. 아래 '행 추가' 버튼을 사용하거나 '불러오기'를 통해 데이터를 가져오세요." : "추출된 데이터가 없습니다. 이미지를 다시 확인하거나, 아래 '행 추가' 버튼을 사용하여 수동으로 데이터를 입력할 수 있습니다."}
-                </p>
-                 {rawJsonForCopy && rawJsonForCopy !== "[]" && !isManualEntryMode && ( 
-                    <details className="mt-3 text-left text-xs">
-                        <summary className="cursor-pointer text-slate-500 hover:text-slate-400">
-                            (참고: 원본 AI 응답 보기)
-                        </summary>
-                        <pre className="mt-1 text-slate-400 bg-slate-800 p-2 rounded overflow-x-auto max-h-32">
-                            {rawJsonForCopy}
-                        </pre>
-                    </details>
-                )}
-            </div>
+          <div className="p-4 bg-slate-700/30 border border-slate-600/50 rounded-lg shadow text-center">
+            <InfoIcon className="w-10 h-10 text-sky-400 mx-auto mb-2" />
+            <p className="text-sm text-slate-300">
+              {isManualEntryMode ? "데이터가 없습니다. 아래 '행 추가' 버튼을 사용하거나 '불러오기'를 통해 데이터를 가져오세요." : "추출된 데이터가 없습니다. 이미지를 다시 확인하거나, 아래 '행 추가' 버튼을 사용하여 수동으로 데이터를 입력할 수 있습니다."}
+            </p>
+            {rawJsonForCopy && rawJsonForCopy !== "[]" && !isManualEntryMode && ( 
+              <details className="mt-3 text-left text-xs">
+                <summary className="cursor-pointer text-slate-500 hover:text-slate-400">
+                  (참고: 원본 AI 응답 보기)
+                </summary>
+                <pre className="mt-1 text-slate-400 bg-slate-800 p-2 rounded overflow-x-auto max-h-32">
+                  {rawJsonForCopy}
+                </pre>
+              </details>
+            )}
+          </div>
         )}
 
         {ocrData.length > 0 && (
           <div className="overflow-x-auto bg-slate-800 p-1 rounded-lg shadow-md border border-slate-700">
-            {/* 모바일: table-fixed + 식별자 폭 고정 / 데스크탑: table-auto */}
-            <table className="min-w-full divide-y divide-slate-700 table-fixed md:table-auto">
-              {/* 열 폭 제어: 모바일에만 식별자/TP 식별자 고정 6rem, md+에선 auto */}
-              <colgroup>
-                <col className="w-12" />             {/* No. */}
-                <col />                               {/* 시간 */}
-                {showTwoValueColumns ? (
-                  <>
-                    <col />                            {/* 값1 */}
-                    <col />                            {/* 값2 */}
-                  </>
-                ) : (
-                  <col />                             {/* 단일 값 */}
-                )}
-                <col className="w-24 md:w-auto" />     {/* 식별자: mob 6rem, md+ auto */}
-                {isTnTpMode && !isManualEntryMode && (
-                  <col className="w-24 md:w-auto" />  /* TP 식별자: mob 6rem, md+ auto */
-                )}
-              </colgroup>
-
+            {/* ⬇️ 모바일은 auto, 데스크탑은 fixed (모바일 표시 깨짐 방지) */}
+            <table className="min-w-full divide-y divide-slate-700 table-auto md:table-fixed">
               <thead className="bg-slate-700/50">
                 <tr>
                   <th scope="col" className="px-2 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider w-12">
@@ -336,7 +318,6 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     </th>
                   )}
 
-                  {/* 헤더 텍스트는 줄바꿈 방지 + 폭은 colgroup이 제어 */}
                   <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider whitespace-nowrap">
                     {isManualEntryMode ? '구분' : (isTnTpMode ? 'TN 식별자' : '식별자')}
                   </th>
@@ -352,9 +333,9 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                 {ocrData.map((entry, index) => {
                   const baseInputClass = "w-full bg-slate-700 p-2 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500";
 
-                  // 모바일: select 최소 6rem 보장, md+: 제한 해제
+                  // ⬇️ select는 w-full, 최소폭은 td가 보장
                   const identifierSelectClass = (ident?: string) =>
-                    `${baseInputClass} h-10 md:h-auto min-w-[6rem] md:min-w-0 ${ident ? 'text-red-400 font-bold' : 'text-slate-200'}`;
+                    `${baseInputClass} h-10 md:h-auto w-full ${ident ? 'text-red-400 font-bold' : 'text-slate-200'}`;
 
                   const isDividerRow = isManualEntryMode && !!entry.identifier && dividerIdentifiers.has(entry.identifier);
                   const isSequenceRow = isManualEntryMode && !!entry.identifier && sequenceRelatedIdentifiers.has(entry.identifier);
@@ -447,7 +428,8 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                         </td>
                       ) : (
                         <>
-                          <td className="px-2 py-2.5 whitespace-nowrap text-sm align-top">
+                          {/* ⬇️ 식별자: 모바일 최소폭 8.5rem 보장, md+ 해제 */}
+                          <td className="px-2 py-2.5 text-sm align-top min-w-[8.5rem] md:min-w-0">
                             <select
                               value={entry.identifier || ''}
                               onChange={(e) => onEntryIdentifierChange(entry.id, e.target.value)}
@@ -466,8 +448,9 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                               ))}
                             </select>
                           </td>
+
                           {isTnTpMode && (
-                            <td className="px-2 py-2.5 whitespace-nowrap text-sm align-top">
+                            <td className="px-2 py-2.5 text-sm align-top min-w-[8.5rem] md:min-w-0">
                               <select
                                 value={entry.identifierTP || ''}
                                 onChange={(e) => onEntryIdentifierTPChange(entry.id, e.target.value)}
@@ -499,13 +482,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
 
         {!isManualEntryMode && (
           <div className="mt-4 flex justify-end">
-            <ActionButton
-              onClick={onAddEntry}
-              variant="primary"
-              icon={<PlusIcon />}
-              aria-label="추출된 데이터 테이블에 새 행 추가"
-              disabled={isLoading}
-            >
+            <ActionButton onClick={onAddEntry} variant="primary" icon={<PlusIcon />} aria-label="추출된 데이터 테이블에 새 행 추가" disabled={isLoading}>
               행 추가
             </ActionButton>
           </div>
@@ -546,13 +523,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     <pre className="text-xs text-slate-300 bg-slate-800 p-3 rounded-md overflow-x-auto max-h-60 border border-slate-700">
                       {ktlJsonToPreview}
                     </pre>
-                    <ActionButton
-                      onClick={() => copyToClipboard(ktlJsonToPreview, "KTL JSON")}
-                      variant="secondary"
-                      className="text-xs mt-2"
-                      disabled={!ktlJsonToPreview}
-                      aria-label="KTL JSON 데이터 클립보드에 복사"
-                    >
+                    <ActionButton onClick={() => copyToClipboard(ktlJsonToPreview, "KTL JSON")} variant="secondary" className="text-xs mt-2" disabled={!ktlJsonToPreview} aria-label="KTL JSON 데이터 클립보드에 복사">
                       KTL JSON 복사
                     </ActionButton>
                   </div>
