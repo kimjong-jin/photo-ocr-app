@@ -333,13 +333,16 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
     setProcessingError(null);
   }, [updateActiveJob]);
 
-  const hypotheticalKtlFileNamesForPreview = useMemo(() => {
-    if (!activeJob || activeJob.photos.length === 0) return [];
-    const sanitizedSite = sanitizeFilename(siteLocation);
-    const sanitizedItemName = sanitizeFilename(activeJob.selectedItem === 'TN/TP' ? 'TN_TP' : activeJob.selectedItem);
-    const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
-    return [`${baseName}_composite.jpg`, `${baseName}_Compression.zip`];
-  }, [activeJob, siteLocation]);
+    const hypotheticalKtlFileNamesForPreview = useMemo(() => {
+      if (!activeJob || activeJob.photos.length === 0) return [];
+      const itemForName = activeJob.selectedItem === 'TN/TP' ? 'TN_TP' : activeJob.selectedItem;
+      const baseName = buildBaseName(activeJob.receiptNumber, siteLocation, itemForName);
+      const pages = Math.ceil(activeJob.photos.length / 4); // A4 1장당 최대 4장 타일링
+      const composites = Array.from({ length: pages }, (_, i) =>
+        `${baseName}_composite_${String(i + 1).padStart(2, '0')}.jpg`
+      );
+      return [...composites, `${baseName}_Compression.zip`];
+    }, [activeJob?.receiptNumber, activeJob?.selectedItem, activeJob?.photos.length, siteLocation]);
 
   const ktlJsonPreview = useMemo(() => {
     if (!activeJob || !userName) return null;
