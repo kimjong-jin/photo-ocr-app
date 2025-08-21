@@ -14,7 +14,7 @@ import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { Type } from '@google/genai';
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
-import { dataURLtoBlob, generateA4CompositeJPEGPages, generateStampedImage, generateCompositeImage } from './services/imageStampingService';
+import { dataURLtoBlob, generateA4CompositeJPEGPages, generateStampedImage } from './services/imageStampingService';
 import { autoAssignIdentifiersByConcentration } from './services/identifierAutomationService';
 
 export interface JobPhoto extends BaseImageInfo {
@@ -799,73 +799,106 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     }
   }, [activeJob, siteLocation, userName, updateActiveJob]);
 
-  const handleBatchSendToKtl = async () => {
-    const jobsToSend = jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0 && j.photos.length > 0);
-    if (jobsToSend.length === 0) {
-      alert('전송할 데이터가 있는 작업이 없습니다. 각 작업에 사진과 추출된 데이터가 있는지 확인하세요.');
-      return;
-    }
+const handleBatchSendToKtl = async () => {
+  const jobsToSend = jobs.filter(
+    j => j.processedOcrData && j.processedOcrData.length > 0 && j.photos.length > 0
+  );
+  if (jobsToSend.length === 0) {
+    alert('전송할 데이터가 있는 작업이 없습니다. 각 작업에 사진과 추출된 데이터가 있는지 확인하세요.');
+    return;
+  }
 
-    setIsSendingToClaydox(true);
-    setBatchSendProgress(`(0/${jobsToSend.length}) 작업 처리 시작...`);
-    setJobs(prev => prev.map(j => jobsToSend.find(jts => jts.id === j.id) ? { ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' } : j));
+  setIsSendingToClaydox(true);
+  setBatchSendProgress(`(0/${jobsToSend.length}) 작업 처리 시작...`);
+  setJobs(prev =>
+    prev.map(j =>
+      jobsToSend.find(jts => jts.id === j.id)
+        ? { ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' }
+        : j
+    )
+  );
 
-    for (let i = 0; i < jobsToSend.length; i++) {
-      const job = jobsToSend[i];
-      setBatchSendProgress(`(${(i + 1)}/${jobsToSend.length}) '${job.receiptNumber}' 전송 중...`);
-      setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionMessage: '파일 생성 및 전송 중...' } : j));
+  for (let i = 0; i < jobsToSend.length; i++) {
+    const job = jobsToSend[i];
+    setBatchSendProgress(`(${i + 1}/${jobsToSend.length}) '${job.receiptNumber}' 전송 중...`);
+    setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionMessage: '파일 생성 및 전송 중...' } : j));
 
-      try {
-        const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
-        const payload: ClaydoxPayload = {
-         receiptNumber: job.receiptNumber,
-         siteLocation,
-         item: job.selectedItem,
-         updateUser: userName,
-         ocrData: job.processedOcrData!,           // 이 시점엔 필터링되어 null 아님
-         identifierSequence,
-         maxDecimalPlaces: job.decimalPlaces,
-         pageType: 'PhotoLog',
-        };
-        const baseName = buildBaseName(job.receiptNumber, siteLocation, job.selectedItem);
+    try {
+      const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
+      const payload: ClaydoxPayload = {
+        receiptNumber: job.receiptNumber,
+        siteLocation,
+        item: job.selectedItem,
+        updateUser: userName,
+        ocrData: job.processedOcrData!, // 여긴 존재 보장됨
+        identifierSequence,
+        maxDecimalPlaces: job.decimalPlaces,
+        pageType: 'PhotoLog',
+      };
 
-        // ✅ composite: 모든 사진을 겹치지 않는 그리드로 1장 합성
-        const imagesForComposite = job.photos.map(p => ({
+      const baseName = buildBaseName(job.receiptNumber, siteLocation, job.selectedItem);
+
+      // ✅ A4 JPG 페이지로 최대 4장씩 타일링
+      const imagesForA4 = job.photos.map(p => ({
         base64: p.base64,
         mimeType: p.mimeType,
-        comment: (job as any).photoComments?.[p.uid]
-        }));
-        const compositeDataUrl = await generateCompositeImage(
-        imagesForComposite,
-        { receiptNumber: job.receiptNumber, siteLocation, inspectionStartDate: '', item: job.selectedItem },
-        'image/jpeg',
-        0.9
-        );
-        const compositeBlob = dataURLtoBlob(compositeDataUrl);
-        const compositeFile = new File([compositeBlob], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
+        comment: (job as any).photoComments?.[p.uid],
+      }));
 
-        // ✅ ZIP: 전부 원본(무스탬프)
-        const zip = new JSZip();
-        for (const imageInfo of job.photos) {
-          const dataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
-          const rawBlob = dataURLtoBlob(dataUrl);
-          const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType);
-          zip.file(fileNameInZip, rawBlob);
-        }
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
+      const a4Pages = await generateA4CompositeJPEGPages(imagesForA4, {
+        dpi: 300,
+        marginPx: 48,
+        gutterPx: 24,
+        quality: 0.95,
+      });
 
-        const response = await sendToClaydoxApi(payload, [compositeFile, zipFile], job.selectedItem, [compositeFile.name, zipFile.name]);
-        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message || '전송 성공' } : j));
-      } catch (error: any) {
-        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
+      const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
+        const blob = dataURLtoBlob(dataUrl);
+        const no = String(idx + 1).padStart(2, '0');
+        return new File([blob], `${baseName}_composite_${no}.jpg`, { type: 'image/jpeg' });
+      });
+
+      // ✅ ZIP: 전부 원본(무스탬프)
+      const zip = new JSZip();
+      for (const imageInfo of job.photos) {
+        const dataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
+        const rawBlob = dataURLtoBlob(dataUrl);
+        const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType);
+        zip.file(fileNameInZip, rawBlob);
       }
-    }
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
 
-    setBatchSendProgress('일괄 전송 완료.');
-    setIsSendingToClaydox(false);
-    setTimeout(() => setBatchSendProgress(null), 5000);
-  };
+      // ✅ 전송 (모든 A4 합성 JPG + ZIP)
+      const response = await sendToClaydoxApi(
+        payload,
+        [...compositeFiles, zipFile],
+        job.selectedItem,
+        [...compositeFiles.map(f => f.name), zipFile.name]
+      );
+
+      setJobs(prev =>
+        prev.map(j =>
+          j.id === job.id
+            ? { ...j, submissionStatus: 'success', submissionMessage: response.message || '전송 성공' }
+            : j
+        )
+      );
+    } catch (error: any) {
+      setJobs(prev =>
+        prev.map(j =>
+          j.id === job.id
+            ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` }
+            : j
+        )
+      );
+    }
+  }
+
+  setBatchSendProgress('일괄 전송 완료.');
+  setIsSendingToClaydox(false);
+  setTimeout(() => setBatchSendProgress(null), 5000);
+};
 
   /** 가공 데이터(스탬프 적용) 묶음 다운로드: details 포함 + 결과 MIME 기반 확장자 결정 */
   const handleDownloadStampedImages = useCallback(async () => {
