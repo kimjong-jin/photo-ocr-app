@@ -290,3 +290,116 @@ export const dataURLtoBlob = (dataurl: string): Blob => {
   for (let i = 0; i < n; i++) u8arr[i] = bstr.charCodeAt(i);
   return new Blob([u8arr], { type: mime });
 };
+
+// ===== A4 composite additions =====
+export interface A4CompositeOptions {
+  dpi?: number;          // 기본 300
+  marginPx?: number;     // 페이지 여백, 기본 48px
+  gutterPx?: number;     // 타일 간격, 기본 24px
+  background?: string;   // 배경색, 기본 '#ffffff'
+  quality?: number;      // JPEG 품질(0~1), 기본 0.95
+}
+
+type A4Base64Image = { base64: string; mimeType: string; comment?: string };
+
+function a4FitContain(srcW: number, srcH: number, boxW: number, boxH: number) {
+  const r = Math.min(boxW / srcW, boxH / srcH);
+  const w = Math.round(srcW * r);
+  const h = Math.round(srcH * r);
+  const x = Math.round((boxW - w) / 2);
+  const y = Math.round((boxH - h) / 2);
+  return { x, y, w, h };
+}
+
+async function loadImageFromBase64(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    // ✅ 올바른 startsWith 체크
+    img.src = dataUrl.startsWith('data:') ? dataUrl : `data:image/jpeg;base64,${dataUrl}`;
+  });
+}
+
+/**
+ * 입력 이미지를 A4(세로) JPG 페이지로 4장씩 타일링하여 여러 장 생성.
+ * - 1장: 가득 채움
+ * - 2장: 좌/우
+ * - 3장: 2x2(마지막 셀 비움)
+ * - 4장: 2x2
+ */
+export async function generateA4CompositeJPEGPages(
+  imgs: A4Base64Image[],
+  opts: A4CompositeOptions = {}
+): Promise<string[]> {
+  const dpi = opts.dpi ?? 300;
+  const pageW = Math.round(8.27 * dpi);   // 2480 @300dpi
+  const pageH = Math.round(11.69 * dpi);  // 3508 @300dpi
+  const margin = opts.marginPx ?? 48;
+  const gutter = opts.gutterPx ?? 24;
+  const bg = opts.background ?? '#ffffff';
+  const quality = opts.quality ?? 0.95;
+
+  // 4개씩 끊기
+  const groups: A4Base64Image[][] = [];
+  for (let i = 0; i < imgs.length; i += 4) groups.push(imgs.slice(i, i + 4));
+
+  const pages: string[] = [];
+
+  for (const group of groups) {
+    const canvas = document.createElement('canvas');
+    canvas.width = pageW;
+    canvas.height = pageH;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, pageW, pageH);
+
+    let cells: Array<{ x: number; y: number; w: number; h: number }> = [];
+
+    if (group.length === 1) {
+      cells = [{ x: margin, y: margin, w: pageW - margin * 2, h: pageH - margin * 2 }];
+    } else if (group.length === 2) {
+      const tileW = Math.floor((pageW - margin * 2 - gutter) / 2);
+      const tileH = pageH - margin * 2;
+      const y = margin;
+      const x1 = margin;
+      const x2 = margin + tileW + gutter;
+      cells = [
+        { x: x1, y, w: tileW, h: tileH },
+        { x: x2, y, w: tileW, h: tileH },
+      ];
+    } else {
+      const tileW = Math.floor((pageW - margin * 2 - gutter) / 2);
+      const tileH = Math.floor((pageH - margin * 2 - gutter) / 2);
+      const x1 = margin;
+      const x2 = margin + tileW + gutter;
+      const y1 = margin;
+      const y2 = margin + tileH + gutter;
+      cells = [
+        { x: x1, y: y1, w: tileW, h: tileH },
+        { x: x2, y: y1, w: tileW, h: tileH },
+        { x: x1, y: y2, w: tileW, h: tileH },
+        { x: x2, y: y2, w: tileW, h: tileH },
+      ];
+      // 3장은 4번째 칸 비워짐
+    }
+
+    for (let i = 0; i < group.length; i++) {
+      const g = group[i];
+      const cell = cells[i];
+      const img = await loadImageFromBase64(
+        g.base64.startsWith('data:') ? g.base64 : `data:${g.mimeType};base64,${g.base64}`
+      );
+
+      const fit = a4FitContain(img.width, img.height, cell.w, cell.h);
+      ctx.drawImage(img, cell.x + fit.x, cell.y + fit.y, fit.w, fit.h);
+
+      // 필요시 코멘트 텍스트 렌더링 위치 추가 가능
+    }
+
+    pages.push(canvas.toDataURL('image/jpeg', quality));
+  }
+
+  return pages;
+}
+
