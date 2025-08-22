@@ -833,10 +833,11 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     const stampedForA4 = await stampPhotosForA4(activeJob);
     const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
       dpi: 300,
-      marginPx: 0,
-      gutterPx: 0,
+      marginPx: 32,      // 최소 여백으로 수정
+      gutterPx: 24,      // 타일 간격
+      background: '#fff',
       quality: 0.95,
-      fitMode: 'contain'
+      fitMode: 'contain' // 안잘리게
     });
 
     // 3) 합성 JPG -> File[]
@@ -924,11 +925,13 @@ const handleBatchSendToKtl = async () => {
 
       const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
         dpi: 300,
-        marginPx: 0,
-        gutterPx: 0,
+        marginPx: 32,      // 최소 여백으로 수정
+        gutterPx: 24,      // 타일 간격
+        background: '#fff',
         quality: 0.95,
-        fitMode: 'contain',
+        fitMode: 'contain' // 안잘리게
       });
+
       const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
         const blob = dataURLtoBlob(dataUrl);
         const no = String(idx + 1).padStart(2, '0');
