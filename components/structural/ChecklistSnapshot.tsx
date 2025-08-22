@@ -12,9 +12,10 @@ interface ChecklistSnapshotProps {
   job: StructuralJob;
 }
 
+// 노트 접두어
 const getNotePrefix = (itemName: string): string | null => {
   if (itemName === EMISSION_STANDARD_ITEM_NAME) return '기준';
-  if (itemName === RESPONSE_TIME_ITEM_NAME) return '시간';
+  if (itemName === RESPONSE_TIME_ITEM_NAME) return '분'; // 응답시간 단위 표기
   switch (itemName) {
     case '측정범위확인':
       return '범위';
@@ -27,6 +28,7 @@ const getNotePrefix = (itemName: string): string | null => {
   }
 };
 
+// 정도검사 증명서 노트 포맷
 const formatCertificateNotes = (notes: string): string => {
   try {
     const details: CertificateDetails = JSON.parse(notes);
@@ -51,6 +53,7 @@ const formatCertificateNotes = (notes: string): string => {
   }
 };
 
+// 표시사항확인 노트 포맷
 const formatMarkingCheckNotes = (notes: string): string => {
   try {
     const details: Record<string, string> = JSON.parse(notes);
@@ -63,6 +66,7 @@ const formatMarkingCheckNotes = (notes: string): string => {
   }
 };
 
+// 상태 뱃지
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   let bgColor = '#64748b'; // slate-500 ('선택 안됨' 등 기본)
   let textColor = '#f8fafc'; // slate-50
@@ -96,7 +100,7 @@ export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => 
   const isFixedDateItem =
     job.mainItemKey === 'PH' || job.mainItemKey === 'TU' || job.mainItemKey === 'Cl';
 
-  // --- Start: 표시사항 vs 증명서 비교 노트 산출 ---
+  // --- 표시사항 vs 증명서 비교 노트 산출 ---
   let comparisonNote: string | null = null;
 
   const markingCheckData = job.checklistData['표시사항확인'];
@@ -110,8 +114,7 @@ export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => 
         markingDetails = {};
         for (const key in parsed) {
           if (Object.prototype.hasOwnProperty.call(parsed, key)) {
-            // 문자열로 정규화
-            markingDetails[key] = String(parsed[key]);
+            markingDetails[key] = String(parsed[key]); // 문자열 정규화
           }
         }
       }
@@ -134,7 +137,8 @@ export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => 
         (s || '')
           .toLowerCase()
           .replace(/\s+/g, '')
-          .replace(/제|호/g, '');
+          .replace(/제|호/g, ''); // '제', '호' 제거하여 비교 편의
+
       const messages: string[] = [];
       let allMatch = true;
       let anyComparisonMade = false;
@@ -182,18 +186,15 @@ export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => 
       }
 
       if (anyComparisonMade) {
-        if (allMatch) {
-          comparisonNote = '(참고) 표시사항과 증명서 정보가 일치합니다.';
-        } else {
-          comparisonNote =
-            `(주의) 표시사항과 증명서 정보가 다릅니다:\n- ${messages.join('\n- ')}\n내용을 확인하세요.`;
-        }
+        comparisonNote = allMatch
+          ? '(참고) 표시사항과 증명서 정보가 일치합니다.'
+          : `(주의) 표시사항과 증명서 정보가 다릅니다:\n- ${messages.join('\n- ')}\n내용을 확인하세요.`;
       }
     }
   }
-  // --- End: 표시사항 vs 증명서 비교 노트 산출 ---
+  // --- End ---
 
-  // 비교 노트 스타일 색상 준비
+  // 비교 노트 스타일 색상
   const compIsWarn = (comparisonNote || '').startsWith('(주의)');
   const compBorderColor = compIsWarn ? '#f59e0b' : '#38bdf8';
   const compBg = compIsWarn ? 'rgba(245, 158, 11, 0.1)' : 'rgba(56, 189, 248, 0.1)';
@@ -207,8 +208,8 @@ export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => 
         left: '-9999px',
         top: '0px',
         width: '800px',
-        height: '1131px', // ← A4 비율 고정(800 * 1.414)
-        // 또는 minHeight: '1120px' 로 유연하게 운영 가능
+        height: '1131px', // A4 비율 고정(800 * 1.414)
+        // 또는 minHeight: '1120px' 로 유연 운영 가능
         padding: '24px',
         backgroundColor: '#0f172a', // slate-900
         color: '#e2e8f0', // slate-200
@@ -225,7 +226,7 @@ export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => 
           padding: '12px 16px',
           borderRadius: '8px',
           marginBottom: '24px',
-          borderLeft: '4px solid #38bdf8', // sky-500
+          borderLeft: '4px solid '#38bdf8', // sky-500
         }}
       >
         구조 확인 체크리스트: {job.receiptNumber} / {mainItemName}
@@ -256,15 +257,13 @@ export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => 
           const data = job.checklistData[itemName];
           if (!data) return null;
 
-          // TOC 특수 항목(배출기준/응답시간) 처리
+          // TOC 특수 항목(배출기준/응답시간): 뱃지만 숨김, 번호는 포함
           const isSpecialTocItem =
             job.mainItemKey === 'TOC' &&
             (itemName === EMISSION_STANDARD_ITEM_NAME || itemName === RESPONSE_TIME_ITEM_NAME);
 
-          // TOC에서 특수 2개는 번호 제외
-          const tocSpecialItemCount = job.mainItemKey === 'TOC' ? 2 : 0;
-          const displayItemNumber =
-            index >= tocSpecialItemCount ? index - tocSpecialItemCount + 1 : null;
+          // 번호는 항상 index + 1 로 연속 부여 (TOC에서도 1,2,...)
+          const displayItemNumber = index + 1;
 
           const isAiReferenceItem = itemName === '표시사항확인' || itemName === '정도검사 증명서';
 
@@ -299,7 +298,7 @@ export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => 
                     }}
                   >
                     <span>
-                      {displayItemNumber !== null ? `${displayItemNumber}. ` : ''}
+                      {`${displayItemNumber}. `}
                       {itemName}
                     </span>
                     {isAiReferenceItem && (
