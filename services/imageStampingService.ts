@@ -353,15 +353,21 @@ async function loadImageFromBase64(dataUrl: string): Promise<HTMLImageElement> {
  * - 4장: 2x2
  * @returns 각 페이지를 dataURL(JPEG)로 담은 배열
  */
+/** A4 한 페이지에 최대 4장(2x2) 타일링 — 중앙 정렬 + 정확한 A4 픽셀 */
 export async function generateA4CompositeJPEGPages(
   imgs: A4Base64Image[],
   opts: A4CompositeOptions = {}
 ): Promise<string[]> {
   const dpi = opts.dpi ?? 300;
-  const pageW = Math.round(8.27 * dpi);   // ≈2481 @300dpi
-  const pageH = Math.round(11.69 * dpi);  // ≈3507 @300dpi
-  const margin = opts.marginPx ?? 48;
-  const gutter = opts.gutterPx ?? 24;
+
+  // A4(mm) → inch → px (정확)
+  const inchW = 210 / 25.4;
+  const inchH = 297 / 25.4;
+  const pageW = Math.round(inchW * dpi);
+  const pageH = Math.round(inchH * dpi);
+
+  const margin = Math.max(0, opts.marginPx ?? 48);
+  const gutter = Math.max(0, opts.gutterPx ?? 24);
   const bg = opts.background ?? '#ffffff';
   const quality = opts.quality ?? 0.95;
   const mode = opts.fitMode ?? 'contain'; // 'contain' | 'cover'
@@ -380,31 +386,44 @@ export async function generateA4CompositeJPEGPages(
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, pageW, pageH);
 
-    // 셀 배치 계산
+    // 여백 안쪽 작업영역
+    const innerW = pageW - margin * 2;
+    const innerH = pageH - margin * 2;
+
+    // 셀 계산 + 실제 사용 영역(usedW/H)로 중앙 정렬
     let cells: Array<{ x: number; y: number; w: number; h: number }> = [];
+    let usedW = 0, usedH = 0;
 
     if (group.length === 1) {
-      // 1장: 전체
-      cells = [{ x: margin, y: margin, w: pageW - margin * 2, h: pageH - margin * 2 }];
+      usedW = innerW; usedH = innerH;
+      const originX = margin + Math.round((innerW - usedW) / 2);
+      const originY = margin + Math.round((innerH - usedH) / 2);
+      cells = [{ x: originX, y: originY, w: usedW, h: usedH }];
     } else if (group.length === 2) {
-      // 2장: 좌/우 반반
-      const tileW = Math.floor((pageW - margin * 2 - gutter) / 2);
-      const tileH = pageH - margin * 2;
-      const y = margin;
-      const x1 = margin;
-      const x2 = margin + tileW + gutter;
+      const tileW = Math.floor((innerW - gutter) / 2);
+      const tileH = innerH;
+      usedW = tileW * 2 + gutter;
+      usedH = tileH;
+      const originX = margin + Math.round((innerW - usedW) / 2);
+      const originY = margin + Math.round((innerH - usedH) / 2);
+      const x1 = originX;
+      const x2 = originX + tileW + gutter;
+      const y = originY;
       cells = [
         { x: x1, y, w: tileW, h: tileH },
         { x: x2, y, w: tileW, h: tileH },
       ];
     } else {
-      // 3~4장: 2x2 (3장은 마지막 셀 비움)
-      const tileW = Math.floor((pageW - margin * 2 - gutter) / 2);
-      const tileH = Math.floor((pageH - margin * 2 - gutter) / 2);
-      const x1 = margin;
-      const x2 = margin + tileW + gutter;
-      const y1 = margin;
-      const y2 = margin + tileH + gutter;
+      const tileW = Math.floor((innerW - gutter) / 2);
+      const tileH = Math.floor((innerH - gutter) / 2);
+      usedW = tileW * 2 + gutter;
+      usedH = tileH * 2 + gutter;
+      const originX = margin + Math.round((innerW - usedW) / 2);
+      const originY = margin + Math.round((innerH - usedH) / 2);
+      const x1 = originX;
+      const x2 = originX + tileW + gutter;
+      const y1 = originY;
+      const y2 = originY + tileH + gutter;
       cells = [
         { x: x1, y: y1, w: tileW, h: tileH },
         { x: x2, y: y1, w: tileW, h: tileH },
@@ -413,7 +432,7 @@ export async function generateA4CompositeJPEGPages(
       ];
     }
 
-    // 이미지 드로잉
+    // 이미지 그리기
     for (let i = 0; i < group.length; i++) {
       const g = group[i];
       const cell = cells[i];
@@ -422,19 +441,14 @@ export async function generateA4CompositeJPEGPages(
       );
 
       if (mode === 'cover') {
-        // 칸을 꽉 채우기(중앙 크롭)
         const { sx, sy, sw, sh } = a4CoverCrop(img.width, img.height, cell.w, cell.h);
         ctx.drawImage(img, sx, sy, sw, sh, cell.x, cell.y, cell.w, cell.h);
       } else {
-        // contain (여백 가능)
         const fit = a4FitContain(img.width, img.height, cell.w, cell.h);
         ctx.drawImage(img, cell.x + fit.x, cell.y + fit.y, fit.w, fit.h);
       }
-
-      // ※ 필요 시 각 타일 코멘트 렌더링 지점 (g.comment) — 현재는 생략
     }
 
-    // 페이지 export
     pages.push(canvas.toDataURL('image/jpeg', quality));
   }
 
