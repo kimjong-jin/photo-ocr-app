@@ -22,24 +22,124 @@ interface StampDetails {
   item: string;
 }
 
+type FitMode = 'contain' | 'cover';
+type QuadKey = 'TL' | 'TR' | 'BL' | 'BR';
+
 export interface A4CompositeOptions {
-  dpi?: number;          // 기본 300
-  marginPx?: number;     // 페이지 여백, 기본 48px
-  gutterPx?: number;     // 타일 간격, 기본 24px
-  background?: string;   // 배경색, 기본 '#ffffff'
-  quality?: number;      // JPEG 품질(0~1), 기본 0.95
-  fitMode?: 'contain' | 'cover'; // ← contain=안잘림(여백), cover=꽉참(잘릴수있음)
+  /** 기본 300. pagePx/pageMM가 없으면 A4(mm)×dpi로 계산 */
+  dpi?: number;
+  /** 페이지 여백(px). 기본 48 */
+  marginPx?: number;
+  /** 타일 간격(px). 기본 24 */
+  gutterPx?: number;
+  /** 배경색. 기본 '#ffffff' */
+  background?: string;
+  /** JPEG 품질(0~1). 기본 0.95 */
+  quality?: number;
+  /** contain=안잘림(레터박스), cover=꽉참(크롭 가능). 기본 cover */
+  fitMode?: FitMode;
+
+  /** 🔸 전체 출력 크기를 "픽셀"로 고정 (예: { width:2480, height:3508 }) */
+  pagePx?: { width: number; height: number };
+  /** 🔸 전체 출력 크기를 "mm + dpi"로 고정 (예: { width:210, height:297, dpi?:350 }) */
+  pageMM?: { width: number; height: number; dpi?: number };
+
+  /** 🔸 4분면 고정 순서 (기본: 1=TL,2=TR,3=BL,4=BR) */
+  quadrantOrder?: QuadKey[];
+  /** 🔸 항상 2×2 레이아웃 유지 (1~3장이어도 빈칸 유지). 기본 true */
+  keepEmptySlots?: boolean;
+  /** 🔸 슬롯 라벨(1~4) 렌더링 */
+  drawSlotLabels?: boolean | {
+    /** 포지션 */
+    position?: 'top-left'|'top-right'|'bottom-left'|'bottom-right';
+    /** 글씨 색상(기본 rgba(0,0,0,0.45)) */
+    color?: string;
+    /** 폰트 (기본 'bold 28px sans-serif') */
+    font?: string;
+  };
+  /** 🔸 빈 슬롯 테두리 표시 */
+  strokeEmptySlots?: boolean | { color?: string; width?: number; dash?: number[] };
 }
 
 // ----- Constants -----
 /** 스탬프/코멘트 글자 스케일(짧은 변 × 0.03 = 3%) */
 export const TEXT_SCALE = 0.03;
-/** 합성 캔버스 최대 한 변 픽셀 */
+/** 합성 캔버스 최대 한 변 픽셀 (generateCompositeImage 용) */
 export const MAX_COMPOSITE_DIMENSION = 3000;
 
 // ----- Helpers -----
 const ensureDataUrl = (src: string, mimeType: string) =>
   src.startsWith('data:') ? src : `data:${mimeType};base64,${src}`;
+
+const mm2px = (mm: number, dpi: number) => Math.round(mm * dpi / 25.4);
+
+function drawImageInCellCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number, y: number, w: number, h: number
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  // cover 스케일
+  const s = Math.max(w / img.width, h / img.height);
+  const dw = img.width * s;
+  const dh = img.height * s;
+  const dx = x + (w - dw) / 2;
+  const dy = y + (h - dh) / 2;
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(img, dx, dy, dw, dh);
+  ctx.restore();
+}
+
+function drawSlotLabel(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  n: number,
+  style?: NonNullable<A4CompositeOptions['drawSlotLabels']> extends true ? never : Exclude<A4CompositeOptions['drawSlotLabels'], boolean>
+) {
+  const pos = style?.position ?? 'top-left';
+  const font = style?.font ?? 'bold 28px sans-serif';
+  const color = style?.color ?? 'rgba(0,0,0,0.45)';
+  const pad = 6;
+
+  ctx.save();
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'top';
+
+  let tx = x + pad, ty = y + pad;
+  if (pos.includes('right')) tx = x + w - pad - ctx.measureText(String(n)).width;
+  if (pos.includes('bottom')) { ctx.textBaseline = 'bottom'; ty = y + h - pad; }
+
+  ctx.fillText(String(n), tx, ty);
+  ctx.restore();
+}
+
+function drawEmptyStroke(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  opt?: Exclude<A4CompositeOptions['strokeEmptySlots'], boolean>
+) {
+  ctx.save();
+  ctx.strokeStyle = opt?.color ?? 'rgba(0,0,0,0.15)';
+  ctx.lineWidth  = opt?.width ?? 1;
+  if (opt?.dash?.length) ctx.setLineDash(opt.dash);
+  ctx.strokeRect(x, y, w, h);
+  ctx.restore();
+}
+
+async function loadImageFromBase64(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image.'));
+    img.src = dataUrl;
+  });
+}
 
 // ----- Public APIs -----
 
@@ -150,7 +250,7 @@ export const generateCompositeImage = (
       .catch(reject);
     if (!loaded) return;
 
-    // (2) 그리드 계산
+    // (2) 그리드 계산 (간단 자동 배치)
     const n = loaded.length;
     let padding = 10;
     let cols = Math.ceil(Math.sqrt(n));
@@ -247,10 +347,11 @@ export const generateCompositeImage = (
     if (inspectionStartDate?.trim()) lines.push(`검사시작일: ${inspectionStartDate}`);
 
     if (lines.length) {
-      ctx.font = `bold ${stampFont}px Arial, sans-serif`;
+      const ctx2 = canvas.getContext('2d')!;
+      ctx2.font = `bold ${stampFont}px Arial, sans-serif`;
       let maxTextWidth = 0;
       for (const l of lines) {
-        const w = ctx.measureText(l).width;
+        const w = ctx2.measureText(l).width;
         if (w > maxTextWidth) maxTextWidth = w;
       }
       const blockW = maxTextWidth + stampPad * 2;
@@ -258,24 +359,18 @@ export const generateCompositeImage = (
       const rectX = Math.round(stampPad / 2);
       const rectY = Math.round(canvas.height - blockH - stampPad / 2);
 
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(rectX, rectY, blockW, blockH);
+      ctx2.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx2.fillRect(rectX, rectY, blockW, blockH);
 
-      ctx.fillStyle = '#fff';
+      ctx2.fillStyle = '#fff';
       lines.forEach((l, i) => {
         const y = rectY + i * lineH + stampFont + stampPad / 2 - (lineH - stampFont) / 2;
-        ctx.fillText(l, rectX + stampPad, y);
+        ctx2.fillText(l, rectX + stampPad, y);
       });
     }
 
     // (5) export
-    const dataUrl = canvas.toDataURL(outputMimeType, quality);
-    const parts = dataUrl.split(',');
-    if (parts.length < 2 || !parts[0].includes(';base64') || parts[1].trim() === '') {
-      reject(new Error('합성 이미지 생성 실패: 잘못된 dataURL'));
-      return;
-    }
-    resolve(dataUrl);
+    resolve(canvas.toDataURL(outputMimeType, quality));
   });
 };
 
@@ -300,81 +395,58 @@ export const dataURLtoBlob = (dataurl: string): Blob => {
   return new Blob([u8arr], { type: mime });
 };
 
-// ===== A4 composite additions =====
+// ===== A4 composite: 2×2(4분면) 고정 + 옵션 확장 =====
 
 type A4Base64Image = { base64: string; mimeType: string; comment?: string };
 
-/** 셀(box) 안에 이미지 비율 유지하며 맞추기(여백 생길 수 있음) */
-function a4FitContain(srcW: number, srcH: number, boxW: number, boxH: number) {
-  const r = Math.min(boxW / srcW, boxH / srcH);
-  const w = Math.round(srcW * r);
-  const h = Math.round(srcH * r);
-  const x = Math.round((boxW - w) / 2);
-  const y = Math.round((boxH - h) / 2);
-  return { x, y, w, h };
-}
-
-/** 셀(box)을 꽉 채우도록 중앙 크롭(이미지 일부 잘림) */
-function a4CoverCrop(srcW: number, srcH: number, boxW: number, boxH: number) {
-  const srcR = srcW / srcH;
-  const boxR = boxW / boxH;
-
-  if (srcR > boxR) {
-    // 원본이 더 '와이드' → 가로 자르기
-    const sw = Math.round(srcH * boxR);
-    const sh = srcH;
-    const sx = Math.round((srcW - sw) / 2);
-    const sy = 0;
-    return { sx, sy, sw, sh };
-  } else {
-    // 원본이 더 '세로' → 세로 자르기
-    const sw = srcW;
-    const sh = Math.round(srcW / boxR);
-    const sx = 0;
-    const sy = Math.round((srcH - sh) / 2);
-    return { sx, sy, sw, sh };
-  }
-}
-
-async function loadImageFromBase64(dataUrl: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = dataUrl.startsWith('data:') ? dataUrl : `data:image/jpeg;base64,${dataUrl}`;
-  });
-}
-
 /**
- * 입력 이미지를 A4(세로) JPG로, 페이지당 최대 4장(2x2) 타일링하여 여러 장 생성.
- * - 1장: 전체
- * - 2장: 좌/우 반반
- * - 3장: 2x2 (마지막 셀 비움)
- * - 4장: 2x2
+ * 입력 이미지를 A4 JPG로, 페이지당 최대 4장(2×2) 타일링하여 여러 장 생성.
+ * - 기본적으로 "4분면 고정" (TL,TR,BL,BR) 을 유지하고 빈칸도 보존(keepEmptySlots=true)
+ * - fitMode='cover' 이면 셀을 꽉 채우기 위해 중앙 크롭
+ * - pagePx / pageMM 로 전체 출력 픽셀 크기 고정 가능
+ * - quadrantOrder 로 입력 이미지 → 슬롯 매핑 제어 가능
  * @returns 각 페이지를 dataURL(JPEG)로 담은 배열
  */
-/** A4 한 페이지에 최대 4장(2x2) 타일링 — 중앙 정렬 + 정확한 A4 픽셀 */
 export async function generateA4CompositeJPEGPages(
   imgs: A4Base64Image[],
   opts: A4CompositeOptions = {}
 ): Promise<string[]> {
   const dpi = opts.dpi ?? 300;
 
-  // A4(mm) → inch → px (정확)
-  const inchW = 210 / 25.4;
-  const inchH = 297 / 25.4;
-  const pageW = Math.round(inchW * dpi);
-  const pageH = Math.round(inchH * dpi);
+  // 페이지 픽셀 결정
+  let pageW: number, pageH: number;
+  if (opts.pagePx) {
+    pageW = Math.max(1, Math.round(opts.pagePx.width));
+    pageH = Math.max(1, Math.round(opts.pagePx.height));
+  } else if (opts.pageMM) {
+    const dpiMM = opts.pageMM.dpi ?? dpi;
+    pageW = mm2px(opts.pageMM.width, dpiMM);
+    pageH = mm2px(opts.pageMM.height, dpiMM);
+  } else {
+    // A4(mm) → px
+    pageW = mm2px(210, dpi);
+    pageH = mm2px(297, dpi);
+  }
 
   const margin = Math.max(0, opts.marginPx ?? 48);
   const gutter = Math.max(0, opts.gutterPx ?? 24);
   const bg = opts.background ?? '#ffffff';
   const quality = opts.quality ?? 0.95;
-  const mode = opts.fitMode ?? 'contain'; // 'contain' | 'cover'
+  const mode: FitMode = opts.fitMode ?? 'cover';
+  const keepEmpty = opts.keepEmptySlots ?? true;
+  const quadOrder: QuadKey[] = (opts.quadrantOrder && opts.quadrantOrder.length === 4)
+    ? opts.quadrantOrder
+    : ['TL','TR','BL','BR'];
+
+  const drawLabels = opts.drawSlotLabels ?? false;
+  const labelStyle = typeof drawLabels === 'object' ? drawLabels : undefined;
+  const strokeEmpty = opts.strokeEmptySlots ?? false;
+  const strokeStyle = typeof strokeEmpty === 'object' ? strokeEmpty : undefined;
 
   // 4개씩 끊기
   const groups: A4Base64Image[][] = [];
   for (let i = 0; i < imgs.length; i += 4) groups.push(imgs.slice(i, i + 4));
+  if (groups.length === 0) groups.push([]); // 빈 그룹(보호)
 
   const pages: string[] = [];
 
@@ -386,67 +458,63 @@ export async function generateA4CompositeJPEGPages(
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, pageW, pageH);
 
-    // 여백 안쪽 작업영역
+    // 작업영역(여백 제외)
     const innerW = pageW - margin * 2;
     const innerH = pageH - margin * 2;
 
-    // 셀 계산 + 실제 사용 영역(usedW/H)로 중앙 정렬
-    let cells: Array<{ x: number; y: number; w: number; h: number }> = [];
-    let usedW = 0, usedH = 0;
+    // 2×2 셀 계산 (항상 고정)
+    const tileW = Math.floor((innerW - gutter) / 2);
+    const tileH = Math.floor((innerH - gutter) / 2);
+    const usedW = tileW * 2 + gutter;
+    const usedH = tileH * 2 + gutter;
+    const originX = margin + Math.round((innerW - usedW) / 2);
+    const originY = margin + Math.round((innerH - usedH) / 2);
 
-    if (group.length === 1) {
-      usedW = innerW; usedH = innerH;
-      const originX = margin + Math.round((innerW - usedW) / 2);
-      const originY = margin + Math.round((innerH - usedH) / 2);
-      cells = [{ x: originX, y: originY, w: usedW, h: usedH }];
-    } else if (group.length === 2) {
-      const tileW = Math.floor((innerW - gutter) / 2);
-      const tileH = innerH;
-      usedW = tileW * 2 + gutter;
-      usedH = tileH;
-      const originX = margin + Math.round((innerW - usedW) / 2);
-      const originY = margin + Math.round((innerH - usedH) / 2);
-      const x1 = originX;
-      const x2 = originX + tileW + gutter;
-      const y = originY;
-      cells = [
-        { x: x1, y, w: tileW, h: tileH },
-        { x: x2, y, w: tileW, h: tileH },
-      ];
-    } else {
-      const tileW = Math.floor((innerW - gutter) / 2);
-      const tileH = Math.floor((innerH - gutter) / 2);
-      usedW = tileW * 2 + gutter;
-      usedH = tileH * 2 + gutter;
-      const originX = margin + Math.round((innerW - usedW) / 2);
-      const originY = margin + Math.round((innerH - usedH) / 2);
-      const x1 = originX;
-      const x2 = originX + tileW + gutter;
-      const y1 = originY;
-      const y2 = originY + tileH + gutter;
-      cells = [
-        { x: x1, y: y1, w: tileW, h: tileH },
-        { x: x2, y: y1, w: tileW, h: tileH },
-        { x: x1, y: y2, w: tileW, h: tileH },
-        { x: x2, y: y2, w: tileW, h: tileH },
-      ];
-    }
+    // 4분면 좌표 (TL,TR,BL,BR)
+    const cellsBase = [
+      { key:'TL' as const, x: originX,             y: originY,             w: tileW, h: tileH },
+      { key:'TR' as const, x: originX + tileW + gutter, y: originY,        w: tileW, h: tileH },
+      { key:'BL' as const, x: originX,             y: originY + tileH + gutter, w: tileW, h: tileH },
+      { key:'BR' as const, x: originX + tileW + gutter, y: originY + tileH + gutter, w: tileW, h: tileH },
+    ];
+    const cellsOrdered = quadOrder.map(k => cellsBase.find(c => c.key === k)!);
 
-    // 이미지 그리기
-    for (let i = 0; i < group.length; i++) {
-      const g = group[i];
-      const cell = cells[i];
-      const img = await loadImageFromBase64(
-        g.base64.startsWith('data:') ? g.base64 : `data:${g.mimeType};base64,${g.base64}`
-      );
+    // 그룹 이미지 로드 (dataURL 정규화)
+    const loaded = await Promise.all(
+      group.map(g => loadImageFromBase64(
+        g.base64.startsWith('data:')
+          ? g.base64
+          : `data:${g.mimeType || 'image/jpeg'};base64,${g.base64}`
+      ))
+    );
 
-      if (mode === 'cover') {
-        const { sx, sy, sw, sh } = a4CoverCrop(img.width, img.height, cell.w, cell.h);
-        ctx.drawImage(img, sx, sy, sw, sh, cell.x, cell.y, cell.w, cell.h);
+    // 몇 슬롯을 사용할지
+    const slotCount = keepEmpty ? 4 : Math.min(4, loaded.length);
+
+    // 슬롯별 렌더
+    for (let i = 0; i < slotCount; i++) {
+      const cell = cellsOrdered[i];
+      const img = loaded[i];
+
+      if (img) {
+        if (mode === 'cover') {
+          drawImageInCellCover(ctx, img, cell.x, cell.y, cell.w, cell.h);
+        } else {
+          // contain
+          const r = Math.min(cell.w / img.width, cell.h / img.height);
+          const dw = Math.round(img.width * r);
+          const dh = Math.round(img.height * r);
+          const dx = cell.x + Math.round((cell.w - dw) / 2);
+          const dy = cell.y + Math.round((cell.h - dh) / 2);
+          ctx.drawImage(img, dx, dy, dw, dh);
+        }
       } else {
-        const fit = a4FitContain(img.width, img.height, cell.w, cell.h);
-        ctx.drawImage(img, cell.x + fit.x, cell.y + fit.y, fit.w, fit.h);
+        // 빈 슬롯: 테두리(선택)
+        if (strokeEmpty) drawEmptyStroke(ctx, cell.x, cell.y, cell.w, cell.h, strokeStyle);
       }
+
+      // 라벨(선택): 1~4
+      if (drawLabels) drawSlotLabel(ctx, cell.x, cell.y, cell.w, cell.h, i + 1, labelStyle);
     }
 
     pages.push(canvas.toDataURL('image/jpeg', quality));
