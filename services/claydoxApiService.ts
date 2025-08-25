@@ -29,6 +29,20 @@ const KTL_API_TIMEOUT = 90000; // 90 seconds
 const PROXY_SERVER_URL = 'https://your-ktl-proxy.example.com';
 const PROXY_URL_PLACEHOLDER = 'https://your-ktl-proxy.example.com';
 
+// === Composite naming helpers for Photo Log (Page 1) ===
+// 여러 장 합성 JPG를 M1→M2→M3→Z1→Z2→S1→S2… 순으로 매핑할 때 쓰는 기본 키 순서
+const DEFAULT_PHOTO_KEY_ORDER = [
+  'M1','M2','M3',
+  'Z1','Z2',
+  'S1','S2','S3','S4','S5','S6','S7','S8','S9','S10'
+];
+
+// 파일명 "..._composite_07.jpg"에서 7을 뽑아 정렬에 사용
+function extractCompositeNo(name: string): number {
+  const m = name.match(/_composite_(\d+)\.(jpg|jpeg|png)$/i);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
 // --- Interfaces ---
 interface KtlApiResponseData {
   message?: string;
