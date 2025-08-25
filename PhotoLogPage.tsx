@@ -832,12 +832,28 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     // 2) 스탬프 적용본으로 A4 합성 JPG 생성
     const stampedForA4 = await stampPhotosForA4(activeJob);
     const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
-      dpi: 300,
-      marginPx: 32,      // 최소 여백으로 수정
-      gutterPx: 24,      // 타일 간격
+      // A4 세로 @300dpi = 2480 × 3508 px (출력 픽셀 고정)
+      pagePx: { width: 2480, height: 3508 },
+
+      // 여백/간격: 꽉 차게 보이려면 줄이거나 0으로
+      marginPx: 24,   // (완전 꽉 차게: 0)
+      gutterPx: 24,   // (칸 사이 여백. 완전 밀착: 0)
+
       background: '#fff',
       quality: 0.95,
-      fitMode: 'contain' // 안잘리게
+
+      // ✅ 셀을 항상 꽉 채움 (필요시 중앙 크롭)
+      fitMode: 'cover',
+
+      // ✅ 4분면 고정 순서: 1=좌상(TL), 2=우상(TR), 3=좌하(BL), 4=우하(BR)
+      quadrantOrder: ['TL', 'TR', 'BL', 'BR'],
+
+      // ✅ 사진이 1~3장이어도 2×2 레이아웃 유지(빈칸 보존)
+      keepEmptySlots: true,
+
+      // (선택) 슬롯 번호 보이기/빈칸 테두리
+      // drawSlotLabels: { position: 'top-left' },
+      // strokeEmptySlots: { color: 'rgba(0,0,0,0.12)', dash: [6,4] },
     });
 
     // 3) 합성 JPG -> File[]
@@ -924,12 +940,28 @@ const handleBatchSendToKtl = async () => {
       const stampedForA4 = await stampPhotosForA4(job);
 
       const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
-        dpi: 300,
-        marginPx: 32,      // 최소 여백으로 수정
-        gutterPx: 24,      // 타일 간격
+        // A4 세로 @300dpi = 2480 × 3508 px (출력 픽셀 고정)
+        pagePx: { width: 2480, height: 3508 },
+
+        // 여백/간격: 꽉 차게 보이려면 줄이거나 0으로
+        marginPx: 24,   // (완전 꽉 차게: 0)
+        gutterPx: 24,   // (칸 사이 여백. 완전 밀착: 0)
+
         background: '#fff',
         quality: 0.95,
-        fitMode: 'contain' // 안잘리게
+
+        // ✅ 셀을 항상 꽉 채움 (필요시 중앙 크롭)
+        fitMode: 'cover',
+
+        // ✅ 4분면 고정 순서: 1=좌상(TL), 2=우상(TR), 3=좌하(BL), 4=우하(BR)
+        quadrantOrder: ['TL', 'TR', 'BL', 'BR'],
+
+        // ✅ 사진이 1~3장이어도 2×2 레이아웃 유지(빈칸 보존)
+        keepEmptySlots: true,
+
+        // (선택) 슬롯 번호 보이기/빈칸 테두리
+        // drawSlotLabels: { position: 'top-left' },
+        // strokeEmptySlots: { color: 'rgba(0,0,0,0.12)', dash: [6,4] },
       });
 
       const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
