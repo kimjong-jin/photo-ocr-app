@@ -140,11 +140,13 @@ export interface ClaydoxPayload {
 const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: string, actualKtlFileNames: string[]): any => {
   const labviewItemObject: { [key: string]: string } = {};
 
-  const compositePhotoFileName = actualKtlFileNames.find(
-    (name) => (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png')) && !name.includes('datatable')
-  );
-  const zipPhotoFileName = actualKtlFileNames.find((name) => name.endsWith('.zip'));
-  const dataTableFileName = actualKtlFileNames.find((name) => name.includes('datatable.png'));
+  // === (A) 파일 분류 ===
+  const compositeFiles = actualKtlFileNames
+    .filter(n => /_composite_\d+\.(jpg|jpeg|png)$/i.test(n))
+    .sort((a, b) => extractCompositeNo(a) - extractCompositeNo(b));
+
+  const zipPhotoFileName = actualKtlFileNames.find((name) => /_Compression\.zip$/i.test(name) || name.toLowerCase().endsWith('.zip'));
+  const dataTableFileName = actualKtlFileNames.find((name) => name.toLowerCase().includes('datatable.png'));
 
   // --- Start of new logic for identifier remapping ---
   const identifierRemapping: { [key: string]: string[] } = {
@@ -163,23 +165,15 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   };
 
   const identifierCounters: { [key: string]: number } = {
-    Z1: 0,
-    Z2: 0,
-    S1: 0,
-    S2: 0,
-    현장1: 0,
-    Z1P: 0,
-    Z2P: 0,
-    S1P: 0,
-    S2P: 0,
-    현장1P: 0
+    Z1: 0, Z2: 0, S1: 0, S2: 0, 현장1: 0,
+    Z1P: 0, Z2P: 0, S1P: 0, S2P: 0, 현장1P: 0
   };
 
   const getNextKtlIdentifier = (baseIdentifier: string): string => {
     const remapping = baseIdentifier.endsWith('P') ? identifierRemappingTP : identifierRemapping;
     if (remapping[baseIdentifier]) {
       const count = identifierCounters[baseIdentifier] || 0;
-      const newIdentifier = remapping[baseIdentifier][count] || baseIdentifier; // Fallback to base
+      const newIdentifier = remapping[baseIdentifier][count] || baseIdentifier; // fallback
       identifierCounters[baseIdentifier] = count + 1;
       return newIdentifier;
     }
@@ -187,16 +181,13 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   };
   // --- End of new logic ---
 
+  // === (B) 값 매핑(기존 로직 유지) ===
   payload.ocrData.forEach((entry) => {
     if (payload.pageType === 'DrinkingWater') {
       const dividerIdentifiers = ['Z 2시간 시작 - 종료', '드리프트 완료', '반복성 완료'];
-      if (entry.identifier && dividerIdentifiers.includes(entry.identifier)) {
-        return; // Skip divider rows
-      }
+      if (entry.identifier && dividerIdentifiers.includes(entry.identifier)) return;
 
-      // Handle Response Time row ("응답") for both TU and Cl
       if (entry.identifier === '응답') {
-        // TU part
         if (entry.value && entry.value.trim().startsWith('[')) {
           try {
             const responseTimeArray = JSON.parse(entry.value);
@@ -206,11 +197,8 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
               if (minutes) labviewItemObject['응답시간_분'] = minutes;
               if (length) labviewItemObject['응답시간_길이'] = length;
             }
-          } catch (e) {
-            console.warn('Could not parse TU response time value for KTL JSON:', entry.value, e);
-          }
+          } catch {}
         }
-        // Cl part (only for TU/CL item)
         if (payload.item === 'TU/CL' && entry.valueTP && entry.valueTP.trim().startsWith('[')) {
           try {
             const responseTimeArray = JSON.parse(entry.valueTP);
@@ -220,23 +208,16 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
               if (minutes) labviewItemObject['응답시간_분C'] = minutes;
               if (length) labviewItemObject['응답시간_길이C'] = length;
             }
-          } catch (e) {
-            console.warn('Could not parse Cl response time value for KTL JSON:', entry.valueTP, e);
-          }
+          } catch {}
         }
-        return; // Continue to next entry
+        return;
       }
 
-      // Handle other measurement rows (M, Z1, S1, etc.)
       if (entry.identifier) {
-        // TU value (primary value for TU and TU/CL items)
         if (typeof entry.value === 'string' && entry.value.trim()) {
           const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
-          if (valueToUse !== null) {
-            labviewItemObject[entry.identifier] = valueToUse;
-          }
+          if (valueToUse !== null) labviewItemObject[entry.identifier] = valueToUse;
         }
-        // Cl value (secondary value for TU/CL item)
         if (payload.item === 'TU/CL' && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
           const valueTPToUse = entry.valueTP.match(/^-?\d+(\.\d+)?/)?.[0] || null;
           if (valueTPToUse !== null) {
@@ -247,26 +228,22 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
       }
     } else if (payload.item === 'TN/TP') {
       if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
-        const numericValueMatch = entry.value.match(/^-?\d+(\.\d+)?/);
-        const valueToUse = numericValueMatch ? numericValueMatch[0] : null;
+        const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
         if (valueToUse !== null) {
           const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
           labviewItemObject[ktlIdentifier] = valueToUse;
         }
       }
       if (entry.identifierTP && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
-        const numericValueTPMatch = entry.valueTP.match(/^-?\d+(\.\d+)?/);
-        const valueTPToUse = numericValueTPMatch ? numericValueTPMatch[0] : null;
+        const valueTPToUse = entry.valueTP.match(/^-?\d+(\.\d+)?/)?.[0] || null;
         if (valueTPToUse !== null) {
           const ktlIdentifierTP = getNextKtlIdentifier(entry.identifierTP);
           labviewItemObject[ktlIdentifierTP] = valueTPToUse;
         }
       }
     } else {
-      // Original Logic for other single items on P1/P2
       if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
-        const numericValueMatch = entry.value.match(/^-?\d+(\.\d+)?/);
-        const valueToUse = numericValueMatch ? numericValueMatch[0] : null;
+        const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
         if (valueToUse !== null) {
           const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
           labviewItemObject[ktlIdentifier] = valueToUse;
@@ -275,87 +252,58 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
     }
   });
 
-  let photoKeyBase: string | null = null;
-  if (labviewItemObject.hasOwnProperty('M1')) {
-    photoKeyBase = 'M1';
-  } else if (payload.item === 'TN/TP' && labviewItemObject.hasOwnProperty('M1P')) {
-    photoKeyBase = 'M1P';
-  }
+  // === (C) 사진 매핑 (핵심 변경) ===
+  // 1) 합성 JPG 여러 장 → M1_사진, M2_사진, ... 순서대로
+  const order = DEFAULT_PHOTO_KEY_ORDER;
+  compositeFiles.forEach((filename, idx) => {
+    const keyBase = order[idx] ?? `PHOTO${idx + 1}`;
+    labviewItemObject[`${keyBase}_사진`] = filename;
+  });
 
-  if (photoKeyBase) {
-    if (compositePhotoFileName) {
-      labviewItemObject[`${photoKeyBase}_사진`] = compositePhotoFileName;
-    }
-    if (zipPhotoFileName) {
-      labviewItemObject[`${photoKeyBase}_압축`] = zipPhotoFileName;
-    }
-  } else {
-    if (compositePhotoFileName) {
-      labviewItemObject['PHOTO_사진'] = compositePhotoFileName;
-    }
-    if (zipPhotoFileName) {
-      labviewItemObject['PHOTO_압축'] = zipPhotoFileName;
-    }
-  }
+  // 2) 레거시/호환 키도 유지 (첫 장, ZIP, 데이터테이블)
+  if (compositeFiles[0]) labviewItemObject['PHOTO_사진'] = compositeFiles[0];
+  if (zipPhotoFileName)  labviewItemObject['PHOTO_압축'] = zipPhotoFileName;
+  if (dataTableFileName) labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName;
 
+  // OCR이 아예 없고(=값 없음) 그래도 사진은 실어야 하는 경우의 방어 로직
   if (payload.ocrData.length === 0) {
-    if (compositePhotoFileName && !labviewItemObject['PHOTO_사진'] && (!photoKeyBase || !labviewItemObject[`${photoKeyBase}_사진`])) {
-      labviewItemObject['PHOTO_사진'] = compositePhotoFileName;
+    if (compositeFiles[0] && !labviewItemObject['PHOTO_사진']) {
+      labviewItemObject['PHOTO_사진'] = compositeFiles[0];
     }
-    if (zipPhotoFileName && !labviewItemObject['PHOTO_압축'] && (!photoKeyBase || !labviewItemObject[`${photoKeyBase}_압축`])) {
+    if (zipPhotoFileName && !labviewItemObject['PHOTO_압축']) {
       labviewItemObject['PHOTO_압축'] = zipPhotoFileName;
     }
   }
 
-  if (dataTableFileName) {
-    labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName;
-  }
-
+  // === (D) 공통 필드 ===
   if (payload.identifierSequence && payload.identifierSequence.length > 0) {
     labviewItemObject['sequence_code'] = payload.identifierSequence;
   }
-
   if (typeof payload.maxDecimalPlaces === 'number' && payload.maxDecimalPlaces >= 0) {
     labviewItemObject['소수점'] = String(payload.maxDecimalPlaces);
   }
   if (typeof payload.maxDecimalPlacesCl === 'number' && payload.maxDecimalPlacesCl >= 0) {
     labviewItemObject['소수점C'] = String(payload.maxDecimalPlacesCl);
   }
+  if (payload.updateUser)   labviewItemObject['시험자'] = payload.updateUser;
+  if (payload.siteLocation) labviewItemObject['현장']   = payload.siteLocation;
 
-  if (payload.updateUser) {
-    labviewItemObject['시험자'] = payload.updateUser;
-  }
-
-  if (payload.siteLocation) {
-    labviewItemObject['현장'] = payload.siteLocation;
-  }
-
-  let gubnPrefix = '수질'; // 기본값
+  // === (E) GUBN/ DESC 구성 (기존 로직 유지) ===
+  let gubnPrefix = '수질';
   const drinkingWaterItems = ANALYSIS_ITEM_GROUPS.find((g) => g.label === '먹는물')?.items || [];
-
-  if (payload.pageType === 'FieldCount') {
-    gubnPrefix = '현장계수';
-  } else if (payload.pageType === 'DrinkingWater' || drinkingWaterItems.includes(payload.item)) {
-    gubnPrefix = '먹는물';
-  }
+  if (payload.pageType === 'FieldCount') gubnPrefix = '현장계수';
+  else if (payload.pageType === 'DrinkingWater' || drinkingWaterItems.includes(payload.item)) gubnPrefix = '먹는물';
 
   let siteLocationForDesc = payload.siteLocation;
   if (gubnPrefix === '먹는물' && payload.siteLocation.includes(' / ')) {
-    const parts = payload.siteLocation
-      .split(' / ')
-      .map((p) => p.trim())
-      .filter((p) => p);
-    const mainSite = parts[0];
-    const details = parts.slice(1).join(' / ');
-    if (mainSite && details) {
-      siteLocationForDesc = `${mainSite}_(${details})`;
-    }
+    const parts = payload.siteLocation.split(' / ').map((p) => p.trim()).filter(Boolean);
+    const mainSite = parts[0]; const details = parts.slice(1).join(' / ');
+    if (mainSite && details) siteLocationForDesc = `${mainSite}_(${details})`;
   }
 
   const labviewDescComment = `${gubnPrefix} (항목: ${payload.item}, 현장: ${siteLocationForDesc})`;
   const labviewDescObject = { comment: labviewDescComment };
-
-  const dynamicLabviewGubn = `${gubnPrefix}_${payload.item.replace('/', '_')}`; // Handle "TN/TP" to "TN_TP"
+  const dynamicLabviewGubn = `${gubnPrefix}_${payload.item.replace('/', '_')}`;
 
   return {
     LABVIEW_GUBN: dynamicLabviewGubn,
