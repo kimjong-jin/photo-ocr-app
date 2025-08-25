@@ -843,7 +843,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       quality: 0.95,
 
       // ✅ 셀을 항상 꽉 채움 (필요시 중앙 크롭)
-      fitMode: 'cover',
+      fitMode: 'contain',
 
       // ✅ 4분면 고정 순서: 1=좌상(TL), 2=우상(TR), 3=좌하(BL), 4=우하(BR)
       quadrantOrder: ['TL', 'TR', 'BL', 'BR'],
@@ -951,7 +951,7 @@ const handleBatchSendToKtl = async () => {
         quality: 0.95,
 
         // ✅ 셀을 항상 꽉 채움 (필요시 중앙 크롭)
-        fitMode: 'cover',
+        fitMode: 'contain',
 
         // ✅ 4분면 고정 순서: 1=좌상(TL), 2=우상(TR), 3=좌하(BL), 4=우하(BR)
         quadrantOrder: ['TL', 'TR', 'BL', 'BR'],
