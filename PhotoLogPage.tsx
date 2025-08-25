@@ -835,15 +835,15 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       // A4 세로 @300dpi = 2480 × 3508 px (출력 픽셀 고정)
       pagePx: { width: 2480, height: 3508 },
 
-      // 여백/간격: 꽉 차게 보이려면 줄이거나 0으로
-      marginPx: 24,   // (완전 꽉 차게: 0)
-      gutterPx: 24,   // (칸 사이 여백. 완전 밀착: 0)
+      // 여백/간격: 완전 밀착
+      marginPx: 0,
+      gutterPx: 0,
 
       background: '#fff',
       quality: 0.95,
 
-      // ✅ 셀을 항상 꽉 채움 (필요시 중앙 크롭)
-      fitMode: 'contain',
+      // ✅ 비율 무시하고 셀 100% 채움(크롭/레터박스 없음, 왜곡 가능)
+      fitMode: 'fill',
 
       // ✅ 4분면 고정 순서: 1=좌상(TL), 2=우상(TR), 3=좌하(BL), 4=우하(BR)
       quadrantOrder: ['TL', 'TR', 'BL', 'BR'],
@@ -851,7 +851,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       // ✅ 사진이 1~3장이어도 2×2 레이아웃 유지(빈칸 보존)
       keepEmptySlots: true,
 
-      // (선택) 슬롯 번호 보이기/빈칸 테두리
+      // (선택) 슬롯 번호/빈칸 테두리
       // drawSlotLabels: { position: 'top-left' },
       // strokeEmptySlots: { color: 'rgba(0,0,0,0.12)', dash: [6,4] },
     });
@@ -938,28 +938,27 @@ const handleBatchSendToKtl = async () => {
 
       // ✅ A4 JPG 페이지로 최대 4장씩 타일링
       const stampedForA4 = await stampPhotosForA4(job);
-
       const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
         // A4 세로 @300dpi = 2480 × 3508 px (출력 픽셀 고정)
         pagePx: { width: 2480, height: 3508 },
 
-        // 여백/간격: 꽉 차게 보이려면 줄이거나 0으로
-        marginPx: 24,   // (완전 꽉 차게: 0)
-        gutterPx: 24,   // (칸 사이 여백. 완전 밀착: 0)
+        // 여백/간격: 완전 밀착
+        marginPx: 0,
+        gutterPx: 0,
 
         background: '#fff',
         quality: 0.95,
 
-        // ✅ 셀을 항상 꽉 채움 (필요시 중앙 크롭)
-        fitMode: 'contain',
+        // ✅ 비율 무시하고 셀 100% 채움(크롭/레터박스 없음, 왜곡 가능)
+        fitMode: 'fill',
 
-        // ✅ 4분면 고정 순서: 1=좌상(TL), 2=우상(TR), 3=좌하(BL), 4=우하(BR)
+        // ✅ 4분면 고정 순서
         quadrantOrder: ['TL', 'TR', 'BL', 'BR'],
 
-        // ✅ 사진이 1~3장이어도 2×2 레이아웃 유지(빈칸 보존)
+        // ✅ 1~3장이어도 2×2 유지
         keepEmptySlots: true,
 
-        // (선택) 슬롯 번호 보이기/빈칸 테두리
+        // (선택)
         // drawSlotLabels: { position: 'top-left' },
         // strokeEmptySlots: { color: 'rgba(0,0,0,0.12)', dash: [6,4] },
       });
