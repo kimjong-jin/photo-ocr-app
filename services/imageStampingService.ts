@@ -22,21 +22,26 @@ interface StampDetails {
   item: string;
 }
 
-type FitMode = 'contain' | 'cover';
+type FitMode = 'contain' | 'cover' | 'fill';
 type QuadKey = 'TL' | 'TR' | 'BL' | 'BR';
 
 export interface A4CompositeOptions {
   /** 기본 300. pagePx/pageMM가 없으면 A4(mm)×dpi로 계산 */
   dpi?: number;
-  /** 페이지 여백(px). 기본 48 */
+  /** 페이지 여백(px). 기본 48 (0 가능) */
   marginPx?: number;
-  /** 타일 간격(px). 기본 24 */
+  /** 타일 간격(px). 기본 24 (0 가능) */
   gutterPx?: number;
   /** 배경색. 기본 '#ffffff' */
   background?: string;
   /** JPEG 품질(0~1). 기본 0.95 */
   quality?: number;
-  /** contain=안잘림(레터박스), cover=꽉참(크롭 가능). 기본 cover */
+  /**
+   * 배치 모드:
+   * - 'fill'    : 비율 무시, 셀을 100% 채움(왜곡 가능) ← 기본
+   * - 'cover'   : 비율 유지, 셀 꽉참(필요 시 중앙 크롭)
+   * - 'contain' : 비율 유지, 크롭 없음(여백 생김)
+   */
   fitMode?: FitMode;
 
   /** 🔸 전체 출력 크기를 "픽셀"로 고정 (예: { width:2480, height:3508 }) */
@@ -73,6 +78,7 @@ const ensureDataUrl = (src: string, mimeType: string) =>
 
 const mm2px = (mm: number, dpi: number) => Math.round(mm * dpi / 25.4);
 
+/** cover: 비율 유지 + 중앙 크롭하여 셀을 꽉 채움 */
 function drawImageInCellCover(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
@@ -83,7 +89,6 @@ function drawImageInCellCover(
   ctx.rect(x, y, w, h);
   ctx.clip();
 
-  // cover 스케일
   const s = Math.max(w / img.width, h / img.height);
   const dw = img.width * s;
   const dh = img.height * s;
@@ -93,6 +98,31 @@ function drawImageInCellCover(
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(img, dx, dy, dw, dh);
   ctx.restore();
+}
+
+/** contain: 비율 유지 + 레터박스(여백 허용) */
+function drawImageInCellContain(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number, y: number, w: number, h: number
+) {
+  const r = Math.min(w / img.width, h / img.height);
+  const dw = Math.round(img.width * r);
+  const dh = Math.round(img.height * r);
+  const dx = x + Math.round((w - dw) / 2);
+  const dy = y + Math.round((h - dh) / 2);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+/** fill: 비율 무시 + 셀 크기에 딱 맞춤(왜곡 가능) */
+function drawImageInCellFill(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number, y: number, w: number, h: number
+) {
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(img, x, y, w, h);
 }
 
 function drawSlotLabel(
@@ -401,8 +431,11 @@ type A4Base64Image = { base64: string; mimeType: string; comment?: string };
 
 /**
  * 입력 이미지를 A4 JPG로, 페이지당 최대 4장(2×2) 타일링하여 여러 장 생성.
- * - 기본적으로 "4분면 고정" (TL,TR,BL,BR) 을 유지하고 빈칸도 보존(keepEmptySlots=true)
- * - fitMode='cover' 이면 셀을 꽉 채우기 위해 중앙 크롭
+ * - 기본 "4분면 고정"(TL,TR,BL,BR). keepEmptySlots=true면 1~3장도 2×2 유지.
+ * - fitMode:
+ *    'fill'    → 왜곡 허용, 셀 100% 채움(여백/크롭 없음)
+ *    'cover'   → 비율 유지, 여백 0, 필요 시 중앙 크롭
+ *    'contain' → 비율 유지, 크롭 0, 여백 생김
  * - pagePx / pageMM 로 전체 출력 픽셀 크기 고정 가능
  * - quadrantOrder 로 입력 이미지 → 슬롯 매핑 제어 가능
  * @returns 각 페이지를 dataURL(JPEG)로 담은 배열
@@ -432,7 +465,7 @@ export async function generateA4CompositeJPEGPages(
   const gutter = Math.max(0, opts.gutterPx ?? 24);
   const bg = opts.background ?? '#ffffff';
   const quality = opts.quality ?? 0.95;
-  const mode: FitMode = opts.fitMode ?? 'cover';
+  const mode: FitMode = opts.fitMode ?? 'fill';
   const keepEmpty = opts.keepEmptySlots ?? true;
   const quadOrder: QuadKey[] = (opts.quadrantOrder && opts.quadrantOrder.length === 4)
     ? opts.quadrantOrder
@@ -446,7 +479,7 @@ export async function generateA4CompositeJPEGPages(
   // 4개씩 끊기
   const groups: A4Base64Image[][] = [];
   for (let i = 0; i < imgs.length; i += 4) groups.push(imgs.slice(i, i + 4));
-  if (groups.length === 0) groups.push([]); // 빈 그룹(보호)
+  if (groups.length === 0) groups.push([]); // 빈 그룹 방어
 
   const pages: string[] = [];
 
@@ -472,9 +505,9 @@ export async function generateA4CompositeJPEGPages(
 
     // 4분면 좌표 (TL,TR,BL,BR)
     const cellsBase = [
-      { key:'TL' as const, x: originX,             y: originY,             w: tileW, h: tileH },
-      { key:'TR' as const, x: originX + tileW + gutter, y: originY,        w: tileW, h: tileH },
-      { key:'BL' as const, x: originX,             y: originY + tileH + gutter, w: tileW, h: tileH },
+      { key:'TL' as const, x: originX,                  y: originY,                  w: tileW, h: tileH },
+      { key:'TR' as const, x: originX + tileW + gutter, y: originY,                  w: tileW, h: tileH },
+      { key:'BL' as const, x: originX,                  y: originY + tileH + gutter, w: tileW, h: tileH },
       { key:'BR' as const, x: originX + tileW + gutter, y: originY + tileH + gutter, w: tileW, h: tileH },
     ];
     const cellsOrdered = quadOrder.map(k => cellsBase.find(c => c.key === k)!);
@@ -497,16 +530,12 @@ export async function generateA4CompositeJPEGPages(
       const img = loaded[i];
 
       if (img) {
-        if (mode === 'cover') {
+        if (mode === 'fill') {
+          drawImageInCellFill(ctx, img, cell.x, cell.y, cell.w, cell.h);
+        } else if (mode === 'cover') {
           drawImageInCellCover(ctx, img, cell.x, cell.y, cell.w, cell.h);
         } else {
-          // contain
-          const r = Math.min(cell.w / img.width, cell.h / img.height);
-          const dw = Math.round(img.width * r);
-          const dh = Math.round(img.height * r);
-          const dx = cell.x + Math.round((cell.w - dw) / 2);
-          const dy = cell.y + Math.round((cell.h - dh) / 2);
-          ctx.drawImage(img, dx, dy, dw, dh);
+          drawImageInCellContain(ctx, img, cell.x, cell.y, cell.w, cell.h);
         }
       } else {
         // 빈 슬롯: 테두리(선택)
