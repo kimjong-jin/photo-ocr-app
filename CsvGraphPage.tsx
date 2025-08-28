@@ -49,7 +49,6 @@ const useResizeObserver = () => {
     const element = resizeRef.current;
     if (!element) return;
 
-    // Fallback for older browsers where ResizeObserver may be undefined
     if (typeof (window as any).ResizeObserver === 'undefined') {
       const update = () => setSize({ width: element.clientWidth, height: element.clientHeight });
       update();
@@ -94,7 +93,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
     if (!canvas || width === 0 || height === 0) return;
 
     const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
-    // Fit canvas to CSS size and scale for HiDPI
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     canvas.width = Math.max(1, Math.floor(width * dpr));
@@ -111,7 +109,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
     const graphHeight = height - padding.top - padding.bottom;
     if (graphWidth <= 0 || graphHeight <= 0) return;
 
-    // Prepare channel data (filter nulls, ensure time order)
     const channelData = data
       .map((d) => ({ timestamp: d.timestamp, value: d.values[channelIndex] }))
       .filter((d) => d.value !== null && typeof d.value === 'number') as { timestamp: Date; value: number }[];
@@ -128,7 +125,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
 
     let minTimestamp = channelData[0].timestamp.getTime();
     let maxTimestamp = channelData[channelData.length - 1].timestamp.getTime();
-    if (minTimestamp === maxTimestamp) maxTimestamp = minTimestamp + 1; // avoid divide-by-zero
+    if (minTimestamp === maxTimestamp) maxTimestamp = minTimestamp + 1;
 
     const yValues = channelData.map((d) => d.value);
     let yMin = Math.min(...yValues);
@@ -140,13 +137,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
     const mapX = (ts: number) => padding.left + ((ts - minTimestamp) / (maxTimestamp - minTimestamp)) * graphWidth;
     const mapY = (val: number) => padding.top + graphHeight - ((val - yMin) / (yMax - yMin)) * graphHeight;
 
-    // Grid & labels
-    ctx.strokeStyle = '#334155'; // slate-700
-    ctx.fillStyle = '#94a3b8'; // slate-400
+    ctx.strokeStyle = '#334155';
+    ctx.fillStyle = '#94a3b8';
     ctx.font = '10px Inter, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", sans-serif';
     ctx.lineWidth = 1;
 
-    // Y-axis grid
     const numYGridLines = 5;
     for (let i = 0; i <= numYGridLines; i++) {
       const y = padding.top + (i / numYGridLines) * graphHeight;
@@ -155,13 +150,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
       ctx.moveTo(padding.left, y);
       ctx.lineTo(padding.left + graphWidth, y);
       ctx.stroke();
-
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       ctx.fillText(value.toFixed(2), padding.left - 8, y);
     }
 
-    // X-axis grid
     const numXGridLines = Math.min(Math.floor(graphWidth / 100), 10);
     if (numXGridLines > 0) {
       for (let i = 0; i <= numXGridLines; i++) {
@@ -171,15 +164,13 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
         ctx.moveTo(x, padding.top);
         ctx.lineTo(x, padding.top + graphHeight);
         ctx.stroke();
-
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         ctx.fillText(timestamp.toLocaleTimeString(), x, padding.top + graphHeight + 8);
       }
     }
 
-    // Data line
-    ctx.strokeStyle = '#38bdf8'; // sky-500
+    ctx.strokeStyle = '#38bdf8';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     channelData.forEach((d, i) => {
@@ -190,7 +181,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
     });
     ctx.stroke();
 
-    // Tooltip / crosshair
     if (
       mousePosition &&
       mousePosition.x > padding.left &&
@@ -214,7 +204,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
         const x = mapX(point.timestamp.getTime());
         const y = mapY(point.value);
 
-        // Vertical line
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.lineWidth = 0.5;
         ctx.beginPath();
@@ -222,7 +211,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
         ctx.lineTo(x, padding.top + graphHeight);
         ctx.stroke();
 
-        // Circle on point
         ctx.fillStyle = '#38bdf8';
         ctx.strokeStyle = '#0f172a';
         ctx.lineWidth = 2;
@@ -231,7 +219,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
         ctx.fill();
         ctx.stroke();
 
-        // Tooltip
         const text1 = `${point.timestamp.toLocaleString()}`;
         const text2 = `${point.value.toFixed(3)} ${channelInfo.unit.replace(/\[|\]/g, '')}`;
         ctx.font = '12px Inter, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", sans-serif';
@@ -241,10 +228,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
         const boxHeight = 44;
         let boxX = x + 15;
         if (boxX + boxWidth > width) boxX = x - boxWidth - 15;
-
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(boxX, mousePosition.y - boxHeight / 2, boxWidth, boxHeight);
-
         ctx.fillStyle = '#FFFFFF';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -273,7 +258,6 @@ const Graph: React.FC<{ data: DataPoint[]; channelIndex: number; channelInfo: Ch
   );
 };
 
-// ---------- Parser for Graphtec-like CSV ----------
 const parseGraphtecCsv = (csvContent: string, fileName: string): ParsedCsvData => {
   const lines = csvContent.split(/\r?\n/);
   const channels: ChannelInfo[] = [];
@@ -284,11 +268,10 @@ const parseGraphtecCsv = (csvContent: string, fileName: string): ParsedCsvData =
   let ampHeaderFound = false;
 
   for (const rawLine of lines) {
-    const line = rawLine.replace(/\uFEFF/g, ''); // strip BOM if present
+    const line = rawLine.replace(/\uFEFF/g, '');
     const trimmedLine = line.trim();
     if (!trimmedLine) continue;
 
-    // section switches
     if (trimmedLine.startsWith('AMP settings')) {
       state = 'amp';
       ampHeaderFound = false;
@@ -302,34 +285,29 @@ const parseGraphtecCsv = (csvContent: string, fileName: string): ParsedCsvData =
     }
 
     if (state === 'amp') {
-      if (!ampHeaderFound) {
-        if (trimmedLine.startsWith('CH,Signal name')) ampHeaderFound = true;
-      } else {
-        const cols = splitCsvLine(line);
-        if (cols[0]?.startsWith('CH') && !isNaN(parseInt(cols[0].substring(2))) && cols.length > 9) {
-          channels.push({ id: cols[0], name: cols[1], unit: cols[9] });
+        if (!ampHeaderFound) {
+            if (trimmedLine.toLowerCase().startsWith('ch,signal name')) ampHeaderFound = true;
+        } else {
+            const cols = splitCsvLine(line);
+            if (cols[0]?.toLowerCase().startsWith('ch') && !isNaN(parseInt(cols[0].substring(2))) && cols.length > 9) {
+                channels.push({ id: cols[0], name: cols[1], unit: cols[9] });
+            }
         }
-      }
     } else if (state === 'data') {
-      if (dataHeaderCols.length === 0 && trimmedLine.includes('Date&Time')) {
-        dataHeaderCols = splitCsvLine(trimmedLine);
-      } else if (dataHeaderCols.length > 0) {
-        // heuristic: data rows often start with index number; don't strictly require it
+      if (dataHeaderCols.length === 0 && trimmedLine.toLowerCase().includes('date&time')) {
+        dataHeaderCols = splitCsvLine(line).map(h => h.replace(/"/g, '').trim());
+      } else if (dataHeaderCols.length > 0 && /^\d+/.test(trimmedLine)) {
         const cols = splitCsvLine(line);
-        const timeColIndex = dataHeaderCols.indexOf('Date&Time');
+        const timeColIndex = dataHeaderCols.findIndex(h => h.toLowerCase() === 'date&time');
         if (timeColIndex === -1 || timeColIndex >= cols.length) continue;
-
         const timestampStr = cols[timeColIndex];
-        // Normalize common formats (e.g., 2025/08/28 12:34:56.789)
-        const normalized = timestampStr
-          .replace(/\//g, '-')
-          .replace(/\s+/, 'T');
+        const normalized = timestampStr.replace(/\//g, '-').replace(/\s+/, 'T');
         const timestamp = new Date(normalized);
         if (isNaN(timestamp.getTime())) continue;
 
         const values: (number | null)[] = [];
         channels.forEach((ch) => {
-          const colIndex = dataHeaderCols.indexOf(ch.id);
+            const colIndex = dataHeaderCols.findIndex(h => h.toUpperCase() === ch.id.toUpperCase());
           if (colIndex !== -1 && colIndex < cols.length && cols[colIndex] !== '') {
             const val = parseFloat(cols[colIndex].replace('+', ''));
             values.push(Number.isFinite(val) ? val : null);
@@ -343,29 +321,28 @@ const parseGraphtecCsv = (csvContent: string, fileName: string): ParsedCsvData =
   }
 
   if (channels.length === 0 || data.length === 0) {
-    throw new Error('CSV 파일 형식이 올바르지 않거나 지원되지 않는 형식입니다. (AMP settings/Data 섹션 확인)');
+    throw new Error('CSV 파일 형식이 올바르지 않거나 지원되지 않는 형식입니다. (AMP settings 또는 Data 섹션 누락)');
   }
 
   return { channels, data, fileName };
 };
 
-// ---------- Page ----------
 const CsvGraphPage: React.FC = () => {
   const [parsedData, setParsedData] = useState<ParsedCsvData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [timeRange, setTimeRange] = useState<'all' | number>('all');
+  const [timeRangeInMs, setTimeRangeInMs] = useState<'all' | number>('all');
+  const [timeChunkIndex, setTimeChunkIndex] = useState(0);
 
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     setIsLoading(true);
     setError(null);
     setParsedData(null);
-    setTimeRange('all');
-
+    setTimeRangeInMs('all');
+    setTimeChunkIndex(0);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -378,34 +355,59 @@ const CsvGraphPage: React.FC = () => {
         setIsLoading(false);
       }
     };
-    reader.onerror = () => {
-      setError('파일을 읽는 데 실패했습니다.');
-      setIsLoading(false);
-    };
+    reader.onerror = () => { setError('파일을 읽는 데 실패했습니다.'); setIsLoading(false); };
     reader.readAsText(file, 'UTF-8');
   }, []);
 
   const handleClear = () => {
     setParsedData(null);
     setError(null);
-    setTimeRange('all');
+    setTimeRangeInMs('all');
+    setTimeChunkIndex(0);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
-
-  const filteredData = useMemo(() => {
-    if (!parsedData?.data || timeRange === 'all') {
-      return parsedData?.data;
+  
+  const { filteredData, maxChunks, currentWindowDisplay } = useMemo(() => {
+    if (!parsedData?.data || parsedData.data.length === 0) {
+      return { filteredData: [], maxChunks: 0, currentWindowDisplay: "" };
     }
-    const maxTimestamp = parsedData.data.reduce((max, p) => Math.max(max, p.timestamp.getTime()), 0);
-    if (maxTimestamp === 0) return parsedData.data;
-    const cutoffTimestamp = maxTimestamp - timeRange;
-    return parsedData.data.filter(d => d.timestamp.getTime() >= cutoffTimestamp);
-  }, [parsedData, timeRange]);
+    
+    if (timeRangeInMs === 'all') {
+      return { filteredData: parsedData.data, maxChunks: 1, currentWindowDisplay: "전체 기간" };
+    }
+
+    const sortedData = [...parsedData.data].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    const minTimestamp = sortedData[0].timestamp.getTime();
+    const maxTimestamp = sortedData[sortedData.length - 1].timestamp.getTime();
+    const totalDuration = maxTimestamp - minTimestamp;
+    const maxChunks = totalDuration > 0 ? Math.ceil(totalDuration / timeRangeInMs) : 1;
+
+    const endTime = maxTimestamp - (timeChunkIndex * timeRangeInMs);
+    const startTime = endTime - timeRangeInMs;
+
+    const dataInWindow = parsedData.data.filter(d => {
+        const time = d.timestamp.getTime();
+        return time >= startTime && time < endTime;
+    });
+
+    const windowDisplay = `${new Date(startTime).toLocaleString()} ~ ${new Date(endTime).toLocaleString()}`;
+
+    return { filteredData: dataInWindow, maxChunks, currentWindowDisplay: windowDisplay };
+  }, [parsedData, timeRangeInMs, timeChunkIndex]);
+
+  const handleTimeRangeChange = (value: 'all' | number) => {
+    setTimeRangeInMs(value);
+    setTimeChunkIndex(0);
+  };
+  const handlePreviousChunk = () => setTimeChunkIndex(prev => Math.min(prev + 1, maxChunks - 1));
+  const handleNextChunk = () => setTimeChunkIndex(prev => Math.max(0, prev - 1));
 
   const timeRangeOptions = [
+    { label: '10분', value: 10 * 60 * 1000 },
     { label: '30분', value: 30 * 60 * 1000 },
     { label: '1시간', value: 60 * 60 * 1000 },
     { label: '4시간', value: 4 * 60 * 60 * 1000 },
+    { label: '6시간', value: 6 * 60 * 60 * 1000 },
     { label: '전체', value: 'all' },
   ] as const;
 
@@ -419,59 +421,37 @@ const CsvGraphPage: React.FC = () => {
 
       <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 flex flex-col sm:flex-row gap-4">
         <div className="flex-grow">
-          <label htmlFor="csv-upload" className="block text-sm font-medium text-slate-300 mb-1">
-            데이터 파일 선택 (CSV, TXT)
-          </label>
-          <input
-            ref={fileInputRef}
-            id="csv-upload"
-            type="file"
-            accept=".csv,.txt"
-            onChange={handleFileChange}
-            className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600 disabled:opacity-50"
-            disabled={isLoading}
-          />
+          <label htmlFor="csv-upload" className="block text-sm font-medium text-slate-300 mb-1">데이터 파일 선택 (CSV, TXT)</label>
+          <input ref={fileInputRef} id="csv-upload" type="file" accept=".csv,.txt" onChange={handleFileChange} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600 disabled:opacity-50" disabled={isLoading} />
         </div>
         <div className="flex-shrink-0 self-end">
-          <ActionButton onClick={handleClear} variant="secondary" disabled={isLoading || !parsedData}>
-            초기화
-          </ActionButton>
+          <ActionButton onClick={handleClear} variant="secondary" disabled={isLoading || !parsedData}>초기화</ActionButton>
         </div>
       </div>
 
-      {isLoading && (
-        <div className="flex justify-center items-center py-10">
-          <Spinner />
-          <span className="ml-3 text-slate-300">파일을 분석 중입니다...</span>
-        </div>
-      )}
+      {isLoading && (<div className="flex justify-center items-center py-10"><Spinner /><span className="ml-3 text-slate-300">파일을 분석 중입니다...</span></div>)}
       {error && <p className="text-red-400 text-center p-4 bg-red-900/30 rounded-md">{error}</p>}
 
       {parsedData && (
         <>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <h3 className="text-xl font-semibold text-slate-100">
-              그래프 분석: <span className="text-sky-400">{parsedData.fileName}</span>
-            </h3>
+            <h3 className="text-xl font-semibold text-slate-100">그래프 분석: <span className="text-sky-400">{parsedData.fileName}</span></h3>
             <div className="flex items-center space-x-2 bg-slate-700/50 p-1 rounded-lg">
               <span className="text-xs text-slate-400 font-medium px-2">시간 범위:</span>
-              {timeRangeOptions.map(opt => (
-                <button
-                  key={opt.label}
-                  onClick={() => setTimeRange(opt.value)}
-                  className={`${baseButtonClass} ${timeRange === opt.value ? activeButtonClass : inactiveButtonClass}`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+              {timeRangeOptions.map(opt => (<button key={opt.label} onClick={() => handleTimeRangeChange(opt.value)} className={`${baseButtonClass} ${timeRangeInMs === opt.value ? activeButtonClass : inactiveButtonClass}`}>{opt.label}</button>))}
             </div>
           </div>
+          {timeRangeInMs !== 'all' && (
+            <div className="flex items-center justify-center gap-3 text-sm">
+                <ActionButton onClick={handlePreviousChunk} disabled={timeChunkIndex >= maxChunks - 1}>{'< 이전'}</ActionButton>
+                <span className="text-slate-300 font-mono bg-slate-900/50 px-3 py-1.5 rounded-md text-xs">{currentWindowDisplay}</span>
+                <ActionButton onClick={handleNextChunk} disabled={timeChunkIndex <= 0}>{'다음 >'}</ActionButton>
+            </div>
+          )}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {parsedData.channels.map((channel, index) => (
               <div key={channel.id} className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
-                <h4 className="text-lg font-semibold text-slate-100">
-                  {channel.name} ({channel.id})
-                </h4>
+                <h4 className="text-lg font-semibold text-slate-100">{channel.name} ({channel.id})</h4>
                 <p className="text-sm text-slate-400 mb-2">단위: {channel.unit.replace(/\[|\]/g, '')}</p>
                 <Graph data={filteredData || []} channelIndex={index} channelInfo={channel} />
               </div>
