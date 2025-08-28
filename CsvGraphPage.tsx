@@ -421,6 +421,138 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   );
 };
 
+interface TimelineNavigatorProps {
+  fullData: DataPoint[];
+  channelIndex: number;
+  fullTimeRange: { min: number; max: number };
+  viewTimeRange: number;
+  viewEndTimestamp: number;
+  onNavigate: (newEndTimestamp: number) => void;
+  yMinMaxOverall: { yMin: number; yMax: number } | null;
+}
+
+const TimelineNavigator: React.FC<TimelineNavigatorProps> = ({
+  fullData, channelIndex, fullTimeRange, viewTimeRange, viewEndTimestamp, onNavigate, yMinMaxOverall
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { ref: containerRef, width, height } = useResizeObserver();
+  const isDragging = useRef(false);
+  const dragStart = useRef({ mouseX: 0, endTimestamp: 0 });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || width === 0 || height === 0) return;
+    
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    const channelData = fullData
+      .map((d) => ({ timestamp: d.timestamp, value: d.values[channelIndex] }))
+      .filter((d) => d.value !== null && typeof d.value === 'number') as { timestamp: Date; value: number }[];
+    if (channelData.length < 2) return;
+
+    const { min: minTs, max: maxTs } = fullTimeRange;
+    const duration = maxTs - minTs;
+    const { yMin, yMax } = yMinMaxOverall || { yMin: 0, yMax: 1 };
+
+    const mapX = (ts: number) => ((ts - minTs) / duration) * width;
+    const mapY = (val: number) => height - ((val - yMin) / (yMax - yMin)) * height;
+
+    // Draw mini graph line
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    channelData.forEach((d, i) => {
+      const x = mapX(d.timestamp.getTime());
+      const y = mapY(d.value);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Draw selection window
+    const windowWidth = (viewTimeRange / duration) * width;
+    const windowStartTs = viewEndTimestamp - viewTimeRange;
+    const windowX = mapX(windowStartTs);
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.3)';
+    ctx.fillRect(windowX, 0, windowWidth, height);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+    ctx.strokeRect(windowX, 0, windowWidth, height);
+
+  }, [width, height, fullData, channelIndex, fullTimeRange, viewTimeRange, viewEndTimestamp, yMinMaxOverall]);
+
+  const handleInteraction = (clientX: number, isEnd: boolean = false) => {
+    if (isEnd) {
+      isDragging.current = false;
+      return;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = clientX - rect.left;
+    const duration = fullTimeRange.max - fullTimeRange.min;
+    
+    if (isDragging.current) {
+        const deltaX = mouseX - dragStart.current.mouseX;
+        const deltaMs = (deltaX / width) * duration;
+        let newEnd = dragStart.current.endTimestamp + deltaMs;
+        const minPossibleEnd = fullTimeRange.min + viewTimeRange;
+        const maxPossibleEnd = fullTimeRange.max;
+        newEnd = Math.max(minPossibleEnd, Math.min(newEnd, maxPossibleEnd));
+        onNavigate(newEnd);
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const duration = fullTimeRange.max - fullTimeRange.min;
+
+    const windowWidth = (viewTimeRange / duration) * width;
+    const windowX = ((viewEndTimestamp - viewTimeRange - fullTimeRange.min) / duration) * width;
+    
+    if(mouseX >= windowX && mouseX <= windowX + windowWidth) {
+        isDragging.current = true;
+        dragStart.current = { mouseX: mouseX, endTimestamp: viewEndTimestamp };
+    } else {
+        const clickedTs = fullTimeRange.min + (mouseX / width) * duration;
+        let newEnd = clickedTs + viewTimeRange / 2;
+        const minPossibleEnd = fullTimeRange.min + viewTimeRange;
+        const maxPossibleEnd = fullTimeRange.max;
+        newEnd = Math.max(minPossibleEnd, Math.min(newEnd, maxPossibleEnd));
+        onNavigate(newEnd);
+    }
+  };
+  
+  const handleMouseMove = (e: React.MouseEvent) => handleInteraction(e.clientX);
+  const handleMouseUp = (e: React.MouseEvent) => handleInteraction(e.clientX, true);
+  const handleMouseLeave = (e: React.MouseEvent) => handleInteraction(e.clientX, true);
+
+  const getCursor = () => {
+    if (isDragging.current) return 'grabbing';
+    return 'grab';
+  };
+
+  return (
+    <div ref={containerRef} className="w-full h-16 bg-slate-900/50 rounded-md border border-slate-700 p-1">
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: '100%', display: 'block', cursor: getCursor() }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+      />
+    </div>
+  );
+};
+
+
 const Graph: React.FC<{ 
     data: DataPoint[]; 
     channelIndex: number; 
@@ -533,6 +665,12 @@ const CsvGraphPage: React.FC = () => {
     return { fullTimeRange: { min: minTimestamp, max: maxTimestamp } };
   }, [parsedData]);
 
+  useEffect(() => {
+    if (fullTimeRange && !viewEndTimestamp) {
+        setViewEndTimestamp(fullTimeRange.max);
+    }
+  }, [fullTimeRange, viewEndTimestamp]);
+
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -629,12 +767,29 @@ const CsvGraphPage: React.FC = () => {
   }, [parsedData, selectedChannelId]);
 
 
-  const handleTimeRangeChange = (value: 'all' | number) => {
-    setTimeRangeInMs(value);
-    if (value === 'all' || !fullTimeRange) {
+  const handleTimeRangeChange = (newTimeRange: 'all' | number) => {
+    if (!fullTimeRange) return;
+
+    const oldTimeRange = timeRangeInMs;
+    const oldViewEnd = viewEndTimestamp;
+    
+    let currentCenterTimestamp: number;
+    if (oldTimeRange === 'all' || oldViewEnd === null) {
+        currentCenterTimestamp = (fullTimeRange.min + fullTimeRange.max) / 2;
+    } else {
+        currentCenterTimestamp = oldViewEnd - (oldTimeRange / 2);
+    }
+    
+    setTimeRangeInMs(newTimeRange);
+
+    if (newTimeRange === 'all') {
         setViewEndTimestamp(null);
     } else {
-        setViewEndTimestamp(fullTimeRange.max);
+        let newEndTimestamp = currentCenterTimestamp + (newTimeRange / 2);
+        const minPossibleEnd = fullTimeRange.min + newTimeRange;
+        const maxPossibleEnd = fullTimeRange.max;
+        newEndTimestamp = Math.max(minPossibleEnd, Math.min(newEndTimestamp, maxPossibleEnd));
+        setViewEndTimestamp(newEndTimestamp);
     }
   };
   
@@ -649,6 +804,15 @@ const CsvGraphPage: React.FC = () => {
         return Math.max(minPossibleEnd, Math.min(newEnd, maxPossibleEnd));
     });
   }, [timeRangeInMs, fullTimeRange]);
+  
+  const handleNavigate = (newEndTimestamp: number) => {
+    if (timeRangeInMs === 'all' || !fullTimeRange || typeof timeRangeInMs !== 'number') return;
+    const minPossibleEnd = fullTimeRange.min + timeRangeInMs;
+    const maxPossibleEnd = fullTimeRange.max;
+    const clampedTimestamp = Math.max(minPossibleEnd, Math.min(newEndTimestamp, maxPossibleEnd));
+    setViewEndTimestamp(clampedTimestamp);
+  };
+
 
   const handleFinePan = (direction: number) => handlePan(direction * ONE_MINUTE_MS);
   const handleCoarsePan = (direction: number) => {
@@ -751,10 +915,6 @@ const CsvGraphPage: React.FC = () => {
     { label: '전체', value: 'all' },
   ] as const;
 
-  const baseButtonClass = "px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-sky-500";
-  const activeButtonClass = "bg-sky-500 text-white";
-  const inactiveButtonClass = "bg-slate-600 hover:bg-slate-500 text-slate-300";
-
   return (
     <div className="w-full max-w-7xl mx-auto bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">CSV 그래프 (P6)</h2>
@@ -776,8 +936,21 @@ const CsvGraphPage: React.FC = () => {
         <>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h3 className="text-xl font-semibold text-slate-100">그래프 분석: <span className="text-sky-400">{parsedData.fileName}</span></h3>
-            <div className="flex items-center space-x-1 sm:space-x-2 bg-slate-700/50 p-1 rounded-lg flex-wrap">
-              {timeRangeOptions.map(opt => (<button key={opt.label} onClick={() => handleTimeRangeChange(opt.value)} className={`${baseButtonClass} ${timeRangeInMs === opt.value ? activeButtonClass : inactiveButtonClass}`}>{opt.label}</button>))}
+            <div className="flex items-center bg-slate-700/50 p-1 rounded-lg">
+              {timeRangeOptions.map(opt => (
+                <button 
+                  key={opt.label} 
+                  onClick={() => handleTimeRangeChange(opt.value)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50
+                    ${timeRangeInMs === opt.value 
+                        ? 'bg-sky-500 text-white shadow-md' 
+                        : 'text-slate-300 hover:bg-slate-700'
+                    }`
+                  }
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
           {timeRangeInMs !== 'all' && (
@@ -796,7 +969,7 @@ const CsvGraphPage: React.FC = () => {
                 <button
                   key={channel.id}
                   onClick={() => setSelectedChannelId(channel.id)}
-                  className={`${baseButtonClass} ${selectedChannelId === channel.id ? activeButtonClass : inactiveButtonClass}`}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-sky-500 ${selectedChannelId === channel.id ? 'bg-sky-500 text-white' : 'bg-slate-600 hover:bg-slate-500 text-slate-300'}`}
                 >
                   {channel.name} ({channel.id})
                 </button>
@@ -805,7 +978,7 @@ const CsvGraphPage: React.FC = () => {
 
           {selectedChannel && selectedChannelIndex !== -1 && (
             <div className="space-y-6">
-                <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+                <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700 space-y-4">
                     <div className="flex justify-between items-start mb-2">
                         <div>
                             <h4 className="text-lg font-semibold text-slate-100">{selectedChannel.name} ({selectedChannel.id})</h4>
@@ -843,6 +1016,20 @@ const CsvGraphPage: React.FC = () => {
                         selection={channelAnalysis[selectedChannel.id]?.selection || null}
                         analysisResults={channelAnalysis[selectedChannel.id]?.results || []}
                     />
+                    {timeRangeInMs !== 'all' && fullTimeRange && viewEndTimestamp !== null && (
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1">전체 시간 탐색:</label>
+                        <TimelineNavigator
+                          fullData={parsedData.data}
+                          channelIndex={selectedChannelIndex}
+                          fullTimeRange={fullTimeRange}
+                          viewTimeRange={timeRangeInMs}
+                          viewEndTimestamp={viewEndTimestamp}
+                          onNavigate={handleNavigate}
+                          yMinMaxOverall={yMinMaxPerChannel[selectedChannelIndex]}
+                        />
+                      </div>
+                    )}
                 </div>
                 
                 <div>
