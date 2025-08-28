@@ -77,9 +77,11 @@ interface GraphCanvasProps {
   width: number;
   height: number;
   onPan: (direction: number) => void;
+  yMinGlobal?: number;
+  yMaxGlobal?: number;
 }
 
-const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelInfo, width, height, onPan }) => {
+const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelInfo, width, height, onPan, yMinGlobal, yMaxGlobal }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null);
   const touchStartX = useRef<number | null>(null);
@@ -90,11 +92,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
     setMousePosition({ x: event.clientX - rect.left, y: event.clientY - rect.top });
   };
   const handleMouseLeave = () => setMousePosition(null);
-
+  
   const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
     const now = Date.now();
-    if (now - lastPanTime.current > 100) { // Throttle wheel events
+    if (now - lastPanTime.current > 100) { 
         onPan(Math.sign(event.deltaY));
         lastPanTime.current = now;
     }
@@ -109,7 +111,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
     const currentX = event.touches[0].clientX;
     const deltaX = currentX - touchStartX.current;
     
-    if (Math.abs(deltaX) > 40) { // Pan threshold
+    if (Math.abs(deltaX) > 40) {
       onPan(-Math.sign(deltaX));
       touchStartX.current = currentX;
     }
@@ -118,6 +120,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
   const handleTouchEnd = () => {
     touchStartX.current = null;
   };
+
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -153,13 +156,9 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
     let minTimestamp = channelData[0].timestamp.getTime();
     let maxTimestamp = channelData[channelData.length - 1].timestamp.getTime();
     if (minTimestamp === maxTimestamp) maxTimestamp = minTimestamp + 1;
-
-    const yValues = channelData.map((d) => d.value);
-    let yMin = Math.min(...yValues);
-    let yMax = Math.max(...yValues);
-    const yRange = yMax - yMin || 1;
-    yMin -= yRange * 0.1;
-    yMax += yRange * 0.1;
+    
+    const yMin = yMinGlobal ?? 0;
+    const yMax = yMaxGlobal ?? 1;
 
     const mapX = (ts: number) => padding.left + ((ts - minTimestamp) / (maxTimestamp - minTimestamp)) * graphWidth;
     const mapY = (val: number) => padding.top + graphHeight - ((val - yMin) / (yMax - yMin)) * graphHeight;
@@ -260,7 +259,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
         ctx.fillText(text2, boxX + 8, mousePosition.y + 8);
       }
     }
-  }, [data, channelIndex, channelInfo, width, height, mousePosition]);
+  }, [data, channelIndex, channelInfo, width, height, mousePosition, yMinGlobal, yMaxGlobal]);
 
   return (
     <canvas
@@ -276,11 +275,20 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
   );
 };
 
-const Graph: React.FC<{ data: DataPoint[]; channelIndex: number; channelInfo: ChannelInfo; onPan: (direction: number) => void; }> = ({ data, channelIndex, channelInfo, onPan }) => {
+interface GraphProps {
+    data: DataPoint[];
+    channelIndex: number;
+    channelInfo: ChannelInfo;
+    onPan: (direction: number) => void;
+    yMin?: number;
+    yMax?: number;
+}
+
+const Graph: React.FC<GraphProps> = ({ data, channelIndex, channelInfo, onPan, yMin, yMax }) => {
   const { ref, width, height } = useResizeObserver();
   return (
     <div ref={ref} className="w-full h-80 relative">
-      <GraphCanvas data={data} channelIndex={channelIndex} channelInfo={channelInfo} width={width} height={height} onPan={onPan} />
+      <GraphCanvas data={data} channelIndex={channelIndex} channelInfo={channelInfo} width={width} height={height} onPan={onPan} yMinGlobal={yMin} yMaxGlobal={yMax} />
     </div>
   );
 };
@@ -394,6 +402,31 @@ const CsvGraphPage: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
   
+  const channelStats = useMemo(() => {
+    if (!parsedData?.data || parsedData.channels.length === 0) {
+      return [];
+    }
+    return parsedData.channels.map((_, channelIndex) => {
+      const yValues = parsedData.data
+        .map(d => d.values[channelIndex])
+        .filter(v => v !== null && typeof v === 'number') as number[];
+      
+      if (yValues.length === 0) {
+        return { yMin: 0, yMax: 1 };
+      }
+
+      let yMin = Math.min(...yValues);
+      let yMax = Math.max(...yValues);
+      const yRange = yMax - yMin || 1;
+      
+      const padding = yRange * 0.1;
+      yMin -= padding;
+      yMax += padding;
+
+      return { yMin, yMax };
+    });
+  }, [parsedData]);
+  
   const { filteredData, maxChunks, currentWindowDisplay } = useMemo(() => {
     if (!parsedData?.data || parsedData.data.length === 0) {
       return { filteredData: [], maxChunks: 0, currentWindowDisplay: "" };
@@ -493,7 +526,14 @@ const CsvGraphPage: React.FC = () => {
               <div key={channel.id} className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
                 <h4 className="text-lg font-semibold text-slate-100">{channel.name} ({channel.id})</h4>
                 <p className="text-sm text-slate-400 mb-2">단위: {channel.unit.replace(/\[|\]/g, '')}</p>
-                <Graph data={filteredData || []} channelIndex={index} channelInfo={channel} onPan={handlePan} />
+                <Graph 
+                  data={filteredData || []} 
+                  channelIndex={index} 
+                  channelInfo={channel} 
+                  onPan={handlePan} 
+                  yMin={channelStats[index]?.yMin}
+                  yMax={channelStats[index]?.yMax}
+                />
               </div>
             ))}
           </div>
