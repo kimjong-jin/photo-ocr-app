@@ -1,12 +1,11 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-// NOTE: PhotoLogJob 타입은 PhotoLogPage가 아니라 shared/types에서 가져와야 합니다.
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import PhotoLogPage from './PhotoLogPage';
 import type { PhotoLogJob } from './shared/types';
 import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
 import FieldCountPage from './FieldCountPage';
 import StructuralCheckPage, { type StructuralJob } from './StructuralCheckPage';
 import { KakaoTalkPage } from './KakaoTalkPage';
-import CsvGraphPage from './CsvGraphPage';
+import CsvGraphPage, { type CsvGraphJob } from './CsvGraphPage';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { ActionButton } from './components/ActionButton';
@@ -14,12 +13,19 @@ import { UserRole } from './components/UserNameInput';
 import AdminPanel from './components/admin/AdminPanel';
 import { callSaveTempApi, callLoadTempApi, type SaveDataPayload, type LoadedData, type SavedValueEntry } from './services/apiService';
 import { Spinner } from './components/Spinner';
-import { MAIN_STRUCTURAL_ITEMS, type MainStructuralItemKey, STRUCTURAL_ITEM_GROUPS, CHECKLIST_DEFINITIONS, type CertificateDetails, type StructuralCheckSubItemData, PREFERRED_MEASUREMENT_METHODS } from './shared/structuralChecklists';
+import {
+  MAIN_STRUCTURAL_ITEMS,
+  type MainStructuralItemKey,
+  STRUCTURAL_ITEM_GROUPS,
+  CHECKLIST_DEFINITIONS,
+  type CertificateDetails,
+  type StructuralCheckSubItemData,
+  PREFERRED_MEASUREMENT_METHODS
+} from './shared/structuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
 
 // ---------- util ----------
 const uuid = () => {
-  // SSR/브라우저 모두 안전하게 ID 생성
   const g: any = (typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : {}));
   if (g.crypto?.randomUUID) return g.crypto.randomUUID();
   return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -36,7 +42,7 @@ interface PageContainerProps {
 }
 
 const LogoutIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props} className={`w-5 h-5 ${props.className ?? ''}`}>
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props} className="w-5 h-5">
     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m-3-3l-3 3m0 0l3 3m-3-3h12.75" />
   </svg>
 );
@@ -50,6 +56,12 @@ const SaveIcon: React.FC = () => (
 const LoadIcon: React.FC = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+  </svg>
+);
+
+const DeleteIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
   </svg>
 );
 
@@ -77,6 +89,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [structuralCheckJobs, setStructuralCheckJobs] = useState<StructuralJob[]>([]);
   const [activeStructuralCheckJobId, setActiveStructuralCheckJobId] = useState<string | null>(null);
 
+  // --- P6 CSV Graph ---
+  const [csvGraphJobs, setCsvGraphJobs] = useState<CsvGraphJob[]>([]);
+  const [activeCsvGraphJobId, setActiveCsvGraphJobId] = useState<string | null>(null);
+
   const handleDeletePhotoLogJob = useCallback((jobIdToDelete: string) => {
     setPhotoLogJobs((prev) => prev.filter((j) => j.id !== jobIdToDelete));
     setActivePhotoLogJobId((prev) => (prev === jobIdToDelete ? null : prev));
@@ -97,6 +113,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setActiveStructuralCheckJobId((prev) => (prev === jobIdToDelete ? null : prev));
   }, []);
 
+  const handleDeleteCsvGraphJob = useCallback((jobIdToDelete: string) => {
+    setCsvGraphJobs((prev) => prev.filter((j) => j.id !== jobIdToDelete));
+    setActiveCsvGraphJobId((prev) => (prev === jobIdToDelete ? null : prev));
+  }, []);
+
   const receiptNumber = useMemo(() => {
     const common = receiptNumberCommon.trim();
     const detail = receiptNumberDetail.trim();
@@ -108,18 +129,21 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const activeJobForReceiptSync = useMemo(() => {
     switch (activePage) {
-      case 'photoLog':
-        return photoLogJobs.find((j) => j.id === activePhotoLogJobId);
-      case 'fieldCount':
-        return fieldCountJobs.find((j) => j.id === activeFieldCountJobId);
-      case 'drinkingWater':
-        return drinkingWaterJobs.find((j) => j.id === activeDrinkingWaterJobId);
-      case 'structuralCheck':
-        return structuralCheckJobs.find((j) => j.id === activeStructuralCheckJobId);
-      default:
-        return null;
+      case 'photoLog': return photoLogJobs.find((j) => j.id === activePhotoLogJobId);
+      case 'fieldCount': return fieldCountJobs.find((j) => j.id === activeFieldCountJobId);
+      case 'drinkingWater': return drinkingWaterJobs.find((j) => j.id === activeDrinkingWaterJobId);
+      case 'structuralCheck': return structuralCheckJobs.find((j) => j.id === activeStructuralCheckJobId);
+      case 'csvGraph': return csvGraphJobs.find((j) => j.id === activeCsvGraphJobId);
+      default: return null;
     }
-  }, [activePage, activePhotoLogJobId, photoLogJobs, activeFieldCountJobId, fieldCountJobs, activeDrinkingWaterJobId, drinkingWaterJobs, activeStructuralCheckJobId, structuralCheckJobs]);
+  }, [
+    activePage,
+    activePhotoLogJobId, photoLogJobs,
+    activeFieldCountJobId, fieldCountJobs,
+    activeDrinkingWaterJobId, drinkingWaterJobs,
+    activeStructuralCheckJobId, structuralCheckJobs,
+    activeCsvGraphJobId, csvGraphJobs
+  ]);
 
   useEffect(() => {
     if (activeJobForReceiptSync?.receiptNumber) {
@@ -153,9 +177,18 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       receiptForOperation = drinkingWaterJobs.find((j) => j.id === activeDrinkingWaterJobId)?.receiptNumber || receiptNumber;
     } else if (activePage === 'structuralCheck' && activeStructuralCheckJobId) {
       receiptForOperation = structuralCheckJobs.find((j) => j.id === activeStructuralCheckJobId)?.receiptNumber || receiptNumber;
+    } else if (activePage === 'csvGraph' && activeCsvGraphJobId) {
+      receiptForOperation = csvGraphJobs.find((j) => j.id === activeCsvGraphJobId)?.receiptNumber || receiptNumber;
     }
     return receiptForOperation;
-  }, [activePage, receiptNumber, photoLogJobs, activePhotoLogJobId, fieldCountJobs, activeFieldCountJobId, drinkingWaterJobs, activeDrinkingWaterJobId, structuralCheckJobs, activeStructuralCheckJobId]);
+  }, [
+    activePage, receiptNumber,
+    photoLogJobs, activePhotoLogJobId,
+    fieldCountJobs, activeFieldCountJobId,
+    drinkingWaterJobs, activeDrinkingWaterJobId,
+    structuralCheckJobs, activeStructuralCheckJobId,
+    csvGraphJobs, activeCsvGraphJobId
+  ]);
 
   const handleSaveDraft = useCallback(async () => {
     const receiptToSave = getReceiptNumberForSaveLoad();
@@ -173,10 +206,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       const jobsToSaveP2 = fieldCountJobs.filter((j) => j.receiptNumber === receiptToSave);
       const jobsToSaveP3 = drinkingWaterJobs.filter((j) => j.receiptNumber === receiptToSave);
       const jobsToSaveP4 = structuralCheckJobs.filter((j) => j.receiptNumber === receiptToSave);
+      const jobsToSaveP6 = csvGraphJobs.filter((j) => j.receiptNumber === receiptToSave);
 
       const allItems = new Set<string>();
       const apiPayload: SaveDataPayload['values'] = {};
 
+      // --- P1 + P2 ---
       const p1p2Jobs = [...jobsToSaveP1, ...jobsToSaveP2];
       p1p2Jobs.forEach((job) => {
         if (job.selectedItem === 'TN/TP') {
@@ -204,6 +239,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         }
       });
 
+      // --- P3 ---
       jobsToSaveP3.forEach((job) => {
         const itemsToProcess = job.selectedItem === 'TU/CL' ? ['TU', 'Cl'] : [job.selectedItem];
         itemsToProcess.forEach((item) => allItems.add(item));
@@ -220,6 +256,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         });
       });
 
+      // --- P4 ---
       jobsToSaveP4.forEach((job) => {
         allItems.add(job.mainItemKey);
         const timestamp = new Date().toISOString();
@@ -227,6 +264,22 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           _checklistData: { val: JSON.stringify(job.checklistData), time: timestamp },
           _postInspectionDate: { val: job.postInspectionDate, time: timestamp },
         } as any;
+      });
+
+      // --- P6 ---
+      jobsToSaveP6.forEach((job) => {
+        const key = `_csv_${job.id}`;
+        allItems.add(key);
+        const dataToSave = {
+          fileName: job.fileName,
+          channelAnalysis: job.channelAnalysis,
+          selectedChannelId: job.selectedChannelId,
+          timeRangeInMs: job.timeRangeInMs,
+          viewEndTimestamp: job.viewEndTimestamp,
+        };
+        apiPayload[key] = {
+          _data: { val: JSON.stringify(dataToSave), time: new Date().toISOString() }
+        };
       });
 
       if (allItems.size === 0) {
@@ -252,7 +305,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     } finally {
       setIsSaving(false);
     }
-  }, [getReceiptNumberForSaveLoad, userName, photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, siteLocation]);
+  }, [
+    getReceiptNumberForSaveLoad, userName, siteLocation,
+    photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs,
+    csvGraphJobs
+  ]);
 
   const createDrinkingWaterJob = (itemName: string, data: LoadedData): DrinkingWaterJob => {
     const { receipt_no, site, values } = data;
@@ -273,14 +330,14 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     return {
       id: uuid(),
       receiptNumber: receipt_no,
-      selectedItem: itemName,
+      selectedItem: itemName as any,
       details: siteParts.slice(1).join(' / '),
       processedOcrData: reconstructedOcrData,
       decimalPlaces: 2,
       photos: [],
       submissionStatus: 'idle',
       submissionMessage: undefined,
-      ...(itemName === 'TU/CL' && { decimalPlacesCl: 2 }),
+      ...(itemName === 'TU/CL' && { decimalPlacesCl: 2 })
     } as DrinkingWaterJob;
   };
 
@@ -299,6 +356,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       const data = await callLoadTempApi(receiptToLoad);
       const { receipt_no, site, item: loadedItems, values } = data;
 
+      // 접수번호/현장 정보 복원
       const receiptParts = receipt_no.split('-');
       const detail = receiptParts.pop() || '';
       const common = receiptParts.join('-');
@@ -306,11 +364,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       setReceiptNumberDetail(detail);
       setSiteLocation(site);
 
+      // --- P1/P2 ---
       const p1p2GroupLabels = ['수질', '현장 계수'];
-      const p1p2ItemsRaw = loadedItems.filter((i) => ANALYSIS_ITEM_GROUPS.find((g) => p1p2GroupLabels.includes(g.label))?.items.includes(i));
+      const p1p2ItemsRaw = loadedItems.filter((i) =>
+        ANALYSIS_ITEM_GROUPS.find((g) => p1p2GroupLabels.includes(g.label))?.items.includes(i)
+      );
       const p1p2ItemsSet = new Set(p1p2ItemsRaw);
       const p1p2ItemsForJobCreation: string[] = [];
-
       if (p1p2ItemsSet.has('TN') && p1p2ItemsSet.has('TP')) {
         p1p2ItemsForJobCreation.push('TN/TP');
         p1p2ItemsSet.delete('TN');
@@ -328,7 +388,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           Object.entries<any>(tnData).forEach(([id, data]) => {
             const key = data.time || id;
             if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: uuid(), time: data.time };
-            timeToEntryMap[key].value = data.val as any;
+            (timeToEntryMap[key] as any).value = data.val;
             (timeToEntryMap[key] as any).identifier = id;
           });
           Object.entries<any>(tpData).forEach(([id, data]) => {
@@ -386,11 +446,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       if (activePage === 'photoLog') setActivePhotoLogJobId(newP1Jobs[0]?.id || null);
       if (activePage === 'fieldCount') setActiveFieldCountJobId(newP2Jobs[0]?.id || null);
 
+      // --- P3 ---
       const hasTu = loadedItems.includes('TU');
       const hasCl = loadedItems.includes('Cl');
-      const hasTuClCombined = loadedItems.includes('TU/CL');
+      const hasTuClCombined = loadedItems.includes('TU/CL'); // 과거 데이터 호환
       const newP3Jobs: DrinkingWaterJob[] = [];
-
       if ((hasTu && hasCl) || hasTuClCombined) {
         newP3Jobs.push(createDrinkingWaterJob('TU/CL', data));
       } else {
@@ -400,6 +460,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       setDrinkingWaterJobs((prev) => [...prev.filter((j) => j.receiptNumber !== receipt_no), ...newP3Jobs]);
       if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
 
+      // --- P4 ---
       const p4Items = loadedItems.filter((i) => MAIN_STRUCTURAL_ITEMS.some((si) => si.key === i));
       const newP4Jobs = p4Items
         .map((itemName) => {
@@ -423,6 +484,34 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       setStructuralCheckJobs((prev) => [...prev.filter((j) => j.receiptNumber !== receipt_no), ...newP4Jobs]);
       if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP4Jobs[0]?.id || null);
 
+      // --- P6 ---
+      const p6Jobs: CsvGraphJob[] = [];
+      Object.entries(values as any).forEach(([key, value]: [string, any]) => {
+        if (key.startsWith('_csv_') && value && value['_data']) {
+          try {
+            const savedState = JSON.parse(value['_data'].val);
+            const newJob: CsvGraphJob = {
+              id: uuid(),
+              receiptNumber: receipt_no,
+              fileName: savedState.fileName || null,
+              parsedData: null, // 재업로드 필요
+              channelAnalysis: savedState.channelAnalysis || {},
+              selectedChannelId: savedState.selectedChannelId || null,
+              timeRangeInMs: savedState.timeRangeInMs || 'all',
+              viewEndTimestamp: savedState.viewEndTimestamp || null,
+              submissionStatus: 'idle',
+            };
+            p6Jobs.push(newJob);
+          } catch (e) {
+            console.error('Failed to parse loaded CSV graph job data:', e);
+          }
+        }
+      });
+      if (p6Jobs.length > 0) {
+        setCsvGraphJobs((prev) => [...prev.filter((j) => j.receiptNumber !== receipt_no), ...p6Jobs]);
+        if (activePage === 'csvGraph') setActiveCsvGraphJobId(p6Jobs[0]?.id || null);
+      }
+
       setDraftMessage({ type: 'success', text: `'${receipt_no}' 데이터를 모든 관련 페이지에 불러왔습니다.` });
       clearDraftMessage();
     } catch (error: any) {
@@ -434,8 +523,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   }, [receiptNumber, activePage]);
 
   const handleAddTask = useCallback(() => {
-    if (!newItemKey || !receiptNumber) {
-      alert('항목과 접수번호를 모두 입력해주세요.');
+    if (!receiptNumber) {
+      alert('접수번호를 입력해주세요.');
+      return;
+    }
+    if (activePage !== 'csvGraph' && !newItemKey) {
+      alert('항목을 선택해주세요.');
       return;
     }
 
@@ -501,10 +594,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
               defaultNotes = preferredMethod;
             }
           }
-          return [
-            itemName,
-            { status: '선택 안됨', notes: defaultNotes, confirmedAt: null, specialNotes: '' } as StructuralCheckSubItemData,
-          ];
+          return [itemName, { status: '선택 안됨', notes: defaultNotes, confirmedAt: null, specialNotes: '' } as StructuralCheckSubItemData];
         }),
       );
       if (key === 'PH') (newChecklist as any)['측정범위확인'].notes = 'pH 0-14';
@@ -527,6 +617,20 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       } as StructuralJob;
       setStructuralCheckJobs((prev) => [...prev, newJob]);
       setActiveStructuralCheckJobId(newJob.id);
+    } else if (activePage === 'csvGraph') {
+      const newJob: CsvGraphJob = {
+        id: uuid(),
+        receiptNumber,
+        fileName: null,
+        parsedData: null,
+        channelAnalysis: {},
+        selectedChannelId: null,
+        timeRangeInMs: 'all',
+        viewEndTimestamp: null,
+        submissionStatus: 'idle',
+      };
+      setCsvGraphJobs((prev) => [...prev, newJob]);
+      setActiveCsvGraphJobId(newJob.id);
     }
 
     const currentDetailNum = parseInt(receiptNumberDetail, 10);
@@ -541,12 +645,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     if (activePage === 'fieldCount') return ANALYSIS_ITEM_GROUPS.find((g) => g.label === '현장 계수')?.items || [];
     if (activePage === 'drinkingWater') return ANALYSIS_ITEM_GROUPS.find((g) => g.label === '먹는물')?.items || [];
     if (activePage === 'structuralCheck') return STRUCTURAL_ITEM_GROUPS;
-    return [] as any[];
+    return [];
   }, [activePage]);
 
-  const navButtonBaseStyle = 'px-3 py-2 rounded-md font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs sm:text-sm flex-grow sm:flex-grow-0';
-  const activeNavButtonStyle = 'bg-sky-500 text-white';
-  const inactiveNavButtonStyle = 'bg-slate-700 hover:bg-slate-600 text-slate-300';
+  const navButtonBaseStyle = "px-3 py-2 rounded-md font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs sm:text-sm flex-grow sm:flex-grow-0";
+  const activeNavButtonStyle = "bg-sky-500 text-white";
+  const inactiveNavButtonStyle = "bg-slate-700 hover:bg-slate-600 text-slate-300";
 
   const renderActivePage = () => {
     switch (activePage) {
@@ -601,13 +705,24 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       case 'kakaoTalk':
         return <KakaoTalkPage userName={userName} userContact={userContact} />;
       case 'csvGraph':
-        return <CsvGraphPage />;
+        return (
+          <CsvGraphPage
+            userName={userName}
+            jobs={csvGraphJobs}
+            setJobs={setCsvGraphJobs}
+            activeJobId={activeCsvGraphJobId}
+            setActiveJobId={setActiveCsvGraphJobId}
+            siteLocation={siteLocation}
+            onDeleteJob={handleDeleteCsvGraphJob}
+          />
+        );
       default:
         return null;
     }
   };
 
-  const showTaskManagement = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck'].includes(activePage);
+  const showTaskManagement = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck', 'csvGraph'].includes(activePage);
+  const isCsvPage = activePage === 'csvGraph';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center p-4 sm:p-8 font-[Inter]">
@@ -627,12 +742,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         </ActionButton>
       </div>
 
-      {activePage !== 'kakaoTalk' && activePage !== 'csvGraph' && (
+      {activePage !== 'kakaoTalk' && (
         <div className="w-full max-w-3xl mb-6 p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 shadow-sm space-y-4">
           <h3 className="text-lg font-semibold text-slate-100">공통 정보 및 작업 관리</h3>
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-4 items-end">
-              <div className="sm:col-span-3">
+              <div className={isCsvPage ? "sm:col-span-4" : "sm:col-span-3"}>
                 <label htmlFor="global-receipt-common" className="block text-sm font-medium text-slate-300 mb-1">
                   접수번호 (공통) <span className="text-amber-400 font-bold">*</span>
                 </label>
@@ -645,7 +760,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                   placeholder="예: 25-000000-01"
                 />
               </div>
-              <div className="sm:col-span-1">
+              <div className={isCsvPage ? "sm:col-span-2" : "sm:col-span-1"}>
                 <label htmlFor="global-receipt-detail" className="block text-sm font-medium text-slate-300 mb-1">
                   (세부) <span className="text-amber-400 font-bold">*</span>
                 </label>
@@ -658,9 +773,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                   placeholder="예: 1"
                 />
               </div>
-              <div className="sm:col-span-3">
+              <div className={isCsvPage ? "sm:col-span-6" : "sm:col-span-3"}>
                 <label htmlFor="global-site-location" className="block text-sm font-medium text-slate-300 mb-1">
-                  현장 위치 (공통) <span className="text-red-400">*</span>
+                  현장 위치 (공통)
                 </label>
                 <input
                   type="text"
@@ -672,50 +787,37 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 />
               </div>
 
+              {!isCsvPage && showTaskManagement && (
+                <div className="sm:col-span-5">
+                  <label htmlFor="new-task-item" className="block text-sm font-medium text-slate-300 mb-1">
+                    항목
+                  </label>
+                  <select
+                    id="new-task-item"
+                    value={newItemKey}
+                    onChange={(e) => setNewItemKey(e.target.value)}
+                    className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]"
+                  >
+                    <option value="" disabled>선택...</option>
+                    {Array.isArray(itemOptionsForNewTask) && itemOptionsForNewTask.length > 0 && typeof itemOptionsForNewTask[0] === 'object' && itemOptionsForNewTask[0] !== null && 'label' in itemOptionsForNewTask[0]
+                      ? (itemOptionsForNewTask as {label: string, items: {key: string, name: string}[]}[])
+                          .map(group => (
+                            <optgroup key={group.label} label={group.label}>
+                              {group.items.map(item => <option key={item.key} value={item.key}>{item.name}</option>)}
+                            </optgroup>
+                          ))
+                      : (itemOptionsForNewTask as string[]).map(item => <option key={item} value={item}>{item}</option>)
+                    }
+                  </select>
+                </div>
+              )}
+
               {showTaskManagement && (
-                <>
-                  <div className="sm:col-span-5">
-                    <label htmlFor="new-task-item" className="block text-sm font-medium text-slate-300 mb-1">
-                      항목
-                    </label>
-                    <select
-                      id="new-task-item"
-                      value={newItemKey}
-                      onChange={(e) => setNewItemKey(e.target.value)}
-                      className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]"
-                    >
-                      <option value="" disabled>
-                        선택...
-                      </option>
-                      {Array.isArray(itemOptionsForNewTask) &&
-                      itemOptionsForNewTask.length > 0 &&
-                      typeof (itemOptionsForNewTask as any)[0] === 'object' &&
-                      (itemOptionsForNewTask as any)[0] !== null &&
-                      'label' in (itemOptionsForNewTask as any)[0] ? (
-                        (itemOptionsForNewTask as { label: string; items: { key: string; name: string }[] }[]).map((group) => (
-                          <optgroup key={group.label} label={group.label}>
-                            {group.items.map((item) => (
-                              <option key={item.key} value={item.key}>
-                                {item.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))
-                      ) : (
-                        (itemOptionsForNewTask as string[]).map((item) => (
-                          <option key={item} value={item}>
-                            {item}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </div>
-                  <div className="sm:col-span-12">
-                    <ActionButton onClick={handleAddTask} fullWidth>
-                      추가
-                    </ActionButton>
-                  </div>
-                </>
+                <div className="sm:col-span-12">
+                  <ActionButton onClick={handleAddTask} fullWidth>
+                    {isCsvPage ? '새 분석 작업 추가' : '추가'}
+                  </ActionButton>
+                </div>
               )}
             </div>
           </div>
@@ -735,54 +837,20 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 {draftMessage.type === 'success' ? '✅' : '❌'} {draftMessage.text}
               </p>
             )}
-            <p className="text-xs text-slate-500 text-center">임시 저장은 현재 활성 작업의 접수번호와 동일한 모든 작업을 함께 저장/불러오기 합니다.</p>
+            <p className="text-xs text-slate-500 text-center">
+              임시 저장은 현재 활성 작업의 접수번호와 동일한 모든 작업을 함께 저장/불러오기 합니다.
+            </p>
           </div>
         </div>
       )}
 
       <nav className="w-full max-w-5xl mb-6 flex justify-center space-x-1 sm:space-x-2 p-2 bg-slate-800 rounded-lg shadow-md">
-        <button
-          onClick={() => setActivePage('photoLog')}
-          className={`${navButtonBaseStyle} ${activePage === 'photoLog' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'photoLog'}
-        >
-          수질 분석 (P1)
-        </button>
-        <button
-          onClick={() => setActivePage('fieldCount')}
-          className={`${navButtonBaseStyle} ${activePage === 'fieldCount' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'fieldCount'}
-        >
-          현장 계수 (P2)
-        </button>
-        <button
-          onClick={() => setActivePage('drinkingWater')}
-          className={`${navButtonBaseStyle} ${activePage === 'drinkingWater' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'drinkingWater'}
-        >
-          먹는물 분석 (P3)
-        </button>
-        <button
-          onClick={() => setActivePage('structuralCheck')}
-          className={`${navButtonBaseStyle} ${activePage === 'structuralCheck' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'structuralCheck'}
-        >
-          구조 확인 (P4)
-        </button>
-        <button
-          onClick={() => setActivePage('kakaoTalk')}
-          className={`${navButtonBaseStyle} ${activePage === 'kakaoTalk' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'kakaoTalk'}
-        >
-          카톡 전송 (P5)
-        </button>
-        <button
-          onClick={() => setActivePage('csvGraph')}
-          className={`${navButtonBaseStyle} ${activePage === 'csvGraph' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'csvGraph'}
-        >
-          CSV 그래프 (P6)
-        </button>
+        <button onClick={() => setActivePage('photoLog')} className={`${navButtonBaseStyle} ${activePage === 'photoLog' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'photoLog'}>수질 분석 (P1)</button>
+        <button onClick={() => setActivePage('fieldCount')} className={`${navButtonBaseStyle} ${activePage === 'fieldCount' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'fieldCount'}>현장 계수 (P2)</button>
+        <button onClick={() => setActivePage('drinkingWater')} className={`${navButtonBaseStyle} ${activePage === 'drinkingWater' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'drinkingWater'}>먹는물 분석 (P3)</button>
+        <button onClick={() => setActivePage('structuralCheck')} className={`${navButtonBaseStyle} ${activePage === 'structuralCheck' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'structuralCheck'}>구조 확인 (P4)</button>
+        <button onClick={() => setActivePage('kakaoTalk')} className={`${navButtonBaseStyle} ${activePage === 'kakaoTalk' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'kakaoTalk'}>카톡 전송 (P5)</button>
+        <button onClick={() => setActivePage('csvGraph')} className={`${navButtonBaseStyle} ${activePage === 'csvGraph' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'csvGraph'}>CSV 그래프 (P6)</button>
       </nav>
 
       {renderActivePage()}
