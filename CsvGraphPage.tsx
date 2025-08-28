@@ -1071,25 +1071,25 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
                             <p className="text-sm text-slate-400">단위: {selectedChannel.unit.replace(/\[|\]/g, '')}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                           {(activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0) > 0 && (
-                                <ActionButton
-                                    onClick={() => handleUndoLastResult(selectedChannel.id)}
-                                    variant="secondary"
-                                    className="text-xs !py-1.5 !px-2"
-                                    title="마지막으로 추가된 분석 결과를 되돌립니다."
-                                >
-                                    마지막 결과 되돌리기
-                                </ActionButton>
-                            )}
                             {(activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0) > 0 && (
-                                <ActionButton
-                                    onClick={() => handleResetAnalysis(selectedChannel.id)}
-                                    variant="danger"
-                                    className="text-xs !py-1.5 !px-2"
-                                    title="이 그래프의 모든 분석 결과 지우기"
-                                >
-                                    분석 초기화
-                                </ActionButton>
+                                <>
+                                    <ActionButton
+                                        onClick={() => handleUndoLastResult(selectedChannel.id)}
+                                        variant="secondary"
+                                        className="text-xs !py-1.5 !px-2"
+                                        title="마지막으로 추가된 분석 결과를 되돌립니다."
+                                    >
+                                        이전 되돌리기
+                                    </ActionButton>
+                                    <ActionButton
+                                        onClick={() => handleResetAnalysis(selectedChannel.id)}
+                                        variant="danger"
+                                        className="text-xs !py-1.5 !px-2"
+                                        title="이 그래프의 모든 분석 결과 지우기"
+                                    >
+                                        분석 초기화
+                                    </ActionButton>
+                                </>
                             )}
                             <ActionButton
                                 onClick={() => toggleAnalysisMode(selectedChannel.id)}
