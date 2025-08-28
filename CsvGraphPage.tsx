@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
 
@@ -355,6 +355,7 @@ const CsvGraphPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [timeRange, setTimeRange] = useState<'all' | number>('all');
 
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -363,6 +364,7 @@ const CsvGraphPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setParsedData(null);
+    setTimeRange('all');
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -386,8 +388,30 @@ const CsvGraphPage: React.FC = () => {
   const handleClear = () => {
     setParsedData(null);
     setError(null);
+    setTimeRange('all');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  const filteredData = useMemo(() => {
+    if (!parsedData?.data || timeRange === 'all') {
+      return parsedData?.data;
+    }
+    const maxTimestamp = parsedData.data.reduce((max, p) => Math.max(max, p.timestamp.getTime()), 0);
+    if (maxTimestamp === 0) return parsedData.data;
+    const cutoffTimestamp = maxTimestamp - timeRange;
+    return parsedData.data.filter(d => d.timestamp.getTime() >= cutoffTimestamp);
+  }, [parsedData, timeRange]);
+
+  const timeRangeOptions = [
+    { label: '30분', value: 30 * 60 * 1000 },
+    { label: '1시간', value: 60 * 60 * 1000 },
+    { label: '4시간', value: 4 * 60 * 60 * 1000 },
+    { label: '전체', value: 'all' },
+  ] as const;
+
+  const baseButtonClass = "px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-sky-500";
+  const activeButtonClass = "bg-sky-500 text-white";
+  const inactiveButtonClass = "bg-slate-600 hover:bg-slate-500 text-slate-300";
 
   return (
     <div className="w-full max-w-7xl mx-auto bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
@@ -425,9 +449,23 @@ const CsvGraphPage: React.FC = () => {
 
       {parsedData && (
         <>
-          <h3 className="text-xl font-semibold text-slate-100">
-            그래프 분석: <span className="text-sky-400">{parsedData.fileName}</span>
-          </h3>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <h3 className="text-xl font-semibold text-slate-100">
+              그래프 분석: <span className="text-sky-400">{parsedData.fileName}</span>
+            </h3>
+            <div className="flex items-center space-x-2 bg-slate-700/50 p-1 rounded-lg">
+              <span className="text-xs text-slate-400 font-medium px-2">시간 범위:</span>
+              {timeRangeOptions.map(opt => (
+                <button
+                  key={opt.label}
+                  onClick={() => setTimeRange(opt.value)}
+                  className={`${baseButtonClass} ${timeRange === opt.value ? activeButtonClass : inactiveButtonClass}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {parsedData.channels.map((channel, index) => (
               <div key={channel.id} className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
@@ -435,7 +473,7 @@ const CsvGraphPage: React.FC = () => {
                   {channel.name} ({channel.id})
                 </h4>
                 <p className="text-sm text-slate-400 mb-2">단위: {channel.unit.replace(/\[|\]/g, '')}</p>
-                <Graph data={parsedData.data} channelIndex={index} channelInfo={channel} />
+                <Graph data={filteredData || []} channelIndex={index} channelInfo={channel} />
               </div>
             ))}
           </div>
