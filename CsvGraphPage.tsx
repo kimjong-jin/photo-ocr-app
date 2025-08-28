@@ -76,11 +76,14 @@ interface GraphCanvasProps {
   channelInfo: ChannelInfo;
   width: number;
   height: number;
+  onPan: (direction: number) => void;
 }
 
-const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelInfo, width, height }) => {
+const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelInfo, width, height, onPan }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null);
+  const touchStartX = useRef<number | null>(null);
+  const lastPanTime = useRef<number>(0);
 
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -88,20 +91,45 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
   };
   const handleMouseLeave = () => setMousePosition(null);
 
+  const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    const now = Date.now();
+    if (now - lastPanTime.current > 100) { // Throttle wheel events
+        onPan(Math.sign(event.deltaY));
+        lastPanTime.current = now;
+    }
+  };
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLCanvasElement>) => {
+    touchStartX.current = event.touches[0].clientX;
+  };
+
+  const handleTouchMove = (event: React.TouchEvent<HTMLCanvasElement>) => {
+    if (touchStartX.current === null) return;
+    const currentX = event.touches[0].clientX;
+    const deltaX = currentX - touchStartX.current;
+    
+    if (Math.abs(deltaX) > 40) { // Pan threshold
+      onPan(-Math.sign(deltaX));
+      touchStartX.current = currentX;
+    }
+  };
+  
+  const handleTouchEnd = () => {
+    touchStartX.current = null;
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || width === 0 || height === 0) return;
-
-    const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
+    const dpr = window.devicePixelRatio || 1;
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     canvas.width = Math.max(1, Math.floor(width * dpr));
     canvas.height = Math.max(1, Math.floor(height * dpr));
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
     ctx.clearRect(0, 0, width, height);
 
     const padding = { top: 20, right: 20, bottom: 40, left: 60 };
@@ -112,7 +140,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
     const channelData = data
       .map((d) => ({ timestamp: d.timestamp, value: d.values[channelIndex] }))
       .filter((d) => d.value !== null && typeof d.value === 'number') as { timestamp: Date; value: number }[];
-
     channelData.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
     if (channelData.length < 2) {
@@ -198,19 +225,16 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
           closestIndex = i;
         }
       });
-
       if (closestIndex !== -1) {
         const point = channelData[closestIndex];
         const x = mapX(point.timestamp.getTime());
         const y = mapY(point.value);
-
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(x, padding.top);
         ctx.lineTo(x, padding.top + graphHeight);
         ctx.stroke();
-
         ctx.fillStyle = '#38bdf8';
         ctx.strokeStyle = '#0f172a';
         ctx.lineWidth = 2;
@@ -218,7 +242,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
         ctx.arc(x, y, 4, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-
         const text1 = `${point.timestamp.toLocaleString()}`;
         const text2 = `${point.value.toFixed(3)} ${channelInfo.unit.replace(/\[|\]/g, '')}`;
         ctx.font = '12px Inter, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", sans-serif';
@@ -244,16 +267,20 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, channelIndex, channelIn
       ref={canvasRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      style={{ width: '100%', height: '100%', display: 'block', cursor: 'crosshair' }}
+      onWheel={handleWheel}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      style={{ width: '100%', height: '100%', display: 'block', cursor: 'crosshair', touchAction: 'pan-y' }}
     />
   );
 };
 
-const Graph: React.FC<{ data: DataPoint[]; channelIndex: number; channelInfo: ChannelInfo }> = ({ data, channelIndex, channelInfo }) => {
+const Graph: React.FC<{ data: DataPoint[]; channelIndex: number; channelInfo: ChannelInfo; onPan: (direction: number) => void; }> = ({ data, channelIndex, channelInfo, onPan }) => {
   const { ref, width, height } = useResizeObserver();
   return (
     <div ref={ref} className="w-full h-80 relative">
-      <GraphCanvas data={data} channelIndex={channelIndex} channelInfo={channelInfo} width={width} height={height} />
+      <GraphCanvas data={data} channelIndex={channelIndex} channelInfo={channelInfo} width={width} height={height} onPan={onPan} />
     </div>
   );
 };
@@ -381,13 +408,14 @@ const CsvGraphPage: React.FC = () => {
     const maxTimestamp = sortedData[sortedData.length - 1].timestamp.getTime();
     const totalDuration = maxTimestamp - minTimestamp;
     const maxChunks = totalDuration > 0 ? Math.ceil(totalDuration / timeRangeInMs) : 1;
-
-    const endTime = maxTimestamp - (timeChunkIndex * timeRangeInMs);
+    
+    const safeChunkIndex = Math.max(0, Math.min(timeChunkIndex, maxChunks - 1));
+    const endTime = maxTimestamp - (safeChunkIndex * timeRangeInMs);
     const startTime = endTime - timeRangeInMs;
 
     const dataInWindow = parsedData.data.filter(d => {
         const time = d.timestamp.getTime();
-        return time >= startTime && time < endTime;
+        return time >= startTime && time <= endTime;
     });
 
     const windowDisplay = `${new Date(startTime).toLocaleString()} ~ ${new Date(endTime).toLocaleString()}`;
@@ -399,8 +427,19 @@ const CsvGraphPage: React.FC = () => {
     setTimeRangeInMs(value);
     setTimeChunkIndex(0);
   };
-  const handlePreviousChunk = () => setTimeChunkIndex(prev => Math.min(prev + 1, maxChunks - 1));
-  const handleNextChunk = () => setTimeChunkIndex(prev => Math.max(0, prev - 1));
+  
+  const handlePan = useCallback((direction: number) => {
+    if (timeRangeInMs === 'all') return;
+    setTimeChunkIndex(prev => {
+      const newIndex = prev + direction;
+      return Math.max(0, Math.min(newIndex, maxChunks - 1));
+    });
+  }, [timeRangeInMs, maxChunks]);
+
+  const handleGoToStart = () => setTimeChunkIndex(maxChunks > 0 ? maxChunks - 1 : 0);
+  const handleGoToEnd = () => setTimeChunkIndex(0);
+  const handlePreviousChunk = () => handlePan(1);
+  const handleNextChunk = () => handlePan(-1);
 
   const timeRangeOptions = [
     { label: '10분', value: 10 * 60 * 1000 },
@@ -436,16 +475,17 @@ const CsvGraphPage: React.FC = () => {
         <>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h3 className="text-xl font-semibold text-slate-100">그래프 분석: <span className="text-sky-400">{parsedData.fileName}</span></h3>
-            <div className="flex items-center space-x-2 bg-slate-700/50 p-1 rounded-lg">
-              <span className="text-xs text-slate-400 font-medium px-2">시간 범위:</span>
+            <div className="flex items-center space-x-1 sm:space-x-2 bg-slate-700/50 p-1 rounded-lg flex-wrap">
               {timeRangeOptions.map(opt => (<button key={opt.label} onClick={() => handleTimeRangeChange(opt.value)} className={`${baseButtonClass} ${timeRangeInMs === opt.value ? activeButtonClass : inactiveButtonClass}`}>{opt.label}</button>))}
             </div>
           </div>
           {timeRangeInMs !== 'all' && (
-            <div className="flex items-center justify-center gap-3 text-sm">
+            <div className="flex items-center justify-center gap-2 text-sm flex-wrap">
+                <ActionButton onClick={handleGoToStart} disabled={timeChunkIndex >= maxChunks - 1}>{'<< 맨 앞으로'}</ActionButton>
                 <ActionButton onClick={handlePreviousChunk} disabled={timeChunkIndex >= maxChunks - 1}>{'< 이전'}</ActionButton>
-                <span className="text-slate-300 font-mono bg-slate-900/50 px-3 py-1.5 rounded-md text-xs">{currentWindowDisplay}</span>
+                <span className="text-slate-300 font-mono bg-slate-900/50 px-3 py-1.5 rounded-md text-xs whitespace-nowrap">{currentWindowDisplay}</span>
                 <ActionButton onClick={handleNextChunk} disabled={timeChunkIndex <= 0}>{'다음 >'}</ActionButton>
+                <ActionButton onClick={handleGoToEnd} disabled={timeChunkIndex <= 0}>{'맨 뒤로 >>'}</ActionButton>
             </div>
           )}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -453,7 +493,7 @@ const CsvGraphPage: React.FC = () => {
               <div key={channel.id} className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
                 <h4 className="text-lg font-semibold text-slate-100">{channel.name} ({channel.id})</h4>
                 <p className="text-sm text-slate-400 mb-2">단위: {channel.unit.replace(/\[|\]/g, '')}</p>
-                <Graph data={filteredData || []} channelIndex={index} channelInfo={channel} />
+                <Graph data={filteredData || []} channelIndex={index} channelInfo={channel} onPan={handlePan} />
               </div>
             ))}
           </div>
