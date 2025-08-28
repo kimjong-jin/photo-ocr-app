@@ -35,11 +35,40 @@ interface AnalysisResult {
   endTime: Date;
 }
 
-interface ChannelAnalysisState {
+export interface ChannelAnalysisState {
   isAnalyzing: boolean;
   selection: RangeSelection;
   results: AnalysisResult[];
 }
+
+export interface CsvGraphJob {
+    id: string;
+    receiptNumber: string;
+    fileName: string | null;
+    parsedData: ParsedCsvData | null; // This is not saved, it's transient
+    channelAnalysis: Record<string, ChannelAnalysisState>;
+    selectedChannelId: string | null;
+    timeRangeInMs: 'all' | number;
+    viewEndTimestamp: number | null;
+    submissionStatus: 'idle' | 'sending' | 'success' | 'error';
+    submissionMessage?: string;
+}
+
+interface CsvGraphPageProps {
+  userName: string;
+  jobs: CsvGraphJob[];
+  setJobs: React.Dispatch<React.SetStateAction<CsvGraphJob[]>>;
+  activeJobId: string | null;
+  setActiveJobId: (id: string | null) => void;
+  siteLocation: string;
+  onDeleteJob: (jobId: string) => void;
+}
+
+const TrashIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
+    </svg>
+);
 
 
 // ---------- small CSV helper (handles quoted commas) ----------
@@ -645,78 +674,93 @@ const parseGraphtecCsv = (csvContent: string, fileName: string): ParsedCsvData =
 const ONE_MINUTE_MS = 60 * 1000;
 const BIG_PAN_RATIO = 0.25;
 
-const CsvGraphPage: React.FC = () => {
-  const [parsedData, setParsedData] = useState<ParsedCsvData | null>(null);
+const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [timeRangeInMs, setTimeRangeInMs] = useState<'all' | number>('all');
-  const [viewEndTimestamp, setViewEndTimestamp] = useState<number | null>(null);
-  const [channelAnalysis, setChannelAnalysis] = useState<Record<string, ChannelAnalysisState>>({});
-  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  
+  const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
+
+  const updateActiveJob = useCallback((updater: (job: CsvGraphJob) => CsvGraphJob) => {
+    if (!activeJobId) return;
+    setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
+  }, [activeJobId, setJobs]);
 
   const { fullTimeRange } = useMemo(() => {
-    if (!parsedData?.data || parsedData.data.length < 2) {
+    if (!activeJob?.parsedData?.data || activeJob.parsedData.data.length < 2) {
       return { fullTimeRange: null };
     }
-    const sortedData = [...parsedData.data].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    const sortedData = [...activeJob.parsedData.data].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
     const minTimestamp = sortedData[0].timestamp.getTime();
     const maxTimestamp = sortedData[sortedData.length - 1].timestamp.getTime();
     return { fullTimeRange: { min: minTimestamp, max: maxTimestamp } };
-  }, [parsedData]);
+  }, [activeJob?.parsedData]);
 
   useEffect(() => {
-    if (fullTimeRange && !viewEndTimestamp) {
-        setViewEndTimestamp(fullTimeRange.max);
+    if (fullTimeRange && activeJob && activeJob.viewEndTimestamp === null) {
+        updateActiveJob(j => ({ ...j, viewEndTimestamp: fullTimeRange.max }));
     }
-  }, [fullTimeRange, viewEndTimestamp]);
+  }, [fullTimeRange, activeJob, updateActiveJob]);
 
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!activeJob) {
+        alert("파일을 업로드할 작업을 먼저 선택하거나 추가해주세요.");
+        return;
+    }
     const file = event.target.files?.[0];
     if (!file) return;
+
     setIsLoading(true);
     setError(null);
-    setParsedData(null);
-    setTimeRangeInMs('all');
-    setViewEndTimestamp(null);
-    setChannelAnalysis({});
-    setSelectedChannelId(null);
+    
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const content = (e.target?.result as string) || '';
         const parsed = parseGraphtecCsv(content, file.name);
-        setParsedData(parsed);
-        if (parsed.channels.length > 0) {
-          setSelectedChannelId(parsed.channels[0].id);
-        }
+        updateActiveJob(job => ({
+            ...job,
+            fileName: file.name,
+            parsedData: parsed,
+            // Keep existing analysis data if file name matches, otherwise reset
+            channelAnalysis: job.fileName === file.name ? job.channelAnalysis : {},
+            selectedChannelId: job.fileName === file.name ? job.selectedChannelId : (parsed.channels[0]?.id || null),
+            timeRangeInMs: job.fileName === file.name ? job.timeRangeInMs : 'all',
+            viewEndTimestamp: job.fileName === file.name ? job.viewEndTimestamp : null,
+        }));
       } catch (err: any) {
         setError(err?.message || '파일 처리 중 오류가 발생했습니다.');
+        updateActiveJob(j => ({...j, parsedData: null, fileName: file.name}));
       } finally {
         setIsLoading(false);
       }
     };
     reader.onerror = () => { setError('파일을 읽는 데 실패했습니다.'); setIsLoading(false); };
     reader.readAsText(file, 'UTF-8');
-  }, []);
+  }, [activeJob, updateActiveJob]);
 
   const handleClear = () => {
-    setParsedData(null);
+    if (!activeJob) return;
+    updateActiveJob(job => ({
+        ...job,
+        fileName: null,
+        parsedData: null,
+        channelAnalysis: {},
+        selectedChannelId: null,
+        timeRangeInMs: 'all',
+        viewEndTimestamp: null,
+    }));
     setError(null);
-    setTimeRangeInMs('all');
-    setViewEndTimestamp(null);
-    setChannelAnalysis({});
-    setSelectedChannelId(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
   
   const { yMinMaxPerChannel } = useMemo(() => {
-    if (!parsedData?.data || parsedData.data.length === 0) {
+    if (!activeJob?.parsedData?.data || activeJob.parsedData.data.length === 0) {
       return { yMinMaxPerChannel: [] };
     }
 
-    const minMax: ({ yMin: number; yMax: number } | null)[] = parsedData.channels.map((_, channelIndex) => {
-        const yValues = parsedData.data
+    const minMax: ({ yMin: number; yMax: number } | null)[] = activeJob.parsedData.channels.map((_, channelIndex) => {
+        const yValues = activeJob.parsedData!.data
             .map(d => d.values[channelIndex])
             .filter(v => v !== null && typeof v === 'number') as number[];
         
@@ -735,17 +779,17 @@ const CsvGraphPage: React.FC = () => {
     });
 
     return { yMinMaxPerChannel: minMax };
-  }, [parsedData]);
+  }, [activeJob?.parsedData]);
   
   const viewMemo = useMemo(() => {
-    if (!parsedData?.data || parsedData.data.length === 0 || timeRangeInMs === 'all' || viewEndTimestamp === null) {
-      return { filteredData: parsedData?.data || [], currentWindowDisplay: "전체 기간" };
+    if (!activeJob?.parsedData?.data || activeJob.parsedData.data.length === 0 || activeJob.timeRangeInMs === 'all' || activeJob.viewEndTimestamp === null) {
+      return { filteredData: activeJob?.parsedData?.data || [], currentWindowDisplay: "전체 기간" };
     }
     
-    const endTime = viewEndTimestamp;
-    const startTime = endTime - timeRangeInMs;
+    const endTime = activeJob.viewEndTimestamp;
+    const startTime = endTime - activeJob.timeRangeInMs;
 
-    const dataInWindow = parsedData.data.filter(d => {
+    const dataInWindow = activeJob.parsedData.data.filter(d => {
         const time = d.timestamp.getTime();
         return time >= startTime && time <= endTime;
     });
@@ -753,25 +797,25 @@ const CsvGraphPage: React.FC = () => {
     const windowDisplay = `${new Date(startTime).toLocaleString()} ~ ${new Date(endTime).toLocaleString()}`;
 
     return { filteredData: dataInWindow, currentWindowDisplay: windowDisplay };
-  }, [parsedData, timeRangeInMs, viewEndTimestamp]);
+  }, [activeJob]);
   
   const { selectedChannel, selectedChannelIndex } = useMemo(() => {
-    if (!parsedData || !selectedChannelId) {
+    if (!activeJob?.parsedData || !activeJob.selectedChannelId) {
         return { selectedChannel: null, selectedChannelIndex: -1 };
     }
-    const index = parsedData.channels.findIndex(c => c.id === selectedChannelId);
+    const index = activeJob.parsedData.channels.findIndex(c => c.id === activeJob.selectedChannelId);
     return {
-        selectedChannel: index > -1 ? parsedData.channels[index] : null,
+        selectedChannel: index > -1 ? activeJob.parsedData.channels[index] : null,
         selectedChannelIndex: index,
     };
-  }, [parsedData, selectedChannelId]);
+  }, [activeJob]);
 
 
   const handleTimeRangeChange = (newTimeRange: 'all' | number) => {
-    if (!fullTimeRange) return;
+    if (!fullTimeRange || !activeJob) return;
 
-    const oldTimeRange = timeRangeInMs;
-    const oldViewEnd = viewEndTimestamp;
+    const oldTimeRange = activeJob.timeRangeInMs;
+    const oldViewEnd = activeJob.viewEndTimestamp;
     
     let currentCenterTimestamp: number;
     if (oldTimeRange === 'all' || oldViewEnd === null) {
@@ -780,122 +824,136 @@ const CsvGraphPage: React.FC = () => {
         currentCenterTimestamp = oldViewEnd - (oldTimeRange / 2);
     }
     
-    setTimeRangeInMs(newTimeRange);
-
     if (newTimeRange === 'all') {
-        setViewEndTimestamp(null);
+        updateActiveJob(j => ({...j, timeRangeInMs: 'all', viewEndTimestamp: null }));
     } else {
         let newEndTimestamp = currentCenterTimestamp + (newTimeRange / 2);
         const minPossibleEnd = fullTimeRange.min + newTimeRange;
         const maxPossibleEnd = fullTimeRange.max;
         newEndTimestamp = Math.max(minPossibleEnd, Math.min(newEndTimestamp, maxPossibleEnd));
-        setViewEndTimestamp(newEndTimestamp);
+        updateActiveJob(j => ({...j, timeRangeInMs: newTimeRange, viewEndTimestamp: newEndTimestamp }));
     }
   };
   
   const handlePan = useCallback((panAmountMs: number) => {
-    if (timeRangeInMs === 'all' || !fullTimeRange || typeof timeRangeInMs !== 'number') return;
+    if (!activeJob || activeJob.timeRangeInMs === 'all' || !fullTimeRange || typeof activeJob.timeRangeInMs !== 'number') return;
     
-    setViewEndTimestamp(prev => {
-        if (prev === null) return null;
-        const newEnd = prev + panAmountMs;
-        const minPossibleEnd = fullTimeRange.min + timeRangeInMs;
+    // FIX: Capture the narrowed number type of timeRangeInMs from the outer scope's activeJob.
+    const timeRangeNumber = activeJob.timeRangeInMs;
+  
+    updateActiveJob(job => {
+        if (job.viewEndTimestamp === null) return job;
+        const newEnd = job.viewEndTimestamp + panAmountMs;
+        // Use the captured variable, as `job.timeRangeInMs` inside this callback is not narrowed.
+        const minPossibleEnd = fullTimeRange.min + timeRangeNumber;
         const maxPossibleEnd = fullTimeRange.max;
-        return Math.max(minPossibleEnd, Math.min(newEnd, maxPossibleEnd));
+        return {...job, viewEndTimestamp: Math.max(minPossibleEnd, Math.min(newEnd, maxPossibleEnd))};
     });
-  }, [timeRangeInMs, fullTimeRange]);
+  }, [activeJob, fullTimeRange, updateActiveJob]);
   
   const handleNavigate = (newEndTimestamp: number) => {
-    if (timeRangeInMs === 'all' || !fullTimeRange || typeof timeRangeInMs !== 'number') return;
-    const minPossibleEnd = fullTimeRange.min + timeRangeInMs;
+    if (!activeJob || activeJob.timeRangeInMs === 'all' || !fullTimeRange || typeof activeJob.timeRangeInMs !== 'number') return;
+    const minPossibleEnd = fullTimeRange.min + activeJob.timeRangeInMs;
     const maxPossibleEnd = fullTimeRange.max;
     const clampedTimestamp = Math.max(minPossibleEnd, Math.min(newEndTimestamp, maxPossibleEnd));
-    setViewEndTimestamp(clampedTimestamp);
+    updateActiveJob(j => ({...j, viewEndTimestamp: clampedTimestamp}));
   };
-
 
   const handleFinePan = (direction: number) => handlePan(direction * ONE_MINUTE_MS);
   const handleCoarsePan = (direction: number) => {
-      if (typeof timeRangeInMs === 'number') handlePan(direction * timeRangeInMs * BIG_PAN_RATIO);
+      if (activeJob && typeof activeJob.timeRangeInMs === 'number') handlePan(direction * activeJob.timeRangeInMs * BIG_PAN_RATIO);
   };
-
+  
   const handleGoToStart = () => {
-    if (fullTimeRange && typeof timeRangeInMs === 'number') setViewEndTimestamp(fullTimeRange.min + timeRangeInMs);
+    if (fullTimeRange && activeJob && typeof activeJob.timeRangeInMs === 'number') {
+        const timeRangeInMs = activeJob.timeRangeInMs;
+        updateActiveJob(j => ({...j, viewEndTimestamp: fullTimeRange.min + timeRangeInMs}));
+    }
   };
   const handleGoToEnd = () => {
-    if (fullTimeRange) setViewEndTimestamp(fullTimeRange.max);
+    if (fullTimeRange) updateActiveJob(j => ({...j, viewEndTimestamp: fullTimeRange.max}));
   };
   const handlePreviousChunk = () => handleCoarsePan(-1);
   const handleNextChunk = () => handleCoarsePan(1);
   
-  const isAtStart = viewEndTimestamp !== null && fullTimeRange !== null && typeof timeRangeInMs === 'number' && viewEndTimestamp <= fullTimeRange.min + timeRangeInMs;
-  const isAtEnd = viewEndTimestamp !== null && fullTimeRange !== null && viewEndTimestamp >= fullTimeRange.max;
+  // FIX: Converted to useMemo to safely handle type narrowing for the calculation.
+  const isAtStart = useMemo(() => {
+    if (!activeJob || activeJob.viewEndTimestamp === null || !fullTimeRange || typeof activeJob.timeRangeInMs !== 'number') {
+      return false;
+    }
+    return activeJob.viewEndTimestamp <= fullTimeRange.min + activeJob.timeRangeInMs;
+  }, [activeJob, fullTimeRange]);
+  const isAtEnd = !!(activeJob?.viewEndTimestamp !== null && fullTimeRange && activeJob.viewEndTimestamp >= fullTimeRange.max);
 
   const toggleAnalysisMode = (channelId: string) => {
-    setChannelAnalysis(prev => {
-      const current = prev[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
-      if (current.isAnalyzing) {
-        return { ...prev, [channelId]: { ...current, isAnalyzing: false, selection: { start: null, end: null } } };
-      }
-      return { ...prev, [channelId]: { ...current, isAnalyzing: true, selection: { start: null, end: null } } };
+    updateActiveJob(job => {
+        const current = job.channelAnalysis[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
+        if (current.isAnalyzing) {
+            return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...current, isAnalyzing: false, selection: { start: null, end: null } } } };
+        }
+        return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...current, isAnalyzing: true, selection: { start: null, end: null } } } };
     });
   };
   
   const handleResetAnalysis = (channelId: string) => {
-    setChannelAnalysis(prev => ({
-        ...prev,
-        [channelId]: { isAnalyzing: false, selection: { start: null, end: null }, results: [] }
-    }));
+    updateActiveJob(job => ({ ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { isAnalyzing: false, selection: { start: null, end: null }, results: [] }} }));
+  };
+
+  const handleCancelSelection = (channelId: string) => {
+    updateActiveJob(job => {
+        const current = job.channelAnalysis[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
+        return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...current, selection: { start: null, end: null } }}};
+    });
+  };
+
+  const handleUndoLastResult = (channelId: string) => {
+      updateActiveJob(job => {
+          const current = job.channelAnalysis[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
+          if (current.results.length === 0) return job;
+          const newResults = current.results.slice(0, -1);
+          return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...current, results: newResults }}};
+      });
   };
 
   const handlePointSelect = useCallback((channelId: string, point: { timestamp: Date; value: number }) => {
-    if (!parsedData) return;
-    const channelIndex = parsedData.channels.findIndex(c => c.id === channelId);
+    if (!activeJob?.parsedData) return;
+    const channelIndex = activeJob.parsedData.channels.findIndex(c => c.id === channelId);
     if (channelIndex === -1) return;
 
-    setChannelAnalysis(prev => {
-      const state = prev[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
-      if (!state.isAnalyzing) return prev;
+    updateActiveJob(job => {
+      const state = job.channelAnalysis[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
+      if (!state.isAnalyzing) return job;
 
       if (!state.selection.start) {
-        return { ...prev, [channelId]: { ...state, selection: { start: point, end: null } } };
+        return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...state, selection: { start: point, end: null } } }};
       } else {
         if (state.results.length >= 15) {
           alert("채널당 최대 15개의 분석만 추가할 수 있습니다.");
-          return { ...prev, [channelId]: { ...state, selection: { start: null, end: null } } };
+          return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...state, selection: { start: null, end: null } } }};
         }
 
         const start = state.selection.start;
         const end = point;
         const [startTime, endTime] = [start.timestamp, end.timestamp].sort((a, b) => a.getTime() - b.getTime());
 
-        const valuesInRange = (parsedData.data || [])
+        const valuesInRange = (job.parsedData?.data || [])
           .filter(d => d.timestamp >= startTime && d.timestamp <= endTime)
           .map(d => d.values[channelIndex])
           .filter(v => v !== null) as number[];
 
         if (valuesInRange.length < 1) {
-          return { ...prev, [channelId]: { ...state, selection: { start: null, end: null } } };
+          return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...state, selection: { start: null, end: null } } }};
         }
         
         const min = Math.min(...valuesInRange);
         const max = Math.max(...valuesInRange);
         
-        const newResult: AnalysisResult = {
-            id: self.crypto.randomUUID(), min, max, diff: max - min, startTime, endTime
-        };
+        const newResult: AnalysisResult = { id: self.crypto.randomUUID(), min, max, diff: max - min, startTime, endTime };
 
-        return {
-          ...prev,
-          [channelId]: {
-            ...state,
-            selection: { start: null, end: null },
-            results: [...state.results, newResult]
-          }
-        };
+        return { ...job, channelAnalysis: { ...job.channelAnalysis, [channelId]: { ...state, selection: { start: null, end: null }, results: [...state.results, newResult] }}};
       }
     });
-  }, [parsedData]);
+  }, [activeJob?.parsedData, updateActiveJob]);
 
   const getAnalysisButtonText = (state: ChannelAnalysisState | undefined) => {
     if (state?.isAnalyzing) {
@@ -918,31 +976,59 @@ const CsvGraphPage: React.FC = () => {
   return (
     <div className="w-full max-w-7xl mx-auto bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">CSV 그래프 (P6)</h2>
-
-      <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 flex flex-col sm:flex-row gap-4">
-        <div className="flex-grow">
-          <label htmlFor="csv-upload" className="block text-sm font-medium text-slate-300 mb-1">데이터 파일 선택 (CSV, TXT)</label>
-          <input ref={fileInputRef} id="csv-upload" type="file" accept=".csv,.txt" onChange={handleFileChange} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600 disabled:opacity-50" disabled={isLoading} />
+      
+      {jobs.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
+          <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
+            {jobs.map(job => (
+              <div key={job.id} onClick={() => setActiveJobId(job.id)}
+                className={`p-2.5 rounded-md cursor-pointer transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}>
+                <div className="flex justify-between items-center">
+                  <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>
+                    {job.receiptNumber} {job.fileName && `/ ${job.fileName}`}
+                  </span>
+                  <button onClick={(e) => { e.stopPropagation(); onDeleteJob(job.id); }} className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0" aria-label="작업 삭제">
+                    <TrashIcon />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="flex-shrink-0 self-end">
-          <ActionButton onClick={handleClear} variant="secondary" disabled={isLoading || !parsedData}>초기화</ActionButton>
-        </div>
-      </div>
+      )}
+      
+      {!activeJob && jobs.length === 0 && <p className="text-center text-slate-400 p-4">시작하려면 '공통 정보 및 작업 관리' 섹션에서 작업을 추가하세요.</p>}
+      {!activeJob && jobs.length > 0 && <p className="text-center text-slate-400 p-4">계속하려면 위 목록에서 작업을 선택하세요.</p>}
 
+      {activeJob && !activeJob.parsedData && (
+          <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 flex flex-col sm:flex-row gap-4 items-center">
+              <div className="flex-grow text-center sm:text-left">
+                  <label htmlFor="csv-upload-prompt" className="block text-sm font-medium text-slate-300 mb-1">
+                      {activeJob.fileName ? `'${activeJob.fileName}' 파일을 업로드하여 저장된 분석 결과를 확인하세요.` : '데이터 파일을 선택하여 분석을 시작하세요.'}
+                  </label>
+                  <input ref={fileInputRef} id="csv-upload-prompt" type="file" accept=".csv,.txt" onChange={handleFileChange} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600 disabled:opacity-50" disabled={isLoading} />
+              </div>
+              <div className="flex-shrink-0 self-center sm:self-end">
+                  <ActionButton onClick={handleClear} variant="secondary" disabled={isLoading}>초기화</ActionButton>
+              </div>
+          </div>
+      )}
+      
       {isLoading && (<div className="flex justify-center items-center py-10"><Spinner /><span className="ml-3 text-slate-300">파일을 분석 중입니다...</span></div>)}
       {error && <p className="text-red-400 text-center p-4 bg-red-900/30 rounded-md">{error}</p>}
 
-      {parsedData && (
+      {activeJob && activeJob.parsedData && (
         <>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <h3 className="text-xl font-semibold text-slate-100">그래프 분석: <span className="text-sky-400">{parsedData.fileName}</span></h3>
+            <h3 className="text-xl font-semibold text-slate-100">그래프 분석: <span className="text-sky-400">{activeJob.fileName}</span></h3>
             <div className="flex items-center bg-slate-700/50 p-1 rounded-lg">
               {timeRangeOptions.map(opt => (
                 <button 
                   key={opt.label} 
                   onClick={() => handleTimeRangeChange(opt.value)}
                   className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50
-                    ${timeRangeInMs === opt.value 
+                    ${activeJob.timeRangeInMs === opt.value 
                         ? 'bg-sky-500 text-white shadow-md' 
                         : 'text-slate-300 hover:bg-slate-700'
                     }`
@@ -953,7 +1039,7 @@ const CsvGraphPage: React.FC = () => {
               ))}
             </div>
           </div>
-          {timeRangeInMs !== 'all' && (
+          {activeJob.timeRangeInMs !== 'all' && (
             <div className="flex items-center justify-center gap-2 text-sm flex-wrap">
                 <ActionButton onClick={handleGoToStart} disabled={isAtStart}>{'<< 맨 앞으로'}</ActionButton>
                 <ActionButton onClick={handlePreviousChunk} disabled={isAtStart}>{'< 이전'}</ActionButton>
@@ -965,11 +1051,11 @@ const CsvGraphPage: React.FC = () => {
           
           <div className="flex flex-wrap gap-2 border-b border-slate-700 pb-4 mb-4">
               <h4 className="w-full text-md font-semibold text-slate-200 mb-1">채널 선택:</h4>
-              {parsedData.channels.map(channel => (
+              {activeJob.parsedData.channels.map(channel => (
                 <button
                   key={channel.id}
-                  onClick={() => setSelectedChannelId(channel.id)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-sky-500 ${selectedChannelId === channel.id ? 'bg-sky-500 text-white' : 'bg-slate-600 hover:bg-slate-500 text-slate-300'}`}
+                  onClick={() => updateActiveJob(j => ({...j, selectedChannelId: channel.id}))}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-sky-500 ${activeJob.selectedChannelId === channel.id ? 'bg-sky-500 text-white' : 'bg-slate-600 hover:bg-slate-500 text-slate-300'}`}
                 >
                   {channel.name} ({channel.id})
                 </button>
@@ -985,7 +1071,17 @@ const CsvGraphPage: React.FC = () => {
                             <p className="text-sm text-slate-400">단위: {selectedChannel.unit.replace(/\[|\]/g, '')}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                            {channelAnalysis[selectedChannel.id]?.results && channelAnalysis[selectedChannel.id].results.length > 0 && (
+                           {(activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0) > 0 && (
+                                <ActionButton
+                                    onClick={() => handleUndoLastResult(selectedChannel.id)}
+                                    variant="secondary"
+                                    className="text-xs !py-1.5 !px-2"
+                                    title="마지막으로 추가된 분석 결과를 되돌립니다."
+                                >
+                                    마지막 결과 되돌리기
+                                </ActionButton>
+                            )}
+                            {(activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0) > 0 && (
                                 <ActionButton
                                     onClick={() => handleResetAnalysis(selectedChannel.id)}
                                     variant="danger"
@@ -997,11 +1093,16 @@ const CsvGraphPage: React.FC = () => {
                             )}
                             <ActionButton
                                 onClick={() => toggleAnalysisMode(selectedChannel.id)}
-                                variant={channelAnalysis[selectedChannel.id]?.isAnalyzing ? 'primary' : 'secondary'}
+                                variant={activeJob.channelAnalysis[selectedChannel.id]?.isAnalyzing ? 'primary' : 'secondary'}
                                 className="text-xs !py-1.5 !px-3"
                             >
-                                {getAnalysisButtonText(channelAnalysis[selectedChannel.id])}
+                                {getAnalysisButtonText(activeJob.channelAnalysis[selectedChannel.id])}
                             </ActionButton>
+                             {activeJob.channelAnalysis[selectedChannel.id]?.isAnalyzing && activeJob.channelAnalysis[selectedChannel.id]?.selection.start && (
+                                <ActionButton onClick={() => handleCancelSelection(selectedChannel.id)} variant="danger" className="text-xs !py-1.5 !px-2">
+                                    선택 취소
+                                </ActionButton>
+                            )}
                         </div>
                     </div>
                     <Graph 
@@ -1009,22 +1110,22 @@ const CsvGraphPage: React.FC = () => {
                         channelIndex={selectedChannelIndex} 
                         channelInfo={selectedChannel} 
                         onPan={handleFinePan} 
-                        showMajorTicks={timeRangeInMs !== 'all'} 
+                        showMajorTicks={activeJob.timeRangeInMs !== 'all'} 
                         yMinMaxOverall={yMinMaxPerChannel[selectedChannelIndex]}
-                        isAnalyzing={channelAnalysis[selectedChannel.id]?.isAnalyzing || false}
+                        isAnalyzing={activeJob.channelAnalysis[selectedChannel.id]?.isAnalyzing || false}
                         onPointSelect={(point) => handlePointSelect(selectedChannel.id, point)}
-                        selection={channelAnalysis[selectedChannel.id]?.selection || null}
-                        analysisResults={channelAnalysis[selectedChannel.id]?.results || []}
+                        selection={activeJob.channelAnalysis[selectedChannel.id]?.selection || null}
+                        analysisResults={activeJob.channelAnalysis[selectedChannel.id]?.results || []}
                     />
-                    {timeRangeInMs !== 'all' && fullTimeRange && viewEndTimestamp !== null && (
+                    {activeJob.timeRangeInMs !== 'all' && fullTimeRange && activeJob.viewEndTimestamp !== null && (
                       <div>
                         <label className="block text-sm font-medium text-slate-300 mb-1">전체 시간 탐색:</label>
                         <TimelineNavigator
-                          fullData={parsedData.data}
+                          fullData={activeJob.parsedData.data}
                           channelIndex={selectedChannelIndex}
                           fullTimeRange={fullTimeRange}
-                          viewTimeRange={timeRangeInMs}
-                          viewEndTimestamp={viewEndTimestamp}
+                          viewTimeRange={activeJob.timeRangeInMs}
+                          viewEndTimestamp={activeJob.viewEndTimestamp}
                           onNavigate={handleNavigate}
                           yMinMaxOverall={yMinMaxPerChannel[selectedChannelIndex]}
                         />
@@ -1033,7 +1134,7 @@ const CsvGraphPage: React.FC = () => {
                 </div>
                 
                 <div>
-                    <h4 className="text-lg font-semibold text-slate-100 mb-2">분석 결과 ({channelAnalysis[selectedChannel.id]?.results?.length || 0} / 15)</h4>
+                    <h4 className="text-lg font-semibold text-slate-100 mb-2">분석 결과 ({activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0} / 15)</h4>
                     <div className="overflow-x-auto bg-slate-900/50 rounded-lg border border-slate-700 max-h-96">
                         <table className="min-w-full text-sm text-left">
                             <thead className="bg-slate-700/50 sticky top-0">
@@ -1047,8 +1148,8 @@ const CsvGraphPage: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700">
-                                {(channelAnalysis[selectedChannel.id]?.results?.length || 0) > 0 ? (
-                                    channelAnalysis[selectedChannel.id].results.map((result, idx) => (
+                                {(activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0) > 0 ? (
+                                    activeJob.channelAnalysis[selectedChannel.id].results.map((result, idx) => (
                                         <tr key={result.id} className="hover:bg-slate-800">
                                             <td className="px-4 py-2 text-slate-400">{idx + 1}</td>
                                             <td className="px-4 py-2 text-slate-300 whitespace-nowrap">{result.startTime.toLocaleString()}</td>
