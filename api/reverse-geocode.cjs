@@ -1,7 +1,7 @@
-// /api/reverse-geocode.js  (ESM + Node.js 20 런타임 강제)
-export const config = { runtime: 'nodejs20.x' };
+// /api/reverse-geocode.cjs  (CommonJS + Node.js 20 런타임 강제)
+exports.config = { runtime: 'nodejs20.x' };
 
-export default async function handler(req, res) {
+module.exports = async (req, res) => {
   try {
     if (req.method !== 'GET') {
       res.setHeader('Allow', 'GET');
@@ -35,11 +35,11 @@ export default async function handler(req, res) {
     if (!id || !secret) return res.status(500).json({ error: 'server key not configured' });
 
     const params = new URLSearchParams({
-      coords: `${encodeURIComponent(lng)},${encodeURIComponent(lat)}`, // 콤마는 그대로
+      coords: `${encodeURIComponent(lng)},${encodeURIComponent(lat)}`,
       output: 'json',
       orders: 'roadaddr', // 필요시 roadaddr,addr
       sourcecrs: 'epsg:4326',
-    }).toString().replace('%2C', ','); // 가독성 위해 콤마 복원(선택)
+    }).toString().replace('%2C', ',');
 
     const url = `https://naveropenapi.apigw.ntruss.com/map-reversegeocode/v2/gc?${params}`;
 
@@ -75,4 +75,4 @@ export default async function handler(req, res) {
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'unknown error' });
   }
-}
+};
