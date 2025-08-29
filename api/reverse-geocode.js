@@ -73,4 +73,8 @@ module.exports = async (req, res) => {
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'unknown error' });
   }
+
+
+exports.config = { runtime: 'nodejs20.x' };
+
 };
