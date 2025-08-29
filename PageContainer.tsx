@@ -589,75 +589,59 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setNewItemKey('');
   }, [newItemKey, receiptNumber, receiptNumberDetail, activePage, siteLocation]);
 
-  // GPS: import.meta.env 사용 + 네이버 실패 시 폴백 없음(필요시 확장 가능)
+  // 프론트(안전): 키/시크릿 없음. 우리 서버 프록시만 호출
   const handleFetchGpsAddress = useCallback(() => {
     setIsFetchingAddress(true);
     setCurrentGpsAddress('주소 찾는 중...');
 
-    if (!navigator.geolocation) {
-        setCurrentGpsAddress('이 브라우저에서는 GPS를 지원하지 않습니다.');
-        setIsFetchingAddress(false);
-        return;
-    }
+  if (!navigator.geolocation) {
+    setCurrentGpsAddress('이 브라우저에서는 GPS를 지원하지 않습니다.');
+    setIsFetchingAddress(false);
+    return;
+  }
 
-    const NAVER_MAP_CLIENT_ID = import.meta.env.VITE_NAVER_MAP as string | undefined;
-    if (!NAVER_MAP_CLIENT_ID) {
-        setCurrentGpsAddress('GPS 주소 찾기 서비스가 현재 비활성화 상태입니다.');
-        setIsFetchingAddress(false);
-        return;
-    }
-    
-    const onSuccess = (position: GeolocationPosition) => {
-        const { latitude, longitude } = position.coords;
-        const url = `https://naveropenapi.apigw.ntruss.com/map-reversegeocode/v2/gc?coords=${longitude},${latitude}&output=json&orders=roadaddr`;
-
-        fetch(url, {
-            method: 'GET',
-            headers: {
-                'X-NCP-APIGW-API-KEY-ID': NAVER_MAP_CLIENT_ID,
-            },
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`Naver API 오류: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status?.code === 0 && data.results && data.results.length > 0) {
-                const region = data.results[0].region;
-                const land = data.results[0].land;
-                const fullAddress = `${region?.area1?.name ?? ''} ${region?.area2?.name ?? ''} ${region?.area3?.name ?? ''} ${land?.name ?? ''} ${[land?.number1, land?.number2].filter(Boolean).join('-')}`.trim();
-                setCurrentGpsAddress(fullAddress || '주소를 찾을 수 없습니다.');
-            } else {
-                setCurrentGpsAddress('주소를 찾을 수 없습니다.');
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching address from Naver API:', error);
-            setCurrentGpsAddress('주소 탐색 중 오류 발생');
-        })
-        .finally(() => {
-            setIsFetchingAddress(false);
-        });
-    };
-
-    const onError = (error: GeolocationPositionError) => {
-        console.error('Geolocation error:', error);
-        let message = 'GPS 위치를 가져올 수 없습니다.';
-        if (error.code === error.PERMISSION_DENIED) {
-            message = 'GPS 위치 권한이 거부되었습니다.';
+  const onSuccess = (position: GeolocationPosition) => {
+    const { latitude, longitude } = position.coords;
+    fetch(`/api/reverse-geocode?lat=${latitude}&lng=${longitude}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Proxy 오류: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (data.status?.code === 0 && data.results?.length > 0) {
+          const region = data.results[0].region;
+          const land = data.results[0].land;
+          const fullAddress = `${region?.area1?.name ?? ''} ${region?.area2?.name ?? ''} ${region?.area3?.name ?? ''} ${land?.name ?? ''} ${[land?.number1, land?.number2].filter(Boolean).join('-')}`.trim();
+          setCurrentGpsAddress(fullAddress || '주소를 찾을 수 없습니다.');
+          // 원하는 경우 자동 입력
+          // if (fullAddress) setSiteLocation((prev) => prev || fullAddress);
+        } else {
+          setCurrentGpsAddress('주소를 찾을 수 없습니다.');
         }
-        setCurrentGpsAddress(message);
-        setIsFetchingAddress(false);
-    };
+      })
+      .catch((err) => {
+        console.error(err);
+        setCurrentGpsAddress('주소 탐색 중 오류 발생');
+      })
+      .finally(() => setIsFetchingAddress(false));
+  };
 
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-    });
-  }, []);
+  const onError = (error: GeolocationPositionError) => {
+    console.error('Geolocation error:', error);
+    setCurrentGpsAddress(
+      error.code === error.PERMISSION_DENIED
+        ? 'GPS 위치 권한이 거부되었습니다.'
+        : 'GPS 위치를 가져올 수 없습니다.',
+    );
+    setIsFetchingAddress(false);
+  };
+
+  navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 0,
+  });
+}, []);
 
   const itemOptionsForNewTask = useMemo(() => {
     if (activePage === 'photoLog') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
