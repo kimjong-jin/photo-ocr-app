@@ -1,5 +1,7 @@
-// /api/reverse-geocode.js
-module.exports = async (req, res) => {
+// /api/reverse-geocode.js  (ESM + Node.js 20 런타임 강제)
+export const config = { runtime: 'nodejs20.x' };
+
+export default async function handler(req, res) {
   try {
     if (req.method !== 'GET') {
       res.setHeader('Allow', 'GET');
@@ -27,7 +29,7 @@ module.exports = async (req, res) => {
         secretSet: !!secret,
         lat: latNum,
         lng: lngNum,
-        runtime: process.version
+        runtime: process.version,
       });
     }
     if (!id || !secret) return res.status(500).json({ error: 'server key not configured' });
@@ -35,7 +37,7 @@ module.exports = async (req, res) => {
     const params = new URLSearchParams({
       coords: `${encodeURIComponent(lng)},${encodeURIComponent(lat)}`, // 콤마는 그대로
       output: 'json',
-      orders: 'roadaddr', // 필요시 roadaddr,addr 로 변경
+      orders: 'roadaddr', // 필요시 roadaddr,addr
       sourcecrs: 'epsg:4326',
     }).toString().replace('%2C', ','); // 가독성 위해 콤마 복원(선택)
 
@@ -67,14 +69,10 @@ module.exports = async (req, res) => {
         error: 'invalid upstream response',
         status: r.status,
         contentType: r.headers.get('content-type') || null,
-        raw: text?.slice(0, 2000) ?? null // 너무 길면 잘라서
+        raw: text?.slice(0, 2000) ?? null,
       });
     }
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'unknown error' });
   }
-
-
-exports.config = { runtime: 'nodejs20.x' };
-
-};
+}
