@@ -16,7 +16,7 @@ export default async function handler(req, res) {
 
     const url =
       `https://naveropenapi.apigw.ntruss.com/map-reversegeocode/v2/gc` +
-      `?coords=${encodeURIComponent(`${lng},${lat}`)}&output=json&orders=roadaddr`;
+      ?coords=${encodeURIComponent(`${lng},${lat}`)}&output=json&orders=roadaddr&sourcecrs=epsg:4326`
 
     const r = await fetch(url, {
       headers: {
