@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import PhotoLogPage from './PhotoLogPage';
 import type { PhotoLogJob } from './shared/types';
 import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
@@ -13,9 +13,8 @@ import { UserRole } from './components/UserNameInput';
 import AdminPanel from './components/admin/AdminPanel';
 import { callSaveTempApi, callLoadTempApi, SaveDataPayload, LoadedData, SavedValueEntry } from './services/apiService';
 import { Spinner } from './components/Spinner';
-import { MAIN_STRUCTURAL_ITEMS, MainStructuralItemKey, STRUCTURAL_ITEM_GROUPS, CHECKLIST_DEFINITIONS, CertificateDetails, POST_INSPECTION_DATE_OPTIONS, MEASUREMENT_METHOD_OPTIONS, StructuralCheckSubItemData, PREFERRED_MEASUREMENT_METHODS } from './shared/structuralChecklists';
+import { MAIN_STRUCTURAL_ITEMS, MainStructuralItemKey, STRUCTURAL_ITEM_GROUPS, CHECKLIST_DEFINITIONS, CertificateDetails, StructuralCheckSubItemData, PREFERRED_MEASUREMENT_METHODS } from './shared/structuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
-
 
 type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
 
@@ -44,10 +43,17 @@ const LoadIcon: React.FC = () => (
   </svg>
 );
 
-const DeleteIcon: React.FC = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
-    </svg>
+const GpsIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 01-9-9 9 9 0 019-9 9 9 0 019 9 9 9 0 01-9 9z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m8-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707" />
+  </svg>
+);
+
+const ChevronDownIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+  </svg>
 );
 
 const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userContact, onLogout }) => {
@@ -55,13 +61,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [receiptNumberCommon, setReceiptNumberCommon] = useState('');
   const [receiptNumberDetail, setReceiptNumberDetail] = useState('');
   const [siteLocation, setSiteLocation] = useState('');
-  
+
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [draftMessage, setDraftMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  
+
   const [newItemKey, setNewItemKey] = useState<string>('');
-  
+
   const [photoLogJobs, setPhotoLogJobs] = useState<PhotoLogJob[]>([]);
   const [activePhotoLogJobId, setActivePhotoLogJobId] = useState<string | null>(null);
 
@@ -70,12 +76,28 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [drinkingWaterJobs, setDrinkingWaterJobs] = useState<DrinkingWaterJob[]>([]);
   const [activeDrinkingWaterJobId, setActiveDrinkingWaterJobId] = useState<string | null>(null);
-  
+
   const [structuralCheckJobs, setStructuralCheckJobs] = useState<StructuralJob[]>([]);
   const [activeStructuralCheckJobId, setActiveStructuralCheckJobId] = useState<string | null>(null);
 
   const [csvGraphJobs, setCsvGraphJobs] = useState<CsvGraphJob[]>([]);
   const [activeCsvGraphJobId, setActiveCsvGraphJobId] = useState<string | null>(null);
+
+  const [currentGpsAddress, setCurrentGpsAddress] = useState('');
+  const [isFetchingAddress, setIsFetchingAddress] = useState(false);
+
+  const [openSections, setOpenSections] = useState<string[]>(['addTask']);
+
+  const toggleSection = (sectionName: string) => {
+    setOpenSections(prevOpenSections => {
+      const isOpen = prevOpenSections.includes(sectionName);
+      if (isOpen) {
+        return prevOpenSections.filter(s => s !== sectionName);
+      } else {
+        return [...prevOpenSections, sectionName];
+      }
+    });
+  };
 
   const handleDeletePhotoLogJob = useCallback((jobIdToDelete: string) => {
     setPhotoLogJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
@@ -91,7 +113,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setDrinkingWaterJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
     setActiveDrinkingWaterJobId(prev => (prev === jobIdToDelete ? null : prev));
   }, []);
-  
+
   const handleDeleteStructuralCheckJob = useCallback((jobIdToDelete: string) => {
     setStructuralCheckJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
     setActiveStructuralCheckJobId(prev => (prev === jobIdToDelete ? null : prev));
@@ -110,32 +132,32 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     if (!detail) return common;
     return `${common}-${detail}`;
   }, [receiptNumberCommon, receiptNumberDetail]);
-  
+
   const activeJobForReceiptSync = useMemo(() => {
     switch (activePage) {
-        case 'photoLog': return photoLogJobs.find(j => j.id === activePhotoLogJobId);
-        case 'fieldCount': return fieldCountJobs.find(j => j.id === activeFieldCountJobId);
-        case 'drinkingWater': return drinkingWaterJobs.find(j => j.id === activeDrinkingWaterJobId);
-        case 'structuralCheck': return structuralCheckJobs.find(j => j.id === activeStructuralCheckJobId);
-        case 'csvGraph': return csvGraphJobs.find(j => j.id === activeCsvGraphJobId);
-        default: return null;
+      case 'photoLog': return photoLogJobs.find(j => j.id === activePhotoLogJobId);
+      case 'fieldCount': return fieldCountJobs.find(j => j.id === activeFieldCountJobId);
+      case 'drinkingWater': return drinkingWaterJobs.find(j => j.id === activeDrinkingWaterJobId);
+      case 'structuralCheck': return structuralCheckJobs.find(j => j.id === activeStructuralCheckJobId);
+      case 'csvGraph': return csvGraphJobs.find(j => j.id === activeCsvGraphJobId);
+      default: return null;
     }
   }, [activePage, activePhotoLogJobId, photoLogJobs, activeFieldCountJobId, fieldCountJobs, activeDrinkingWaterJobId, drinkingWaterJobs, activeStructuralCheckJobId, structuralCheckJobs, activeCsvGraphJobId, csvGraphJobs]);
 
   useEffect(() => {
-      if (activeJobForReceiptSync?.receiptNumber) {
-          const fullReceipt = activeJobForReceiptSync.receiptNumber;
-          const lastDashIndex = fullReceipt.lastIndexOf('-');
-          if (lastDashIndex !== -1 && lastDashIndex < fullReceipt.length - 1) {
-              const common = fullReceipt.substring(0, lastDashIndex);
-              const detail = fullReceipt.substring(lastDashIndex + 1);
-              setReceiptNumberCommon(common);
-              setReceiptNumberDetail(detail);
-          } else {
-              setReceiptNumberCommon(fullReceipt);
-              setReceiptNumberDetail('');
-          }
+    if (activeJobForReceiptSync?.receiptNumber) {
+      const fullReceipt = activeJobForReceiptSync.receiptNumber;
+      const lastDashIndex = fullReceipt.lastIndexOf('-');
+      if (lastDashIndex !== -1 && lastDashIndex < fullReceipt.length - 1) {
+        const common = fullReceipt.substring(0, lastDashIndex);
+        const detail = fullReceipt.substring(lastDashIndex + 1);
+        setReceiptNumberCommon(common);
+        setReceiptNumberDetail(detail);
+      } else {
+        setReceiptNumberCommon(fullReceipt);
+        setReceiptNumberDetail('');
       }
+    }
   }, [activeJobForReceiptSync]);
 
   const clearDraftMessage = () => {
@@ -144,7 +166,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   };
 
-  const getReceiptNumberForSaveLoad = useCallback(() => {
+    const getReceiptNumberForSaveLoad = useCallback(() => {
     let receiptForOperation: string | null = receiptNumber;
     if (activePage === 'photoLog' && activePhotoLogJobId) {
         receiptForOperation = photoLogJobs.find(j => j.id === activePhotoLogJobId)?.receiptNumber || receiptNumber;
@@ -346,28 +368,28 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 const timeToEntryMap: Record<string, Partial<PhotoLogJob['processedOcrData'][0]>> = {};
                 
                 Object.entries(tnData).forEach(([id, data]) => {
-                    const key = data.time || id;
-                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: data.time };
-                    timeToEntryMap[key].value = data.val;
-                    timeToEntryMap[key].identifier = id;
+                    const key = (data as any).time || id;
+                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
+                    (timeToEntryMap[key] as any).value = (data as any).val;
+                    (timeToEntryMap[key] as any).identifier = id;
                 });
                 Object.entries(tpData).forEach(([id, data]) => {
-                    const key = data.time || id;
-                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: data.time };
-                    timeToEntryMap[key].valueTP = data.val;
-                    timeToEntryMap[key].identifierTP = id;
+                    const key = (data as any).time || id;
+                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
+                    (timeToEntryMap[key] as any).valueTP = (data as any).val;
+                    (timeToEntryMap[key] as any).identifierTP = id;
                 });
                 Object.values(timeToEntryMap).sort((a,b) => (a.time || '').localeCompare(b.time || '')).forEach(partialEntry => {
                     reconstructedOcrData.push({
-                        id: partialEntry.id!, time: partialEntry.time || '', value: partialEntry.value || '',
-                        valueTP: partialEntry.valueTP, identifier: partialEntry.identifier, identifierTP: partialEntry.identifierTP,
+                        id: partialEntry.id!, time: partialEntry.time || '', value: (partialEntry as any).value || '',
+                        valueTP: (partialEntry as any).valueTP, identifier: (partialEntry as any).identifier, identifierTP: (partialEntry as any).identifierTP,
                     });
                 });
             } else {
-                 const itemData = values[itemName] || {};
-                 Object.entries(itemData).sort(([,a],[,b]) => (a.time || '').localeCompare(b.time || '')).forEach(([id, entryData]) => {
+                 const itemData = (values as any)[itemName] || {};
+                 Object.entries(itemData).sort(([,a],[,b]) => ((a as any).time || '').localeCompare((b as any).time || '')).forEach(([id, entryData]) => {
                     if (entryData) {
-                        reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: entryData.time, value: entryData.val, identifier: id });
+                        reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: (entryData as any).time, value: (entryData as any).val, identifier: id });
                     }
                 });
             }
@@ -396,7 +418,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
         const p4Items = loadedItems.filter(i => MAIN_STRUCTURAL_ITEMS.some(si => si.key === i));
         const newP4Jobs = p4Items.map(itemName => {
-            const itemData = values[itemName as MainStructuralItemKey];
+            const itemData = (values as any)[itemName as MainStructuralItemKey];
             if (!itemData || !itemData['_checklistData']) return null;
             return { 
                 id: self.crypto.randomUUID(), 
@@ -409,16 +431,16 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 photoComments: {},
                 submissionStatus: 'idle',
                 submissionMessage: undefined,
-            };
+            } as StructuralJob;
         }).filter(Boolean) as StructuralJob[];
         setStructuralCheckJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP4Jobs]);
         if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP4Jobs[0]?.id || null);
 
         const p6Jobs: CsvGraphJob[] = [];
         Object.entries(values).forEach(([key, value]) => {
-            if (key.startsWith('_csv_') && value && value['_data']) {
+            if (key.startsWith('_csv_') && value && (value as any)['_data']) {
                 try {
-                    const savedState = JSON.parse(value['_data'].val);
+                    const savedState = JSON.parse((value as any)['_data'].val);
                     
                     // Rehydrate dates in channelAnalysis
                     const rehydratedChannelAnalysis = savedState.channelAnalysis || {};
@@ -567,6 +589,76 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setNewItemKey('');
   }, [newItemKey, receiptNumber, receiptNumberDetail, activePage, siteLocation]);
 
+  // GPS: import.meta.env 사용 + 네이버 실패 시 폴백 없음(필요시 확장 가능)
+  const handleFetchGpsAddress = useCallback(() => {
+    setIsFetchingAddress(true);
+    setCurrentGpsAddress('주소 찾는 중...');
+
+    if (!navigator.geolocation) {
+        setCurrentGpsAddress('이 브라우저에서는 GPS를 지원하지 않습니다.');
+        setIsFetchingAddress(false);
+        return;
+    }
+
+    const NAVER_MAP_CLIENT_ID = import.meta.env.VITE_NAVER_MAP as string | undefined;
+    if (!NAVER_MAP_CLIENT_ID) {
+        setCurrentGpsAddress('GPS 주소 찾기 서비스가 현재 비활성화 상태입니다.');
+        setIsFetchingAddress(false);
+        return;
+    }
+    
+    const onSuccess = (position: GeolocationPosition) => {
+        const { latitude, longitude } = position.coords;
+        const url = `https://naveropenapi.apigw.ntruss.com/map-reversegeocode/v2/gc?coords=${longitude},${latitude}&output=json&orders=roadaddr`;
+
+        fetch(url, {
+            method: 'GET',
+            headers: {
+                'X-NCP-APIGW-API-KEY-ID': NAVER_MAP_CLIENT_ID,
+            },
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Naver API 오류: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status?.code === 0 && data.results && data.results.length > 0) {
+                const region = data.results[0].region;
+                const land = data.results[0].land;
+                const fullAddress = `${region?.area1?.name ?? ''} ${region?.area2?.name ?? ''} ${region?.area3?.name ?? ''} ${land?.name ?? ''} ${[land?.number1, land?.number2].filter(Boolean).join('-')}`.trim();
+                setCurrentGpsAddress(fullAddress || '주소를 찾을 수 없습니다.');
+            } else {
+                setCurrentGpsAddress('주소를 찾을 수 없습니다.');
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching address from Naver API:', error);
+            setCurrentGpsAddress('주소 탐색 중 오류 발생');
+        })
+        .finally(() => {
+            setIsFetchingAddress(false);
+        });
+    };
+
+    const onError = (error: GeolocationPositionError) => {
+        console.error('Geolocation error:', error);
+        let message = 'GPS 위치를 가져올 수 없습니다.';
+        if (error.code === error.PERMISSION_DENIED) {
+            message = 'GPS 위치 권한이 거부되었습니다.';
+        }
+        setCurrentGpsAddress(message);
+        setIsFetchingAddress(false);
+    };
+
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+    });
+  }, []);
+
   const itemOptionsForNewTask = useMemo(() => {
     if (activePage === 'photoLog') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
     if (activePage === 'fieldCount') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '현장 계수')?.items || [];
@@ -597,7 +689,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         return null;
     }
   };
-  
+
   const showTaskManagement = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck', 'csvGraph'].includes(activePage);
   const isCsvPage = activePage === 'csvGraph';
 
@@ -609,90 +701,306 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         <div className="text-sm text-sky-300 mb-2 sm:mb-0">
           환영합니다, <span className="font-semibold">{userName}</span>님!
         </div>
-        <ActionButton onClick={onLogout} variant="secondary" className="bg-red-600 hover:bg-red-700 focus:ring-red-500 text-white text-xs px-3 py-1.5 h-auto" icon={<LogoutIcon />}>
+        <ActionButton
+          onClick={onLogout}
+          variant="secondary"
+          className="bg-red-600 hover:bg-red-700 focus:ring-red-500 text-white text-xs px-3 py-1.5 h-auto"
+          icon={<LogoutIcon />}
+        >
           로그아웃
         </ActionButton>
       </div>
-      
+
       {activePage !== 'kakaoTalk' && (
-       <div className="w-full max-w-3xl mb-6 p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 shadow-sm space-y-4">
-        <h3 className="text-lg font-semibold text-slate-100">공통 정보 및 작업 관리</h3>
-        <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-4 items-end">
-                <div className={isCsvPage ? "sm:col-span-4" : "sm:col-span-3"}>
-                    <label htmlFor="global-receipt-common" className="block text-sm font-medium text-slate-300 mb-1">접수번호 (공통) <span className="text-amber-400 font-bold">*</span></label>
-                    <input type="text" id="global-receipt-common" value={receiptNumberCommon} onChange={(e) => setReceiptNumberCommon(e.target.value)} className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400" placeholder="예: 25-000000-01" />
-                </div>
-                <div className={isCsvPage ? "sm:col-span-2" : "sm:col-span-1"}>
-                    <label htmlFor="global-receipt-detail" className="block text-sm font-medium text-slate-300 mb-1">(세부) <span className="text-amber-400 font-bold">*</span></label>
-                    <input type="text" id="global-receipt-detail" value={receiptNumberDetail} onChange={(e) => setReceiptNumberDetail(e.target.value)} className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400" placeholder="예: 1" />
-                </div>
-                <div className={isCsvPage ? "sm:col-span-6" : "sm:col-span-3"}>
-                    <label htmlFor="global-site-location" className="block text-sm font-medium text-slate-300 mb-1">현장 위치 (공통)</label>
-                    <input type="text" id="global-site-location" value={siteLocation} onChange={(e) => setSiteLocation(e.target.value)} className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm" placeholder="예: OO처리장" />
-                </div>
+        <div className="w-full max-w-3xl mb-6 p-4 bg-slate-800/60 rounded-lg border border-slate-700 shadow-sm space-y-2">
+          {/* 공통 정보 및 작업 추가 */}
+          <div>
+            <button
+              onClick={() => toggleSection('addTask')}
+              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
+              aria-expanded={openSections.includes('addTask')}
+            >
+              <h3 className="text-lg font-semibold text-slate-100">공통 정보 및 작업 추가</h3>
+              <ChevronDownIcon
+                className={`w-5 h-5 text-slate-400 transition-transform ${
+                  openSections.includes('addTask') ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
 
-                {!isCsvPage && showTaskManagement && (
-                    <div className="sm:col-span-5">
-                        <label htmlFor="new-task-item" className="block text-sm font-medium text-slate-300 mb-1">항목</label>
-                        <select id="new-task-item" value={newItemKey} onChange={(e) => setNewItemKey(e.target.value)} className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]">
-                            <option value="" disabled>선택...</option>
-                            {Array.isArray(itemOptionsForNewTask) && itemOptionsForNewTask.length > 0 && typeof itemOptionsForNewTask[0] === 'object' && itemOptionsForNewTask[0] !== null && 'label' in itemOptionsForNewTask[0]
-                                ? (itemOptionsForNewTask as {label: string, items: {key: string, name: string}[]}[])
-                                    .map(group => (
-                                        <optgroup key={group.label} label={group.label}>
-                                            {group.items.map(item => <option key={item.key} value={item.key}>{item.name}</option>)}
-                                        </optgroup>
-                                    ))
-                                : (itemOptionsForNewTask as string[]).map(item => <option key={item} value={item}>{item}</option>)
-                            }
-                        </select>
-                    </div>
-                )}
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                openSections.includes('addTask') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="pt-4 px-2 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-4 items-end">
+                  <div className={isCsvPage ? 'sm:col-span-4' : 'sm:col-span-3'}>
+                    <label
+                      htmlFor="global-receipt-common"
+                      className="block text-sm font-medium text-slate-300 mb-1"
+                    >
+                      접수번호 (공통) <span className="text-amber-400 font-bold">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="global-receipt-common"
+                      value={receiptNumberCommon}
+                      onChange={(e) => setReceiptNumberCommon(e.target.value)}
+                      className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                      placeholder="예: 25-000000-01"
+                    />
+                  </div>
 
-                {showTaskManagement && (
+                  <div className={isCsvPage ? 'sm:col-span-2' : 'sm:col-span-1'}>
+                    <label
+                      htmlFor="global-receipt-detail"
+                      className="block text-sm font-medium text-slate-300 mb-1"
+                    >
+                      (세부) <span className="text-amber-400 font-bold">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="global-receipt-detail"
+                      value={receiptNumberDetail}
+                      onChange={(e) => setReceiptNumberDetail(e.target.value)}
+                      className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                      placeholder="예: 1"
+                    />
+                  </div>
+
+                  <div className={isCsvPage ? 'sm:col-span-6' : 'sm:col-span-8'}>
+                    <label
+                      htmlFor="global-site-location"
+                      className="block text-sm font-medium text-slate-300 mb-1"
+                    >
+                      현장 위치 (공통)
+                    </label>
+                    <input
+                      type="text"
+                      id="global-site-location"
+                      value={siteLocation}
+                      onChange={(e) => setSiteLocation(e.target.value)}
+                      className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm"
+                      placeholder="예: OO처리장"
+                    />
+                  </div>
+
+                  {!isCsvPage && showTaskManagement && (
                     <div className="sm:col-span-12">
-                        <ActionButton onClick={handleAddTask} fullWidth>
-                            {isCsvPage ? '새 분석 작업 추가' : '추가'}
-                        </ActionButton>
+                      <label
+                        htmlFor="new-task-item"
+                        className="block text-sm font-medium text-slate-300 mb-1"
+                      >
+                        항목
+                      </label>
+                      <select
+                        id="new-task-item"
+                        value={newItemKey}
+                        onChange={(e) => setNewItemKey(e.target.value)}
+                        className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]"
+                      >
+                        <option value="" disabled>
+                          선택...
+                        </option>
+                        {Array.isArray(itemOptionsForNewTask) &&
+                        itemOptionsForNewTask.length > 0 &&
+                        typeof itemOptionsForNewTask[0] === 'object' &&
+                        itemOptionsForNewTask[0] !== null &&
+                        'label' in (itemOptionsForNewTask[0] as any)
+                          ? (
+                              itemOptionsForNewTask as {
+                                label: string;
+                                items: { key: string; name: string }[];
+                              }[]
+                            ).map((group) => (
+                              <optgroup key={group.label} label={group.label}>
+                                {group.items.map((item) => (
+                                  <option key={item.key} value={item.key}>
+                                    {item.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ))
+                          : (itemOptionsForNewTask as string[]).map((item) => (
+                              <option key={item} value={item}>
+                                {item}
+                              </option>
+                            ))}
+                      </select>
                     </div>
-                )}
+                  )}
+
+                  {showTaskManagement && (
+                    <div className="sm:col-span-12">
+                      <ActionButton onClick={handleAddTask} fullWidth>
+                        {isCsvPage ? '새 분석 작업 추가' : '추가'}
+                      </ActionButton>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-        </div>
-        
-        <div className="pt-4 border-t border-slate-600 space-y-3">
-            <h4 className="text-md font-semibold text-slate-200">데이터 관리</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <ActionButton onClick={handleSaveDraft} variant="secondary" icon={isSaving ? <Spinner size="sm" /> : <SaveIcon />} disabled={isSaving || isLoading}>
+          </div>
+
+          {/* 위치 도우미 (GPS) */}
+          <div>
+            <button
+              onClick={() => toggleSection('location')}
+              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
+              aria-expanded={openSections.includes('location')}
+            >
+              <h3 className="text-lg font-semibold text-slate-100">위치 도우미</h3>
+              <ChevronDownIcon
+                className={`w-5 h-5 text-slate-400 transition-transform ${
+                  openSections.includes('location') ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                openSections.includes('location') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="pt-4 px-2 space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-2 items-center">
+                  <div className="sm:col-span-8">
+                    <label htmlFor="current-gps-address" className="sr-only">
+                      현재 주소 (GPS)
+                    </label>
+                    <input
+                      type="text"
+                      id="current-gps-address"
+                      value={currentGpsAddress}
+                      readOnly
+                      className="block w-full p-2.5 bg-slate-800 border border-slate-600 rounded-md shadow-sm text-slate-300 text-sm placeholder-slate-400"
+                      placeholder="버튼을 눌러 주소를 가져오세요"
+                    />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <ActionButton
+                      onClick={handleFetchGpsAddress}
+                      disabled={isFetchingAddress}
+                      fullWidth
+                      icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />}
+                    >
+                      GPS로 주소 찾기
+                    </ActionButton>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 데이터 관리 */}
+          <div>
+            <button
+              onClick={() => toggleSection('data')}
+              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
+              aria-expanded={openSections.includes('data')}
+            >
+              <h3 className="text-lg font-semibold text-slate-100">데이터 관리</h3>
+              <ChevronDownIcon
+                className={`w-5 h-5 text-slate-400 transition-transform ${
+                  openSections.includes('data') ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                openSections.includes('data') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="pt-4 px-2 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <ActionButton
+                    onClick={handleSaveDraft}
+                    variant="secondary"
+                    icon={isSaving ? <Spinner size="sm" /> : <SaveIcon />}
+                    disabled={isSaving || isLoading}
+                  >
                     {isSaving ? '저장 중...' : '임시 저장'}
-                </ActionButton>
-                <ActionButton onClick={handleLoadDraft} variant="secondary" icon={isLoading ? <Spinner size="sm" /> : <LoadIcon />} disabled={isSaving || isLoading}>
+                  </ActionButton>
+                  <ActionButton
+                    onClick={handleLoadDraft}
+                    variant="secondary"
+                    icon={isLoading ? <Spinner size="sm" /> : <LoadIcon />}
+                    disabled={isSaving || isLoading}
+                  >
                     {isLoading ? '로딩 중...' : '불러오기'}
-                </ActionButton>
-            </div>
-            {draftMessage && (
-                <p className={`text-xs text-center ${draftMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`} role="status">
+                  </ActionButton>
+                </div>
+
+                {draftMessage && (
+                  <p
+                    className={`text-xs text-center ${
+                      draftMessage.type === 'success' ? 'text-green-400' : 'text-red-400'
+                    }`}
+                    role="status"
+                  >
                     {draftMessage.type === 'success' ? '✅' : '❌'} {draftMessage.text}
+                  </p>
+                )}
+
+                <p className="text-xs text-slate-500 text-center">
+                  임시 저장은 현재 활성 작업의 접수번호와 동일한 모든 작업을 함께 저장/불러오기 합니다.
                 </p>
-            )}
-            <p className="text-xs text-slate-500 text-center">
-                임시 저장은 현재 활성 작업의 접수번호와 동일한 모든 작업을 함께 저장/불러오기 합니다.
-            </p>
+              </div>
+            </div>
+          </div>
         </div>
-       </div>
       )}
 
+      {/* 네비게이션 */}
       <nav className="w-full max-w-5xl mb-6 flex justify-center space-x-1 sm:space-x-2 p-2 bg-slate-800 rounded-lg shadow-md">
-        <button onClick={() => setActivePage('photoLog')} className={`${navButtonBaseStyle} ${activePage === 'photoLog' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'photoLog'}>수질 분석 (P1)</button>
-        <button onClick={() => setActivePage('fieldCount')} className={`${navButtonBaseStyle} ${activePage === 'fieldCount' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'fieldCount'}>현장 계수 (P2)</button>
-        <button onClick={() => setActivePage('drinkingWater')} className={`${navButtonBaseStyle} ${activePage === 'drinkingWater' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'drinkingWater'}>먹는물 분석 (P3)</button>
-        <button onClick={() => setActivePage('structuralCheck')} className={`${navButtonBaseStyle} ${activePage === 'structuralCheck' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'structuralCheck'}>구조 확인 (P4)</button>
-        <button onClick={() => setActivePage('kakaoTalk')} className={`${navButtonBaseStyle} ${activePage === 'kakaoTalk' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'kakaoTalk'}>카톡 전송 (P5)</button>
-        <button onClick={() => setActivePage('csvGraph')} className={`${navButtonBaseStyle} ${activePage === 'csvGraph' ? activeNavButtonStyle : inactiveNavButtonStyle}`} aria-pressed={activePage === 'csvGraph'}>CSV 그래프 (P6)</button>
+        <button
+          onClick={() => setActivePage('photoLog')}
+          className={`${navButtonBaseStyle} ${activePage === 'photoLog' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
+          aria-pressed={activePage === 'photoLog'}
+        >
+          수질 분석 (P1)
+        </button>
+        <button
+          onClick={() => setActivePage('fieldCount')}
+          className={`${navButtonBaseStyle} ${activePage === 'fieldCount' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
+          aria-pressed={activePage === 'fieldCount'}
+        >
+          현장 계수 (P2)
+        </button>
+        <button
+          onClick={() => setActivePage('drinkingWater')}
+          className={`${navButtonBaseStyle} ${activePage === 'drinkingWater' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
+          aria-pressed={activePage === 'drinkingWater'}
+        >
+          먹는물 분석 (P3)
+        </button>
+        <button
+          onClick={() => setActivePage('structuralCheck')}
+          className={`${navButtonBaseStyle} ${activePage === 'structuralCheck' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
+          aria-pressed={activePage === 'structuralCheck'}
+        >
+          구조 확인 (P4)
+        </button>
+        <button
+          onClick={() => setActivePage('kakaoTalk')}
+          className={`${navButtonBaseStyle} ${activePage === 'kakaoTalk' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
+          aria-pressed={activePage === 'kakaoTalk'}
+        >
+          카톡 전송 (P5)
+        </button>
+        <button
+          onClick={() => setActivePage('csvGraph')}
+          className={`${navButtonBaseStyle} ${activePage === 'csvGraph' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
+          aria-pressed={activePage === 'csvGraph'}
+        >
+          CSV 그래프 (P6)
+        </button>
       </nav>
-      
+
       {renderActivePage()}
-      
+
       {userRole === 'admin' && <AdminPanel adminUserName={userName} />}
 
       <Footer />
