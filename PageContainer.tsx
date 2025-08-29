@@ -591,6 +591,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
  // 프론트(안전): 키/시크릿 없음. 우리 서버 프록시만 호출
 const handleFetchGpsAddress = useCallback(() => {
+  if (isFetchingAddress) return; // 중복 클릭 가드
+
   setIsFetchingAddress(true);
   setCurrentGpsAddress('주소 찾는 중...');
 
@@ -635,7 +637,8 @@ const handleFetchGpsAddress = useCallback(() => {
         }
       })
       .catch((err: any) => {
-        setCurrentGpsAddress(`주소 탐색 오류: ${err?.message || err}`);
+        const msg = err?.name === 'AbortError' ? '네트워크 지연으로 시간 초과' : (err?.message || String(err));
+        setCurrentGpsAddress(`주소 탐색 오류: ${msg}`);
       })
       .finally(() => {
         clearTimeout(to);
@@ -659,7 +662,7 @@ const handleFetchGpsAddress = useCallback(() => {
     timeout: 10000,
     maximumAge: 0,
   });
-}, []);
+}, [isFetchingAddress]);
 
   const itemOptionsForNewTask = useMemo(() => {
     if (activePage === 'photoLog') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
