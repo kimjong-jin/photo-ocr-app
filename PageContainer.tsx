@@ -589,10 +589,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setNewItemKey('');
   }, [newItemKey, receiptNumber, receiptNumberDetail, activePage, siteLocation]);
 
-  // 프론트(안전): 키/시크릿 없음. 우리 서버 프록시만 호출
-  const handleFetchGpsAddress = useCallback(() => {
-    setIsFetchingAddress(true);
-    setCurrentGpsAddress('주소 찾는 중...');
+ // 프론트(안전): 키/시크릿 없음. 우리 서버 프록시만 호출
+const handleFetchGpsAddress = useCallback(() => {
+  setIsFetchingAddress(true);
+  setCurrentGpsAddress('주소 찾는 중...');
 
   if (!navigator.geolocation) {
     setCurrentGpsAddress('이 브라우저에서는 GPS를 지원하지 않습니다.');
@@ -602,36 +602,54 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const onSuccess = (position: GeolocationPosition) => {
     const { latitude, longitude } = position.coords;
-    fetch(`/api/reverse-geocode?lat=${latitude}&lng=${longitude}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Proxy 오류: ${res.status}`);
-        return res.json();
+
+    // 항상 현재 배포 도메인으로 고정 (NXDOMAIN 방지)
+    const url = new URL('/api/reverse-geocode', window.location.origin);
+    url.searchParams.set('lat', String(latitude));
+    url.searchParams.set('lng', String(longitude));
+
+    // 5초 타임아웃
+    const ac = new AbortController();
+    const to = setTimeout(() => ac.abort(), 5000);
+
+    fetch(url.toString(), { signal: ac.signal })
+      .then(async (res) => {
+        const text = await res.text().catch(() => '');
+        if (!res.ok) {
+          let body: any = null;
+          try { body = JSON.parse(text); } catch { body = { raw: text?.slice(0, 300) }; }
+          throw new Error(`프록시 ${res.status}: ${body?.error || body?.message || body?.raw || '원인 불명'}`);
+        }
+        return JSON.parse(text);
       })
       .then((data) => {
-        if (data.status?.code === 0 && data.results?.length > 0) {
+        if (data.status?.code === 0 && Array.isArray(data.results) && data.results.length > 0) {
           const region = data.results[0].region;
           const land = data.results[0].land;
-          const fullAddress = `${region?.area1?.name ?? ''} ${region?.area2?.name ?? ''} ${region?.area3?.name ?? ''} ${land?.name ?? ''} ${[land?.number1, land?.number2].filter(Boolean).join('-')}`.trim();
-          setCurrentGpsAddress(fullAddress || '주소를 찾을 수 없습니다.');
-          // 원하는 경우 자동 입력
-          // if (fullAddress) setSiteLocation((prev) => prev || fullAddress);
+          const full = `${region?.area1?.name ?? ''} ${region?.area2?.name ?? ''} ${region?.area3?.name ?? ''} ${land?.name ?? ''} ${[land?.number1, land?.number2].filter(Boolean).join('-')}`
+            .replace(/\s+/g, ' ')
+            .trim();
+          setCurrentGpsAddress(full || '주소를 찾을 수 없습니다.');
         } else {
           setCurrentGpsAddress('주소를 찾을 수 없습니다.');
         }
       })
-      .catch((err) => {
-        console.error(err);
-        setCurrentGpsAddress('주소 탐색 중 오류 발생');
+      .catch((err: any) => {
+        setCurrentGpsAddress(`주소 탐색 오류: ${err?.message || err}`);
       })
-      .finally(() => setIsFetchingAddress(false));
+      .finally(() => {
+        clearTimeout(to);
+        setIsFetchingAddress(false);
+      });
   };
 
   const onError = (error: GeolocationPositionError) => {
-    console.error('Geolocation error:', error);
     setCurrentGpsAddress(
       error.code === error.PERMISSION_DENIED
         ? 'GPS 위치 권한이 거부되었습니다.'
-        : 'GPS 위치를 가져올 수 없습니다.',
+        : error.code === error.POSITION_UNAVAILABLE
+        ? 'GPS 위치를 가져올 수 없습니다.'
+        : 'GPS 위치 획득 중 오류가 발생했습니다.'
     );
     setIsFetchingAddress(false);
   };
