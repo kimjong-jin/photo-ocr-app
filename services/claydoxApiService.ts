@@ -26,9 +26,6 @@ const KTL_JSON_ENV_ENDPOINT = '/env';
 const KTL_KAKAO_API_ENDPOINT = '/kakaotalkmsg';
 const KTL_API_TIMEOUT = 90000; // 90 seconds
 
-const PROXY_SERVER_URL = 'https://your-ktl-proxy.example.com';
-const PROXY_URL_PLACEHOLDER = 'https://your-ktl-proxy.example.com';
-
 // === Composite naming helpers for Photo Log (Page 1) ===
 // 여러 장 합성 JPG를 M1→M2→M3→Z1→Z2→S1→S2… 순으로 매핑할 때 쓰는 기본 키 순서
 const DEFAULT_PHOTO_KEY_ORDER = [
