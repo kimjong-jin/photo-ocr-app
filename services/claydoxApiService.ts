@@ -1,4 +1,3 @@
-
 //claydoxApiService.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import { ExtractedEntry } from '../PhotoLogPage';
@@ -39,6 +38,46 @@ const DEFAULT_PHOTO_KEY_ORDER = [
 function extractCompositeNo(name: string): number {
   const m = name.match(/_composite_(\d+)\.(jpg|jpeg|png)$/i);
   return m ? parseInt(m[1], 10) : 0;
+}
+
+// ---- Numeric parsing helpers (MORE ROBUST) ----
+//  - Handles values like "1,234.5", "≈0.02 mg/L", "-12", "  3.14  ", etc.
+function extractFirstNumber(text?: string | null): string | null {
+  if (!text) return null;
+  const cleaned = String(text).replace(/,/g, '').trim();
+  const m = cleaned.match(/-?\d+(?:\.\d+)?/);
+  return m ? m[0] : null;
+}
+
+// Response time parser for DrinkingWater '응답' field.
+// Accepts JSON array/object or loose strings like "초=10, 분=2, 길이=5" or "10,2,5".
+function parseResponseTime(raw?: string | null): { seconds?: string; minutes?: string; length?: string } {
+  const out: { seconds?: string; minutes?: string; length?: string } = {};
+  if (!raw || !raw.trim()) return out;
+  const s = raw.trim();
+  try {
+    if (s.startsWith('[') || s.startsWith('{')) {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) {
+        if (parsed[0] != null) out.seconds = extractFirstNumber(String(parsed[0])) || undefined;
+        if (parsed[1] != null) out.minutes = extractFirstNumber(String(parsed[1])) || undefined;
+        if (parsed[2] != null) out.length  = extractFirstNumber(String(parsed[2])) || undefined;
+      } else if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, any>;
+        out.seconds = extractFirstNumber(String(obj['초'] ?? obj['seconds'])) || undefined;
+        out.minutes = extractFirstNumber(String(obj['분'] ?? obj['minutes'])) || undefined;
+        out.length  = extractFirstNumber(String(obj['길이'] ?? obj['length'])) || undefined;
+      }
+      return out;
+    }
+  } catch {/* fall through to loose parsing */}
+
+  // Loose parsing: split by non-number, take first three numbers as [sec, min, len]
+  const nums = s.replace(/,/g, ' ').match(/-?\d+(?:\.\d+)?/g) || [];
+  if (nums[0]) out.seconds = nums[0];
+  if (nums[1]) out.minutes = nums[1];
+  if (nums[2]) out.length  = nums[2];
+  return out;
 }
 
 // --- Interfaces ---
@@ -101,7 +140,9 @@ async function retryKtlApiCall<TResponseData>(
       const errorMessage = String(err.message || '').toLowerCase();
       const status = err.isAxiosError ? (err as AxiosError).response?.status : undefined;
 
-      const isRetryable = errorMessage.includes('network error') || status === 503 || status === 504;
+      // FIX: widen retryable status codes (502, 503, 504, 408, 429)
+      const retryableStatus = new Set([408, 429, 502, 503, 504]);
+      const isRetryable = errorMessage.includes('network error') || (status != null && retryableStatus.has(status));
 
       if (attempt === retries) {
         console.error(`[ClaydoxAPI] ${operationName} call failed after ${attempt + 1} attempt(s). Final error:`, lastError.message || lastError);
@@ -193,45 +234,35 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   };
   // --- End of new logic ---
 
-  // === (B) 값 매핑(기존 로직 유지) ===
+  // === (B) 값 매핑(기존 로직 + FIX: numeric parsing 강화 & 검사시작일 필드 보강) ===
   payload.ocrData.forEach((entry) => {
     if (payload.pageType === 'DrinkingWater') {
       const dividerIdentifiers = ['Z 2시간 시작 - 종료', '드리프트 완료', '반복성 완료'];
       if (entry.identifier && dividerIdentifiers.includes(entry.identifier)) return;
 
       if (entry.identifier === '응답') {
-        if (entry.value && entry.value.trim().startsWith('[')) {
-          try {
-            const responseTimeArray = JSON.parse(entry.value);
-            if (Array.isArray(responseTimeArray)) {
-              const [seconds, minutes, length] = responseTimeArray.map((v) => String(v || '').trim());
-              if (seconds) labviewItemObject['응답시간_초'] = seconds;
-              if (minutes) labviewItemObject['응답시간_분'] = minutes;
-              if (length) labviewItemObject['응답시간_길이'] = length;
-            }
-          } catch {}
-        }
-        if (payload.item === 'TU/CL' && entry.valueTP && entry.valueTP.trim().startsWith('[')) {
-          try {
-            const responseTimeArray = JSON.parse(entry.valueTP);
-            if (Array.isArray(responseTimeArray)) {
-              const [seconds, minutes, length] = responseTimeArray.map((v) => String(v || '').trim());
-              if (seconds) labviewItemObject['응답시간_초C'] = seconds;
-              if (minutes) labviewItemObject['응답시간_분C'] = minutes;
-              if (length) labviewItemObject['응답시간_길이C'] = length;
-            }
-          } catch {}
+        // 기존: 배열 문자열만 처리 → FIX: 다양한 포맷 허용
+        const rt = parseResponseTime(entry.value);
+        if (rt.seconds) labviewItemObject['응답시간_초'] = rt.seconds;
+        if (rt.minutes) labviewItemObject['응답시간_분'] = rt.minutes;
+        if (rt.length)  labviewItemObject['응답시간_길이'] = rt.length;
+
+        if (payload.item === 'TU/CL') {
+          const rtTP = parseResponseTime(entry.valueTP);
+          if (rtTP.seconds) labviewItemObject['응답시간_초C'] = rtTP.seconds;
+          if (rtTP.minutes) labviewItemObject['응답시간_분C'] = rtTP.minutes;
+          if (rtTP.length)  labviewItemObject['응답시간_길이C'] = rtTP.length;
         }
         return;
       }
 
       if (entry.identifier) {
         if (typeof entry.value === 'string' && entry.value.trim()) {
-          const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+          const valueToUse = extractFirstNumber(entry.value);
           if (valueToUse !== null) labviewItemObject[entry.identifier] = valueToUse;
         }
         if (payload.item === 'TU/CL' && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
-          const valueTPToUse = entry.valueTP.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+          const valueTPToUse = extractFirstNumber(entry.valueTP);
           if (valueTPToUse !== null) {
             const key = entry.identifier === 'M' ? 'MC' : `${entry.identifier}C`;
             labviewItemObject[key] = valueTPToUse;
@@ -240,14 +271,14 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
       }
     } else if (payload.item === 'TN/TP') {
       if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
-        const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+        const valueToUse = extractFirstNumber(entry.value);
         if (valueToUse !== null) {
           const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
           labviewItemObject[ktlIdentifier] = valueToUse;
         }
       }
       if (entry.identifierTP && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
-        const valueTPToUse = entry.valueTP.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+        const valueTPToUse = extractFirstNumber(entry.valueTP);
         if (valueTPToUse !== null) {
           const ktlIdentifierTP = getNextKtlIdentifier(entry.identifierTP);
           labviewItemObject[ktlIdentifierTP] = valueTPToUse;
@@ -255,7 +286,7 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
       }
     } else {
       if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
-        const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+        const valueToUse = extractFirstNumber(entry.value);
         if (valueToUse !== null) {
           const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
           labviewItemObject[ktlIdentifier] = valueToUse;
@@ -306,7 +337,13 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   if (payload.updateUser)   labviewItemObject['시험자'] = payload.updateUser;
   if (payload.siteLocation) labviewItemObject['현장']   = payload.siteLocation;
 
-  // === (E) GUBN/ DESC 구성 (기존 로직 유지) ===
+  // FIX: Some KTL env pipelines require '검사시작일' 존재 (Page 3 포함)
+  if (payload.inspectionStartDate && payload.inspectionStartDate.trim()) {
+    const normalized = payload.inspectionStartDate.replace(/\s/g, '').replace(/\./g, '-');
+    labviewItemObject['검사시작일'] = normalized;
+  }
+
+  // === (E) GUBN/ DESC 구성 (기존 로직 유지 + 검사시작일 표시 보강) ===
   let gubnPrefix = '수질';
   const drinkingWaterItems = ANALYSIS_ITEM_GROUPS.find((g) => g.label === '먹는물')?.items || [];
   if (payload.pageType === 'FieldCount') gubnPrefix = '현장계수';
@@ -319,7 +356,11 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
     if (mainSite && details) siteLocationForDesc = `${mainSite}_(${details})`;
   }
 
-  const labviewDescComment = `${gubnPrefix} (항목: ${payload.item}, 현장: ${siteLocationForDesc})`;
+  let labviewDescComment = `${gubnPrefix} (항목: ${payload.item}, 현장: ${siteLocationForDesc}`;
+  if (payload.inspectionStartDate && payload.inspectionStartDate.trim()) {
+    labviewDescComment += `, 검사시작일: ${payload.inspectionStartDate}`;
+  }
+  labviewDescComment += ')';
   const labviewDescObject = { comment: labviewDescComment };
   const dynamicLabviewGubn = `${gubnPrefix}_${payload.item.replace('/', '_')}`;
 
@@ -397,6 +438,7 @@ export const sendToClaydoxApi = async (
     let errorMsg = `알 수 없는 오류 발생 (${pageIdentifier})`;
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError;
+      const status = axiosError.response?.status;
       const responseData = axiosError.response?.data;
       console.error(`${logIdentifier} KTL API Error after retries:`, responseData || axiosError.message);
 
@@ -412,6 +454,13 @@ export const sendToClaydoxApi = async (
         errorMsg = axiosError.message;
       } else {
         errorMsg = `KTL API와 통신 중 알 수 없는 오류가 발생했습니다. (${pageIdentifier})`;
+      }
+
+      // Helpful hinting by status
+      if (status === 413) {
+        errorMsg += ' (서버가 요청 크기를 거부했습니다. 첨부 파일/JSON 크기를 줄여주세요)';
+      } else if (status === 415) {
+        errorMsg += ' (지원되지 않는 Content-Type일 수 있습니다)';
       }
     } else {
       // @ts-ignore
