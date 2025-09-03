@@ -1,4 +1,4 @@
-// claydoxApi.ts
+//claydoxApiService.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import { ExtractedEntry } from '../PhotoLogPage';
 import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, ANALYSIS_ITEM_GROUPS } from '../shared/constants';
