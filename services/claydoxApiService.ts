@@ -156,7 +156,7 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
 
   // === (A) 파일 분류 ===
   const compositeFiles = actualKtlFileNames
-    .filter(n => /_composite_\d+\.(jpg|jpeg|png)$/i.test(n))
+    .filter(n => /_composite(_\d+)?\.(jpg|jpeg|png)$/i.test(n))
     .sort((a, b) => extractCompositeNo(a) - extractCompositeNo(b));
 
   const zipPhotoFileName = actualKtlFileNames.find((name) => /_Compression\.zip$/i.test(name) || name.toLowerCase().endsWith('.zip'));
