@@ -272,9 +272,10 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   });
 
   // 2) 레거시/호환 키도 유지 (첫 장, ZIP, 데이터테이블)
-  if (compositeFiles[0]) labviewItemObject['PHOTO_사진'] = compositeFiles[0];
-  if (zipPhotoFileName)  labviewItemObject['PHOTO_압축'] = zipPhotoFileName;
-  if (dataTableFileName) labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName;
+  // → 항상 포함되도록 명시적으로 키 지정
+  labviewItemObject['PHOTO_사진'] = compositeFiles[0] || '';
+  labviewItemObject['PHOTO_압축'] = zipPhotoFileName || '';
+  labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName || '';
 
   // OCR이 아예 없고(=값 없음) 그래도 사진은 실어야 하는 경우의 방어 로직
   if (payload.ocrData.length === 0) {
