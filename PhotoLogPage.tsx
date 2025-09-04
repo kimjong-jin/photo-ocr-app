@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ImageInput, ImageInfo as BaseImageInfo } from './components/ImageInput';
 import { CameraView } from './components/CameraView';
