@@ -637,22 +637,6 @@ const handleExtractText = useCallback(async () => {
          }
      }, [activeJob, siteLocation, updateActiveJob]);
 
-        const imageProcessingPromises = activeJob.photos.map(async (image) => {
-            let jsonStr: string = "";
-            try {
-                const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
-                const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
-                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
-                const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
-                if (Array.isArray(jsonDataFromImage)) return { status: 'fulfilled', value: jsonDataFromImage };
-                return { status: 'rejected', reason: `Image ${image.file.name} did not return a valid JSON array.` };
-            } catch (imgErr: any) {
-                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) criticalErrorOccurred = imgErr.message;
-                let reason = (imgErr instanceof SyntaxError) ? `JSON parsing failed: ${imgErr.message}. AI response: ${jsonStr}` : imgErr.message;
-                return { status: 'rejected', reason };
-            }
-        });
-
         const results = await Promise.all(imageProcessingPromises);
         results.forEach(result => {
             if (result.status === 'fulfilled' && result.value) {
