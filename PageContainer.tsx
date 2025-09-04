@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import PhotoLogPage from './PhotoLogPage';
-import type { PhotoLogJob } from './shared/types';
+import type { PhotoLogJob } from './PhotoLogPage';
 import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
 import FieldCountPage from './FieldCountPage';
 import StructuralCheckPage, { type StructuralJob } from './StructuralCheckPage';
@@ -15,6 +15,8 @@ import { callSaveTempApi, callLoadTempApi, SaveDataPayload, LoadedData, SavedVal
 import { Spinner } from './components/Spinner';
 import { MAIN_STRUCTURAL_ITEMS, MainStructuralItemKey, STRUCTURAL_ITEM_GROUPS, CHECKLIST_DEFINITIONS, CertificateDetails, StructuralCheckSubItemData, PREFERRED_MEASUREMENT_METHODS } from './shared/structuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
+import LoadDataModal, { LoadSelections } from './components/LoadDataModal';
+
 
 type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
 
@@ -85,6 +87,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [currentGpsAddress, setCurrentGpsAddress] = useState('');
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
+  const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
+  const [loadedData, setLoadedData] = useState<LoadedData | null>(null);
 
   const [openSections, setOpenSections] = useState<string[]>(['addTask']);
 
@@ -338,163 +342,113 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
     try {
         const data = await callLoadTempApi(receiptToLoad);
-        const { receipt_no, site, item: loadedItems, values } = data;
-        
-        const receiptParts = receipt_no.split('-');
-        const detail = receiptParts.pop() || '';
-        const common = receiptParts.join('-');
-        setReceiptNumberCommon(common);
-        setReceiptNumberDetail(detail);
-        setSiteLocation(site);
-
-        const p1p2GroupLabels = ['수질', '현장 계수'];
-        const p1p2ItemsRaw = loadedItems.filter(i => ANALYSIS_ITEM_GROUPS.find(g => p1p2GroupLabels.includes(g.label))?.items.includes(i));
-        const p1p2ItemsSet = new Set(p1p2ItemsRaw);
-        const p1p2ItemsForJobCreation: string[] = [];
-        
-        if (p1p2ItemsSet.has('TN') && p1p2ItemsSet.has('TP')) {
-            p1p2ItemsForJobCreation.push('TN/TP');
-            p1p2ItemsSet.delete('TN');
-            p1p2ItemsSet.delete('TP');
-        }
-        
-        p1p2ItemsSet.forEach(item => p1p2ItemsForJobCreation.push(item));
-
-        const createP1P2Job = (itemName: string): PhotoLogJob => {
-             const reconstructedOcrData: PhotoLogJob['processedOcrData'] = [];
-            if (itemName === "TN/TP") {
-                const tnData = values.TN || {};
-                const tpData = values.TP || {};
-                const timeToEntryMap: Record<string, Partial<PhotoLogJob['processedOcrData'][0]>> = {};
-                
-                Object.entries(tnData).forEach(([id, data]) => {
-                    const key = (data as any).time || id;
-                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
-                    (timeToEntryMap[key] as any).value = (data as any).val;
-                    (timeToEntryMap[key] as any).identifier = id;
-                });
-                Object.entries(tpData).forEach(([id, data]) => {
-                    const key = (data as any).time || id;
-                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
-                    (timeToEntryMap[key] as any).valueTP = (data as any).val;
-                    (timeToEntryMap[key] as any).identifierTP = id;
-                });
-                Object.values(timeToEntryMap).sort((a,b) => (a.time || '').localeCompare(b.time || '')).forEach(partialEntry => {
-                    reconstructedOcrData.push({
-                        id: partialEntry.id!, time: partialEntry.time || '', value: (partialEntry as any).value || '',
-                        valueTP: (partialEntry as any).valueTP, identifier: (partialEntry as any).identifier, identifierTP: (partialEntry as any).identifierTP,
-                    });
-                });
-            } else {
-                 const itemData = (values as any)[itemName] || {};
-                 Object.entries(itemData).sort(([,a],[,b]) => ((a as any).time || '').localeCompare((b as any).time || '')).forEach(([id, entryData]) => {
-                    if (entryData) {
-                        reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: (entryData as any).time, value: (entryData as any).val, identifier: id });
-                    }
-                });
-            }
-            return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, siteLocation: site, selectedItem: itemName, photos: [], photoComments: {}, processedOcrData: reconstructedOcrData, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', decimalPlacesCl: undefined, ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined };
-        };
-        const newP1Jobs = p1p2ItemsForJobCreation.map(createP1P2Job);
-        const newP2Jobs = p1p2ItemsForJobCreation.map(createP1P2Job);
-        setPhotoLogJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP1Jobs]);
-        setFieldCountJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP2Jobs]);
-        if (activePage === 'photoLog') setActivePhotoLogJobId(newP1Jobs[0]?.id || null);
-        if (activePage === 'fieldCount') setActiveFieldCountJobId(newP2Jobs[0]?.id || null);
-
-        const hasTu = loadedItems.includes('TU');
-        const hasCl = loadedItems.includes('Cl');
-        const hasTuClCombined = loadedItems.includes('TU/CL'); // Handle old data
-        let newP3Jobs: DrinkingWaterJob[] = [];
-
-        if ((hasTu && hasCl) || hasTuClCombined) {
-            newP3Jobs.push(createDrinkingWaterJob('TU/CL', data));
-        } else {
-            if (hasTu) newP3Jobs.push(createDrinkingWaterJob('TU', data));
-            if (hasCl) newP3Jobs.push(createDrinkingWaterJob('Cl', data));
-        }
-        setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
-        if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
-
-        const p4Items = loadedItems.filter(i => MAIN_STRUCTURAL_ITEMS.some(si => si.key === i));
-        const newP4Jobs = p4Items.map(itemName => {
-            const itemData = (values as any)[itemName as MainStructuralItemKey];
-            if (!itemData || !itemData['_checklistData']) return null;
-            return { 
-                id: self.crypto.randomUUID(), 
-                receiptNumber: receipt_no, 
-                mainItemKey: itemName as MainStructuralItemKey, 
-                checklistData: JSON.parse(itemData['_checklistData'].val), 
-                postInspectionDate: itemData['_postInspectionDate']?.val || '선택 안됨', 
-                postInspectionDateConfirmedAt: null, 
-                photos: [], 
-                photoComments: {},
-                submissionStatus: 'idle',
-                submissionMessage: undefined,
-            } as StructuralJob;
-        }).filter(Boolean) as StructuralJob[];
-        setStructuralCheckJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP4Jobs]);
-        if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP4Jobs[0]?.id || null);
-
-        const p6Jobs: CsvGraphJob[] = [];
-        Object.entries(values).forEach(([key, value]) => {
-            if (key.startsWith('_csv_') && value && (value as any)['_data']) {
-                try {
-                    const savedState = JSON.parse((value as any)['_data'].val);
-                    
-                    // Rehydrate dates in channelAnalysis
-                    const rehydratedChannelAnalysis = savedState.channelAnalysis || {};
-                    for (const channelId in rehydratedChannelAnalysis) {
-                        const channelState = rehydratedChannelAnalysis[channelId];
-                        if (channelState.results && Array.isArray(channelState.results)) {
-                            channelState.results.forEach((result: any) => {
-                                if (result.startTime && typeof result.startTime === 'string') {
-                                    result.startTime = new Date(result.startTime);
-                                }
-                                if (result.endTime && typeof result.endTime === 'string') {
-                                    result.endTime = new Date(result.endTime);
-                                }
-                            });
-                        }
-                        if (channelState.selection?.start?.timestamp && typeof channelState.selection.start.timestamp === 'string') {
-                            channelState.selection.start.timestamp = new Date(channelState.selection.start.timestamp);
-                        }
-                        if (channelState.selection?.end?.timestamp && typeof channelState.selection.end.timestamp === 'string') {
-                            channelState.selection.end.timestamp = new Date(channelState.selection.end.timestamp);
-                        }
-                    }
-
-                    const newJob: CsvGraphJob = {
-                        id: self.crypto.randomUUID(),
-                        receiptNumber: receipt_no,
-                        fileName: savedState.fileName || null,
-                        parsedData: null, // User must re-upload
-                        channelAnalysis: rehydratedChannelAnalysis,
-                        selectedChannelId: savedState.selectedChannelId || null,
-                        timeRangeInMs: savedState.timeRangeInMs || 'all',
-                        viewEndTimestamp: savedState.viewEndTimestamp || null,
-                        submissionStatus: 'idle',
-                    };
-                    p6Jobs.push(newJob);
-                } catch (e) {
-                    console.error('Failed to parse loaded CSV graph job data:', e);
-                }
-            }
-        });
-        if (p6Jobs.length > 0) {
-            setCsvGraphJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...p6Jobs]);
-            if (activePage === 'csvGraph') setActiveCsvGraphJobId(p6Jobs[0]?.id || null);
-        }
-
-        setDraftMessage({ type: 'success', text: `'${receipt_no}' 데이터를 모든 관련 페이지에 불러왔습니다.`});
-        clearDraftMessage();
+        setLoadedData(data);
+        setIsLoadModalOpen(true);
     } catch (error: any) {
         setDraftMessage({ type: 'error', text: `불러오기 실패: ${error.message}`});
         clearDraftMessage();
     } finally {
       setIsLoading(false);
     }
-  }, [receiptNumber, activePage]);
+  }, [receiptNumber]);
+
+  const handleConfirmLoad = useCallback((selections: LoadSelections) => {
+    if (!loadedData) return;
+    const { receipt_no, site, item: loadedItems, values } = loadedData;
+
+    const receiptParts = receipt_no.split('-');
+    const detail = receiptParts.pop() || '';
+    const common = receiptParts.join('-');
+    setReceiptNumberCommon(common);
+    setReceiptNumberDetail(detail);
+    setSiteLocation(site);
+    
+    // P1 & P2
+    const createP1P2Job = (itemName: string): PhotoLogJob => {
+        const reconstructedOcrData: PhotoLogJob['processedOcrData'] = [];
+       if (itemName === "TN/TP") {
+           const tnData = values.TN || {};
+           const tpData = values.TP || {};
+           const timeToEntryMap: Record<string, Partial<PhotoLogJob['processedOcrData'][0]>> = {};
+           
+           Object.entries(tnData).forEach(([id, data]) => {
+               const key = (data as any).time || id;
+               if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
+               (timeToEntryMap[key] as any).value = (data as any).val;
+               (timeToEntryMap[key] as any).identifier = id;
+           });
+           Object.entries(tpData).forEach(([id, data]) => {
+               const key = (data as any).time || id;
+               if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
+               (timeToEntryMap[key] as any).valueTP = (data as any).val;
+               (timeToEntryMap[key] as any).identifierTP = id;
+           });
+           Object.values(timeToEntryMap).sort((a,b) => (a.time || '').localeCompare(b.time || '')).forEach(partialEntry => {
+               reconstructedOcrData.push({
+                   id: partialEntry.id!, time: partialEntry.time || '', value: (partialEntry as any).value || '',
+                   valueTP: (partialEntry as any).valueTP, identifier: (partialEntry as any).identifier, identifierTP: (partialEntry as any).identifierTP,
+               });
+           });
+       } else {
+            const itemData = (values as any)[itemName] || {};
+            Object.entries(itemData).sort(([,a],[,b]) => ((a as any).time || '').localeCompare((b as any).time || '')).forEach(([id, entryData]) => {
+               if (entryData) {
+                   reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: (entryData as any).time, value: (entryData as any).val, identifier: id });
+               }
+           });
+       }
+       return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, siteLocation: site, selectedItem: itemName, photos: [], photoComments: {}, processedOcrData: reconstructedOcrData, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', decimalPlacesCl: undefined, ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined };
+   };
+   
+    const newP1Jobs = selections.photoLog.map(createP1P2Job);
+    if (newP1Jobs.length > 0) {
+        setPhotoLogJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP1Jobs]);
+        if (activePage === 'photoLog') setActivePhotoLogJobId(newP1Jobs[0]?.id || null);
+    }
+    
+    const newP2Jobs = selections.fieldCount.map(createP1P2Job);
+    if (newP2Jobs.length > 0) {
+        setFieldCountJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP2Jobs]);
+        if (activePage === 'fieldCount') setActiveFieldCountJobId(newP2Jobs[0]?.id || null);
+    }
+
+    // P3
+    const newP3Jobs: DrinkingWaterJob[] = selections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
+    if (newP3Jobs.length > 0) {
+        setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
+        if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
+    }
+
+    // P4
+    const newP4Jobs = selections.structuralCheck.map(itemName => {
+        const itemData = (values as any)[itemName as MainStructuralItemKey];
+        if (!itemData || !itemData['_checklistData']) return null;
+        return { 
+            id: self.crypto.randomUUID(), 
+            receiptNumber: receipt_no, 
+            mainItemKey: itemName as MainStructuralItemKey, 
+            checklistData: JSON.parse(itemData['_checklistData'].val), 
+            postInspectionDate: itemData['_postInspectionDate']?.val || '선택 안됨', 
+            postInspectionDateConfirmedAt: null, 
+            photos: [], 
+            photoComments: {},
+            submissionStatus: 'idle',
+            submissionMessage: undefined,
+        } as StructuralJob;
+    }).filter(Boolean) as StructuralJob[];
+
+    if (newP4Jobs.length > 0) {
+        setStructuralCheckJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP4Jobs]);
+        if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP4Jobs[0]?.id || null);
+    }
+
+    setDraftMessage({ type: 'success', text: `'${receipt_no}' 데이터를 선택한 페이지에 불러왔습니다.`});
+    clearDraftMessage();
+    setIsLoadModalOpen(false);
+    setLoadedData(null);
+
+  }, [loadedData, activePage]);
+
 
   const handleAddTask = useCallback(() => {
     if (!receiptNumber) {
@@ -602,23 +556,37 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     const onSuccess = (position: GeolocationPosition) => {
       const { latitude, longitude } = position.coords;
       fetch(`/api/reverse-geocode?lat=${latitude}&lng=${longitude}`)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Proxy 오류: ${res.statusText} (${res.status})`);
+        .then(async (res) => {
+          if (!res.ok) {
+            let errorJson: any = {};
+            try {
+              errorJson = await res.json();
+            } catch (e) {
+              // Ignore if body is not json
+            }
+            const errorMessage = errorJson?.error || errorJson?.errorMessage || res.statusText;
+            throw new Error(`Proxy 오류: ${errorMessage} (${res.status})`);
+          }
           return res.json();
         })
         .then((data) => {
-          // The API now returns the Naver response directly.
           if (data.status?.code === 0 && data.results?.length > 0) {
             const region = data.results[0].region;
             const land = data.results[0].land;
-            const fullAddress = `${region?.area1?.name ?? ''} ${region?.area2?.name ?? ''} ${
-              region?.area3?.name ?? ''
-            } ${land?.name ?? ''} ${[land?.number1, land?.number2]
-              .filter(Boolean)
-              .join('-')}`.trim();
+            const buildingName = land?.addition0?.type === 'building' ? land.addition0.value : '';
+
+            const addressParts = [
+              region?.area1?.name,
+              region?.area2?.name,
+              region?.area3?.name,
+              land?.name,
+              [land?.number1, land?.number2].filter(Boolean).join('-'),
+              buildingName,
+            ];
+
+            const fullAddress = addressParts.filter(Boolean).join(' ').trim();
             setCurrentGpsAddress(fullAddress || '주소를 찾을 수 없습니다.');
           } else {
-            // Handle errors from Naver API or our proxy
             let errorMessage = '주소 탐색 실패.';
             if (data?.status?.message) {
               errorMessage += ` 원인: ${data.status.message}`;
@@ -641,7 +609,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     };
 
     const onError = (error: GeolocationPositionError) => {
-      console.error('Geolocation error:', error);
+      console.error('Geolocation error:', `Code: ${error.code}, Message: ${error.message}`);
       setCurrentGpsAddress(
         error.code === error.PERMISSION_DENIED
           ? 'GPS 위치 권한이 거부되었습니다.'
@@ -998,6 +966,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       </nav>
 
       {renderActivePage()}
+      
+      {isLoadModalOpen && loadedData && (
+        <LoadDataModal
+          isOpen={isLoadModalOpen}
+          onClose={() => setIsLoadModalOpen(false)}
+          onConfirm={handleConfirmLoad}
+          loadedData={loadedData}
+        />
+      )}
 
       {userRole === 'admin' && <AdminPanel adminUserName={userName} />}
 
