@@ -519,28 +519,24 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
 `;
     return prompt;
   };
-const handleExtractText = useCallback(async () => {
+  const handleExtractText = useCallback(async () => {
     if (!activeJob || activeJob.photos.length === 0) {
-        setProcessingError("먼저 이미지를 선택하거나 촬영해주세요.");
-        return;
+      setProcessingError("먼저 이미지를 선택하거나 촬영해주세요.");
+      return;
     }
-    setIsLoading(true);
-    setProcessingError(null);
+    setIsLoading(true); setProcessingError(null);
     updateActiveJob(j => ({ ...j, processedOcrData: null, decimalPlaces: 0, submissionStatus: 'idle', submissionMessage: undefined }));
 
-    try { // ✅ 모든 로직을 감싸는 단 하나의 try 블록 시작
-        const API_KEY = (import.meta as any).env?.VITE_API_KEY;
-        if (!API_KEY) {
-            throw new Error('VITE_API_KEY 환경 변수가 설정되지 않았습니다.');
+    let allRawExtractedEntries: RawEntryUnion[] = []; let batchHadError = false; let criticalErrorOccurred: string | null = null;
+    try {
+        if (!process.env.API_KEY) throw new Error("API_KEY 환경 변수가 설정되지 않았습니다.");
+        
+        let responseSchema;
+        if (activeJob.selectedItem === "TN/TP") {
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING } }, required: ["time"] } };
+        } else {
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value: { type: Type.STRING } }, required: ["time", "value"] } };
         }
-
-        const responseSchema = activeJob.selectedItem === 'TN/TP'
-            ? { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING } }, required: ['time'] } }
-            : { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value: { type: Type.STRING } }, required: ['time', 'value'] } };
-
-        let allRawExtractedEntries: RawEntryUnion[] = [];
-        let batchHadError = false;
-        let criticalErrorOccurred: string | null = null;
 
         const imageProcessingPromises = activeJob.photos.map(async (image) => {
             let jsonStr: string = "";
@@ -549,93 +545,14 @@ const handleExtractText = useCallback(async () => {
                 const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
                 jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
                 const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
-                if (Array.isArray(jsonDataFromImage)) {
-                    return { status: 'fulfilled', value: jsonDataFromImage };
-                }
+                if (Array.isArray(jsonDataFromImage)) return { status: 'fulfilled', value: jsonDataFromImage };
                 return { status: 'rejected', reason: `Image ${image.file.name} did not return a valid JSON array.` };
             } catch (imgErr: any) {
-                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) {
-                    criticalErrorOccurred = imgErr.message;
-                }
+                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) criticalErrorOccurred = imgErr.message;
                 let reason = (imgErr instanceof SyntaxError) ? `JSON parsing failed: ${imgErr.message}. AI response: ${jsonStr}` : imgErr.message;
                 return { status: 'rejected', reason };
             }
         });
-
-        const results = await Promise.all(imageProcessingPromises);
-
-        results.forEach(result => {
-            if (result.status === 'fulfilled' && result.value) {
-                if (Array.isArray(result.value)) {
-                    allRawExtractedEntries.push(...result.value);
-                }
-            } else if (result.status === 'rejected') {
-                batchHadError = true;
-            }
-        });
-
-        if (criticalErrorOccurred) {
-            throw new Error(criticalErrorOccurred); // API 키나 할당량 초과 같은 치명적 오류는 전체를 중단
-        }
-        
-        if (allRawExtractedEntries.length > 0) {
-            const normalizeTime = (timeStr: string): string => {
-                if (!timeStr) return '';
-                const standardized = timeStr.replace(/-/g, '/');
-                const match = standardized.match(/(\d{4}\/\d{2}\/\d{2}\s\d{2}:\d{2})/);
-                return match ? match[1] : standardized;
-            };
-
-            const uniqueEntriesMap = new Map<string, RawEntryUnion>();
-            allRawExtractedEntries.forEach(entry => {
-                const normalizedTime = normalizeTime(entry.time);
-                if (!uniqueEntriesMap.has(normalizedTime)) {
-                    uniqueEntriesMap.set(normalizedTime, { ...entry, time: normalizedTime });
-                } else {
-                    const existing = uniqueEntriesMap.get(normalizedTime)!;
-                    if (activeJob.selectedItem === "TN/TP") {
-                        const existingTnTp = existing as RawEntryTnTp;
-                        const currentTnTp = entry as RawEntryTnTp;
-                        if (currentTnTp.value_tn && !existingTnTp.value_tn) existingTnTp.value_tn = currentTnTp.value_tn;
-                        if (currentTnTp.value_tp && !existingTnTp.value_tp) existingTnTp.value_tp = currentTnTp.value_tp;
-                    } else {
-                        const existingSingle = existing as RawEntrySingle;
-                        const currentSingle = entry as RawEntrySingle;
-                        if (currentSingle.value && !existingSingle.value) {
-                            existingSingle.value = currentSingle.value;
-                        }
-                    }
-                }
-            });
-
-            const finalOcrData = Array.from(uniqueEntriesMap.values())
-                .sort((a, b) => a.time.localeCompare(b.time))
-                .map((rawEntry: RawEntryUnion) => {
-                    let primaryValue = '', tpValue: string | undefined = undefined;
-                    if (activeJob.selectedItem === "TN/TP") {
-                        const tnTpEntry = rawEntry as RawEntryTnTp;
-                        primaryValue = tnTpEntry.value_tn || '';
-                        tpValue = tnTpEntry.value_tp;
-                         } else {
-                             primaryValue = (rawEntry as RawEntrySingle).value || '';
-                         }
-                         return { id: self.crypto.randomUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue };
-                     });
-            
-                 updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
-                 if (batchHadError) {
-                     setProcessingError("일부 이미지를 처리하지 못했습니다.");
-                 }
-             } else {
-                 setProcessingError("AI가 이미지에서 유효한 데이터를 추출하지 못했습니다.");
-             }
-
-         } catch (e: any) { // ✅ 모든 오류를 처리하는 단 하나의 catch 블록
-             setProcessingError(e.message || "데이터 추출 중 알 수 없는 오류가 발생했습니다.");
-         } finally { // ✅ 모든 로직이 끝난 후 단 한 번만 실행되는 finally 블록
-             setIsLoading(false);
-         }
-     }, [activeJob, siteLocation, updateActiveJob]);
 
         const results = await Promise.all(imageProcessingPromises);
         results.forEach(result => {
