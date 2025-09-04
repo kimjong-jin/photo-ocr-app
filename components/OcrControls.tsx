@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { ActionButton } from './ActionButton';
 import { Spinner } from './Spinner'; 
@@ -18,6 +19,8 @@ interface OcrControlsProps {
   ktlApiCallStatus?: KtlApiCallStatus;
   onAutoAssignIdentifiers?: () => void; 
   isAutoAssignDisabled?: boolean;
+  onExportToExcel?: () => void;
+  isExportDisabled?: boolean;
 }
 
 const SparklesIcon: React.FC = () => (
@@ -64,6 +67,8 @@ export const OcrControls: React.FC<OcrControlsProps> = ({
   ktlApiCallStatus = 'idle',
   onAutoAssignIdentifiers,    
   isAutoAssignDisabled,
+  onExportToExcel,
+  isExportDisabled
 }) => {
 
   return (
@@ -105,6 +110,20 @@ export const OcrControls: React.FC<OcrControlsProps> = ({
           aria-label="접수번호 패턴 및 값 농도에 따라 식별자 자동 할당"
         >
           자동 식별자 할당
+        </ActionButton>
+      )}
+
+      {onExportToExcel && (
+        <ActionButton
+          onClick={onExportToExcel}
+          disabled={isExportDisabled}
+          icon={<DownloadIcon />}
+          fullWidth
+          variant="secondary"
+          className="bg-green-600 hover:bg-green-500 focus:ring-green-500"
+          aria-label="데이터를 엑셀 파일로 내보내기"
+        >
+          Excel로 내보내기
         </ActionButton>
       )}
 
