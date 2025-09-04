@@ -271,7 +271,7 @@ const calculateMaxDecimalPlaces = (ocrData: ExtractedEntry[] | null, selectedIte
 const parseDataUrl = (dataUrl: string) => {
   const m = /^data:(image\/[a-zA-Z0-9+.\-]+);base64,(.*)$/.exec(dataUrl);
   if (m) return { mimeType: m[1], base64: m[2] };
-  // 혹시 헤더가 없으면 강제로 본문만 남김
+  // 헤더가 없으면 본문만 남김
   return { mimeType: 'image/jpeg', base64: dataUrl.replace(/^data:.*;base64,/, '') };
 };
 
@@ -295,17 +295,17 @@ const stampPhotosForA4 = async (job: PhotoLogJob) => {
 };
 
 const uid = () => {
-const c = globalThis.crypto as Crypto | undefined;
-if (c?.randomUUID) return c.randomUUID();
-if (c?.getRandomValues) {
-const b = new Uint8Array(16);
-c.getRandomValues(b);
-b[6] = (b[6] & 0x0f) | 0x40; // version 4
-b[8] = (b[8] & 0x3f) | 0x80; // variant
-const hex = [...b].map(v => v.toString(16).padStart(2, "0"));
-return `${hex.slice(0,4).join("")}-${hex.slice(4,6).join("")}-${hex.slice(6,8).join("")}-${hex.slice(8,10).join("")}-${hex.slice(10).join("")}`;
-}
-return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;
+  const c = globalThis.crypto as Crypto | undefined;
+  if (c?.randomUUID) return c.randomUUID();
+  if (c?.getRandomValues) {
+    const b = new Uint8Array(16);
+    c.getRandomValues(b);
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // variant
+    const hex = [...b].map(v => v.toString(16).padStart(2, "0"));
+    return `${hex.slice(0,4).join("")}-${hex.slice(4,6).join("")}-${hex.slice(6,8).join("")}-${hex.slice(8,10).join("")}-${hex.slice(10).join("")}`;
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,10)}`;
 };
 
 interface PhotoLogPageProps {
@@ -373,16 +373,16 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
     setProcessingError(null);
   }, [updateActiveJob]);
 
-    const hypotheticalKtlFileNamesForPreview = useMemo(() => {
-      if (!activeJob || activeJob.photos.length === 0) return [];
-      const itemForName = activeJob.selectedItem === 'TN/TP' ? 'TN_TP' : activeJob.selectedItem;
-      const baseName = buildBaseName(activeJob.receiptNumber, activeJob.siteLocation, itemForName);
-      const pages = Math.ceil(activeJob.photos.length / 4); // A4 1장당 최대 4장 타일링
-      const composites = Array.from({ length: pages }, (_, i) =>
-        `${baseName}_composite_${String(i + 1).padStart(2, '0')}.jpg`
-      );
-      return [...composites, `${baseName}_Compression.zip`];
-    }, [activeJob?.receiptNumber, activeJob?.selectedItem, activeJob?.photos.length, activeJob?.siteLocation]);
+  const hypotheticalKtlFileNamesForPreview = useMemo(() => {
+    if (!activeJob || activeJob.photos.length === 0) return [];
+    const itemForName = activeJob.selectedItem === 'TN/TP' ? 'TN_TP' : activeJob.selectedItem;
+    const baseName = buildBaseName(activeJob.receiptNumber, activeJob.siteLocation, itemForName);
+    const pages = Math.ceil(activeJob.photos.length / 4); // A4 1장당 최대 4장 타일링
+    const composites = Array.from({ length: pages }, (_, i) =>
+      `${baseName}_composite_${String(i + 1).padStart(2, '0')}.jpg`
+    );
+    return [...composites, `${baseName}_Compression.zip`];
+  }, [activeJob?.receiptNumber, activeJob?.selectedItem, activeJob?.photos.length, activeJob?.siteLocation]);
 
   const ktlJsonPreview = useMemo(() => {
     if (!activeJob || !userName) return null;
@@ -403,12 +403,12 @@ const PhotoLogPage: React.FC<PhotoLogPageProps> = ({ userName, jobs, setJobs, ac
       pageType: 'PhotoLog',
     };
 
-  return generateKtlJsonForPreview(
-    payload,
-    activeJob.selectedItem,
-    hypotheticalKtlFileNamesForPreview
-  );
-}, [activeJob, userName, hypotheticalKtlFileNamesForPreview]);
+    return generateKtlJsonForPreview(
+      payload,
+      activeJob.selectedItem,
+      hypotheticalKtlFileNamesForPreview
+    );
+  }, [activeJob, userName, hypotheticalKtlFileNamesForPreview]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -668,7 +668,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     } finally {
       setIsLoading(false);
     }
-  }, [activeJob, siteLocation, updateActiveJob]);
+  }, [activeJob, updateActiveJob]);
 
   const handleEntryChange = useCallback((entryId: string, field: keyof ExtractedEntry, value: string | undefined) => {
     updateActiveJob(job => {
@@ -742,45 +742,52 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
   }, [activeJob, updateActiveJob]);
 
   const handleAutoAssignIdentifiers = useCallback(() => {
-  if (
-    !activeJob ||
-    !activeJob.processedOcrData ||
-    !activeJob.concentrationBoundaries
-  ) {
-    setProcessingError('자동 할당을 위해선 추출된 데이터와 농도 분석이 필요합니다.');
-    return;
-  }
+    if (
+      !activeJob ||
+      !activeJob.processedOcrData ||
+      !activeJob.concentrationBoundaries
+    ) {
+      setProcessingError('자동 할당을 위해선 추출된 데이터와 농도 분석이 필요합니다.');
+      return;
+    }
 
-  const isTpMode = activeJob.selectedItem === 'TN/TP';
-  const assignments = autoAssignIdentifiersByConcentration(
-    activeJob.processedOcrData,
-    activeJob.concentrationBoundaries,
-    isTpMode
-  );
+    const isTpMode = activeJob.selectedItem === 'TN/TP';
+    const assignments = autoAssignIdentifiersByConcentration(
+      activeJob.processedOcrData,
+      activeJob.concentrationBoundaries,
+      isTpMode
+    );
 
-  const updatedOcrData = activeJob.processedOcrData.map((entry, index) => {
-    const a = assignments[index];
-    const newIdentifier = a.tn !== undefined ? a.tn : entry.identifier;
-    const newIdentifierTP = a.tp !== undefined ? a.tp : entry.identifierTP;
+    const updatedOcrData = activeJob.processedOcrData.map((entry, index) => {
+      const a = assignments[index];
+      const newIdentifier = a.tn !== undefined ? a.tn : entry.identifier;
+      const newIdentifierTP = a.tp !== undefined ? a.tp : entry.identifierTP;
 
-    return {
-      ...entry,
-      identifier: newIdentifier,
-      identifierTP: isTpMode ? newIdentifierTP : undefined,
-    };
-  });
+      return {
+        ...entry,
+        identifier: newIdentifier,
+        identifierTP: isTpMode ? newIdentifierTP : undefined,
+      };
+    });
 
-  updateActiveJob(j => ({
-    ...j,
-    processedOcrData: updatedOcrData,
-    submissionStatus: 'idle',
-    submissionMessage: undefined,
-  }));
-  setProcessingError(null);
-}, [activeJob, updateActiveJob]);
+    updateActiveJob(j => ({
+      ...j,
+      processedOcrData: updatedOcrData,
+      submissionStatus: 'idle',
+      submissionMessage: undefined,
+    }));
+    setProcessingError(null);
+  }, [activeJob, updateActiveJob]);
 
   const handleInitiateSendToKtl = useCallback(() => {
-    if (!activeJob || !ktlJsonPreview) {
+    // ✅ 전송 사전검증: 사진/데이터/미리보기 모두 확인
+    if (
+      !activeJob ||
+      !ktlJsonPreview ||
+      !activeJob.processedOcrData ||
+      activeJob.processedOcrData.length === 0 ||
+      activeJob.photos.length === 0
+    ) {
       alert('KTL 전송을 위한 모든 조건(작업 선택, 데이터, 사진, 필수정보)이 충족되지 않았습니다.');
       return;
     }
@@ -796,222 +803,195 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       },
     });
     setKtlPreflightModalOpen(true);
-  }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
+  }, [activeJob, userName, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
 
- const handleSendToClaydoxConfirmed = useCallback(async () => {
-  setKtlPreflightModalOpen(false);
+  const handleSendToClaydoxConfirmed = useCallback(async () => {
+    setKtlPreflightModalOpen(false);
 
-  if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
-    updateActiveJob(j => ({
-      ...j,
-      submissionStatus: 'error',
-      submissionMessage: 'KTL 전송을 위한 필수 데이터가 누락되었습니다.',
-    }));
-    return;
-  }
-
-  // 전송 상태 표시
-  updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '전송 중...' }));
-
-  try {
-    // 1) 페이로드 구성
-    const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
-    const payload: ClaydoxPayload = {
-      receiptNumber: activeJob.receiptNumber,
-      siteLocation: activeJob.siteLocation,
-      item: activeJob.selectedItem,
-      updateUser: userName,
-      ocrData: activeJob.processedOcrData,
-      identifierSequence,
-      maxDecimalPlaces: activeJob.decimalPlaces,
-      pageType: 'PhotoLog',
-    };
-
-    const baseName = buildBaseName(activeJob.receiptNumber, activeJob.siteLocation, activeJob.selectedItem);
-
-    // 2) 스탬프 적용본으로 A4 합성 JPG 생성
-    const stampedForA4 = await stampPhotosForA4(activeJob);
-    const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
-      // A4 세로 @300dpi = 2480 × 3508 px (출력 픽셀 고정)
-      pagePx: { width: 2480, height: 3508 },
-
-      // 여백/간격: 완전 밀착
-      marginPx: 0,
-      gutterPx: 0,
-
-      background: '#fff',
-      quality: 0.95,
-
-      // ✅ 비율 무시하고 셀 100% 채움(크롭/레터박스 없음, 왜곡 가능)
-      fitMode: 'fill',
-
-      // ✅ 4분면 고정 순서: 1=좌상(TL), 2=우상(TR), 3=좌하(BL), 4=우하(BR)
-      quadrantOrder: ['TL', 'TR', 'BL', 'BR'],
-
-      // ✅ 사진이 1~3장이어도 2×2 레이아웃 유지(빈칸 보존)
-      keepEmptySlots: true,
-
-      // (선택) 슬롯 번호/빈칸 테두리
-      // drawSlotLabels: { position: 'top-left' },
-      // strokeEmptySlots: { color: 'rgba(0,0,0,0.12)', dash: [6,4] },
-    });
-
-    // 3) 합성 JPG -> File[]
-    const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
-      const blob = dataURLtoBlob(dataUrl);
-      const no = String(idx + 1).padStart(2, '0');
-      return new File([blob], `${baseName}_composite_${no}.jpg`, { type: 'image/jpeg' });
-    });
-
-    // 4) 원본(무스탬프) ZIP 생성
-    const zip = new JSZip();
-    for (const imageInfo of activeJob.photos) {
-      const raw = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
-      const rawBlob = dataURLtoBlob(raw);
-      const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType);
-      zip.file(fileNameInZip, rawBlob);
+    if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
+      updateActiveJob(j => ({
+        ...j,
+        submissionStatus: 'error',
+        submissionMessage: 'KTL 전송을 위한 필수 데이터가 누락되었습니다.',
+      }));
+      return;
     }
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
 
-    // 5) 전송
-    const response = await sendToClaydoxApi(
-      payload,
-      [...compositeFiles, zipFile],
-      activeJob.selectedItem,
-      [...compositeFiles.map(f => f.name), zipFile.name]
-    );
-
-    // 6) 상태 갱신
-    updateActiveJob(j => ({
-      ...j,
-      submissionStatus: 'success',
-      submissionMessage: response.message,
-    }));
-  } catch (error: any) {
-    updateActiveJob(j => ({
-      ...j,
-      submissionStatus: 'error',
-      submissionMessage: `KTL 전송 실패: ${error.message}`,
-    }));
-  }
-}, [activeJob, siteLocation, userName, updateActiveJob]);
-
-const handleBatchSendToKtl = async () => {
-  const jobsToSend = jobs.filter(
-    j => j.processedOcrData && j.processedOcrData.length > 0 && j.photos.length > 0
-  );
-  if (jobsToSend.length === 0) {
-    alert('전송할 데이터가 있는 작업이 없습니다. 각 작업에 사진과 추출된 데이터가 있는지 확인하세요.');
-    return;
-  }
-
-  setIsSendingToClaydox(true);
-  setBatchSendProgress(`(0/${jobsToSend.length}) 작업 처리 시작...`);
-  setJobs(prev =>
-    prev.map(j =>
-      jobsToSend.find(jts => jts.id === j.id)
-        ? { ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' }
-        : j
-    )
-  );
-
-  for (let i = 0; i < jobsToSend.length; i++) {
-    const job = jobsToSend[i];
-    setBatchSendProgress(`(${i + 1}/${jobsToSend.length}) '${job.receiptNumber}' 전송 중...`);
-    setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionMessage: '파일 생성 및 전송 중...' } : j));
+    // 전송 상태 표시
+    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '전송 중...' }));
 
     try {
-      const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
+      // 1) 페이로드 구성
+      const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
       const payload: ClaydoxPayload = {
-        receiptNumber: job.receiptNumber,
-        siteLocation: job.siteLocation,
-        item: job.selectedItem,
+        receiptNumber: activeJob.receiptNumber,
+        siteLocation: activeJob.siteLocation,
+        item: activeJob.selectedItem,
         updateUser: userName,
-        ocrData: job.processedOcrData!, // 여긴 존재 보장됨
+        ocrData: activeJob.processedOcrData,
         identifierSequence,
-        maxDecimalPlaces: job.decimalPlaces,
+        maxDecimalPlaces: activeJob.decimalPlaces,
         pageType: 'PhotoLog',
       };
 
-      const baseName = buildBaseName(job.receiptNumber, job.siteLocation, job.selectedItem);
+      const baseName = buildBaseName(activeJob.receiptNumber, activeJob.siteLocation, activeJob.selectedItem);
 
-      // ✅ A4 JPG 페이지로 최대 4장씩 타일링
-      const stampedForA4 = await stampPhotosForA4(job);
+      // 2) 스탬프 적용본으로 A4 합성 JPG 생성
+      const stampedForA4 = await stampPhotosForA4(activeJob);
       const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
-        // A4 세로 @300dpi = 2480 × 3508 px (출력 픽셀 고정)
+        // A4 세로 @300dpi = 2480 × 3508 px
         pagePx: { width: 2480, height: 3508 },
-
-        // 여백/간격: 완전 밀착
         marginPx: 0,
         gutterPx: 0,
-
         background: '#fff',
         quality: 0.95,
-
-        // ✅ 비율 무시하고 셀 100% 채움(크롭/레터박스 없음, 왜곡 가능)
         fitMode: 'fill',
-
-        // ✅ 4분면 고정 순서
         quadrantOrder: ['TL', 'TR', 'BL', 'BR'],
-
-        // ✅ 1~3장이어도 2×2 유지
         keepEmptySlots: true,
-
-        // (선택)
-        // drawSlotLabels: { position: 'top-left' },
-        // strokeEmptySlots: { color: 'rgba(0,0,0,0.12)', dash: [6,4] },
       });
 
+      // 3) 합성 JPG -> File[]
       const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
         const blob = dataURLtoBlob(dataUrl);
         const no = String(idx + 1).padStart(2, '0');
         return new File([blob], `${baseName}_composite_${no}.jpg`, { type: 'image/jpeg' });
       });
 
-      // ✅ ZIP: 전부 원본(무스탬프)
+      // 4) 원본(무스탬프) ZIP 생성
       const zip = new JSZip();
-      for (const imageInfo of job.photos) {
-        const dataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
-        const rawBlob = dataURLtoBlob(dataUrl);
+      for (const imageInfo of activeJob.photos) {
+        const raw = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
+        const rawBlob = dataURLtoBlob(raw);
         const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType);
         zip.file(fileNameInZip, rawBlob);
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
 
-      // ✅ 전송 (모든 A4 합성 JPG + ZIP)
+      // 5) 전송
       const response = await sendToClaydoxApi(
         payload,
         [...compositeFiles, zipFile],
-        job.selectedItem,
+        activeJob.selectedItem,
         [...compositeFiles.map(f => f.name), zipFile.name]
       );
 
-      setJobs(prev =>
-        prev.map(j =>
-          j.id === job.id
-            ? { ...j, submissionStatus: 'success', submissionMessage: response.message || '전송 성공' }
-            : j
-        )
-      );
+      // 6) 상태 갱신
+      updateActiveJob(j => ({
+        ...j,
+        submissionStatus: 'success',
+        submissionMessage: response.message,
+      }));
     } catch (error: any) {
-      setJobs(prev =>
-        prev.map(j =>
-          j.id === job.id
-            ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` }
-            : j
-        )
-      );
+      updateActiveJob(j => ({
+        ...j,
+        submissionStatus: 'error',
+        submissionMessage: `KTL 전송 실패: ${error.message}`,
+      }));
     }
-  }
+  }, [activeJob, userName, updateActiveJob]);
 
-  setBatchSendProgress('일괄 전송 완료.');
-  setIsSendingToClaydox(false);
-  setTimeout(() => setBatchSendProgress(null), 5000);
-};
+  const handleBatchSendToKtl = async () => {
+    const jobsToSend = jobs.filter(
+      j => j.processedOcrData && j.processedOcrData.length > 0 && j.photos.length > 0
+    );
+    if (jobsToSend.length === 0) {
+      alert('전송할 데이터가 있는 작업이 없습니다. 각 작업에 사진과 추출된 데이터가 있는지 확인하세요.');
+      return;
+    }
 
-  /** 가공 데이터(스탬프 적용) 묶음 다운로드: details 포함 + 결과 MIME 기반 확장자 결정 */
+    setIsSendingToClaydox(true);
+    setBatchSendProgress(`(0/${jobsToSend.length}) 작업 처리 시작...`);
+    setJobs(prev =>
+      prev.map(j =>
+        jobsToSend.find(jts => jts.id === j.id)
+          ? { ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' }
+          : j
+      )
+    );
+
+    for (let i = 0; i < jobsToSend.length; i++) {
+      const job = jobsToSend[i];
+      setBatchSendProgress(`(${i + 1}/${jobsToSend.length}) '${job.receiptNumber}' 전송 중...`);
+      setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionMessage: '파일 생성 및 전송 중...' } : j));
+
+      try {
+        const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
+        const payload: ClaydoxPayload = {
+          receiptNumber: job.receiptNumber,
+          siteLocation: job.siteLocation,
+          item: job.selectedItem,
+          updateUser: userName,
+          ocrData: job.processedOcrData!, // 존재 보장
+          identifierSequence,
+          maxDecimalPlaces: job.decimalPlaces,
+          pageType: 'PhotoLog',
+        };
+
+        const baseName = buildBaseName(job.receiptNumber, job.siteLocation, job.selectedItem);
+
+        // A4 JPG 페이지로 최대 4장씩 타일링
+        const stampedForA4 = await stampPhotosForA4(job);
+        const a4Pages = await generateA4CompositeJPEGPages(stampedForA4, {
+          pagePx: { width: 2480, height: 3508 },
+          marginPx: 0,
+          gutterPx: 0,
+          background: '#fff',
+          quality: 0.95,
+          fitMode: 'fill',
+          quadrantOrder: ['TL', 'TR', 'BL', 'BR'],
+          keepEmptySlots: true,
+        });
+
+        const compositeFiles: File[] = a4Pages.map((dataUrl, idx) => {
+          const blob = dataURLtoBlob(dataUrl);
+          const no = String(idx + 1).padStart(2, '0');
+          return new File([blob], `${baseName}_composite_${no}.jpg`, { type: 'image/jpeg' });
+        });
+
+        // ZIP: 전부 원본(무스탬프)
+        const zip = new JSZip();
+        for (const imageInfo of job.photos) {
+          const dataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
+          const rawBlob = dataURLtoBlob(dataUrl);
+          const fileNameInZip = safeNameWithExt(imageInfo.file.name, imageInfo.mimeType);
+          zip.file(fileNameInZip, rawBlob);
+        }
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
+
+        // 전송 (모든 A4 합성 JPG + ZIP)
+        const response = await sendToClaydoxApi(
+          payload,
+          [...compositeFiles, zipFile],
+          job.selectedItem,
+          [...compositeFiles.map(f => f.name), zipFile.name]
+        );
+
+        setJobs(prev =>
+          prev.map(j =>
+            j.id === job.id
+              ? { ...j, submissionStatus: 'success', submissionMessage: response.message || '전송 성공' }
+              : j
+          )
+        );
+      } catch (error: any) {
+        setJobs(prev =>
+          prev.map(j =>
+            j.id === job.id
+              ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` }
+              : j
+          )
+        );
+      }
+    }
+
+    setBatchSendProgress('일괄 전송 완료.');
+    setIsSendingToClaydox(false);
+    setTimeout(() => setBatchSendProgress(null), 5000);
+  };
+
+  /** 가공 데이터(스탬프 적용) 묶음 다운로드 */
   const handleDownloadStampedImages = useCallback(async () => {
     if (!activeJob || activeJob.photos.length === 0) {
       alert('다운로드할 이미지가 없습니다.');
@@ -1071,7 +1051,7 @@ const handleBatchSendToKtl = async () => {
     } finally {
       setIsDownloadingStamped(false);
     }
-  }, [activeJob, siteLocation]);
+  }, [activeJob]);
 
   const isControlsDisabled = isLoading || isDownloadingStamped || isSendingToClaydox || isCameraOpen || !!batchSendProgress;
   const representativeImageData = activeJob && currentImageIndex !== -1 ? activeJob.photos[currentImageIndex] : null;
@@ -1086,7 +1066,7 @@ const handleBatchSendToKtl = async () => {
 
   return (
     <div className="w-full max-w-4xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
-      <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">수질 분석 (P1)</h2>
+      <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">수질 분석 (P3)</h2>
 
       {jobs.length > 0 && (
         <div className="space-y-2">
