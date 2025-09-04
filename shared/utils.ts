@@ -17,3 +17,50 @@ export const isMobileDevice = (): boolean => {
   // Check against common mobile user agent patterns
   return mobileRegex.some(regex => regex.test(userAgent));
 };
+
+/**
+ * Processes an array of items in smaller, sequential batches.
+ * This is useful for rate-limiting API calls.
+ * @param items The array of items to process.
+ * @param processor An async function that takes an item and returns a promise resolving to the result.
+ * @param batchSize The number of items to process in each batch.
+ * @returns A promise that resolves to an array of PromiseSettledResult, similar to Promise.allSettled.
+ */
+export const processInBatches = async <T, R>(
+  items: T[],
+  processor: (item: T) => Promise<R>,
+  batchSize: number
+): Promise<PromiseSettledResult<R>[]> => {
+  let allResults: PromiseSettledResult<R>[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batchItems = items.slice(i, i + batchSize);
+    const batchPromises = batchItems.map(processor);
+    const batchResults = await Promise.allSettled(batchPromises);
+    allResults = allResults.concat(batchResults);
+  }
+  return allResults;
+};
+
+/**
+ * Creates a debounced function that delays invoking func until after wait milliseconds have elapsed
+ * since the last time the debounced function was invoked.
+ * @param func The function to debounce.
+ * @param waitFor The number of milliseconds to delay.
+ * @returns The new debounced function.
+ */
+export const debounce = <F extends (...args: any[]) => any>(
+  func: F,
+  waitFor: number
+) => {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  const debounced = (...args: Parameters<F>): void => {
+    if (timeout !== null) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+    timeout = setTimeout(() => func(...args), waitFor);
+  };
+
+  return debounced;
+};
