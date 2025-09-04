@@ -33,7 +33,11 @@ export const ImageInput = forwardRef<HTMLInputElement, ImageInputProps>(({ onIma
   const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      const imagePromises: Promise<ImageInfo>[] = Array.from(files).map(file => {
+      const imageInfos: ImageInfo[] = [];
+      const fileList = Array.from(files);
+
+      // Helper function to process one file at a time
+      const processFile = (file: File): Promise<ImageInfo> => {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => {
@@ -57,10 +61,14 @@ export const ImageInput = forwardRef<HTMLInputElement, ImageInputProps>(({ onIma
           };
           reader.readAsDataURL(file);
         });
-      });
+      };
 
       try {
-        const imageInfos = await Promise.all(imagePromises);
+        // Process files sequentially to avoid memory overload from Promise.all
+        for (const file of fileList) {
+          const info = await processFile(file);
+          imageInfos.push(info);
+        }
         onImagesSet(imageInfos);
       } catch (error) {
         console.error("Error processing one or more files:", error);
