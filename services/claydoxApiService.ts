@@ -157,7 +157,11 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
     .sort((a, b) => extractCompositeNo(a) - extractCompositeNo(b));
 
   const zipPhotoFileName = actualKtlFileNames.find((name) => /_Compression\.zip$/i.test(name) || name.toLowerCase().endsWith('.zip'));
-  const dataTableFileName = actualKtlFileNames.find((name) => name.toLowerCase().includes('datatable.png'));
+  // PATCH: datatable 탐지 보강 (대소문자 무시, 'datatable' 포함 + .png)
+  const dataTableFileName = actualKtlFileNames.find((name) => {
+    const n = name.toLowerCase();
+    return n.includes('datatable') && n.endsWith('.png');
+  });
 
   // --- Start of new logic for identifier remapping ---
   const identifierRemapping: { [key: string]: string[] } = {
@@ -192,12 +196,13 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   };
   // --- End of new logic ---
 
-  // === (B) 값 매핑(기존 로직 유지) ===
+  // === (B) 값 매핑(DrinkingWater 보강) ===
   payload.ocrData.forEach((entry) => {
     if (payload.pageType === 'DrinkingWater') {
       const dividerIdentifiers = ['Z 2시간 시작 - 종료', '드리프트 완료', '반복성 완료'];
       if (entry.identifier && dividerIdentifiers.includes(entry.identifier)) return;
 
+      // 응답시간 특수 처리
       if (entry.identifier === '응답') {
         if (entry.value && entry.value.trim().startsWith('[')) {
           try {
@@ -210,6 +215,7 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
             }
           } catch {}
         }
+        // TU/CL의 Cl측정치(C 접미사)
         if (payload.item === 'TU/CL' && entry.valueTP && entry.valueTP.trim().startsWith('[')) {
           try {
             const responseTimeArray = JSON.parse(entry.valueTP);
@@ -221,32 +227,57 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
             }
           } catch {}
         }
+        // TN/TP의 TP측정치(P 접미사)
+        if (payload.item === 'TN/TP' && entry.valueTP && entry.valueTP.trim().startsWith('[')) {
+          try {
+            const responseTimeArray = JSON.parse(entry.valueTP);
+            if (Array.isArray(responseTimeArray)) {
+              const [seconds, minutes, length] = responseTimeArray.map((v) => String(v || '').trim());
+              if (seconds) labviewItemObject['응답시간_초P'] = seconds;
+              if (minutes) labviewItemObject['응답시간_분P'] = minutes;
+              if (length) labviewItemObject['응답시간_길이P'] = length;
+            }
+          } catch {}
+        }
         return;
       }
 
+      // 일반 값 파싱 (PATCH: 문자열 중간 숫자도 허용)
       if (entry.identifier) {
         if (typeof entry.value === 'string' && entry.value.trim()) {
-          const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+          const valueToUse = entry.value.match(/-?\d+(\.\d+)?/)?.[0] || null;
           if (valueToUse !== null) labviewItemObject[entry.identifier] = valueToUse;
         }
+
+        // TU/CL의 두 번째 값은 C 접미사(예: MC, Z1C)
         if (payload.item === 'TU/CL' && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
-          const valueTPToUse = entry.valueTP.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+          const valueTPToUse = entry.valueTP.match(/-?\d+(\.\d+)?/)?.[0] || null;
           if (valueTPToUse !== null) {
             const key = entry.identifier === 'M' ? 'MC' : `${entry.identifier}C`;
             labviewItemObject[key] = valueTPToUse;
           }
         }
+
+        // PATCH: TN/TP도 P 접미사(예: MP, Z1P)로 저장
+        if (payload.item === 'TN/TP' && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
+          const valueTPToUse = entry.valueTP.match(/-?\d+(\.\d+)?/)?.[0] || null;
+          if (valueTPToUse !== null) {
+            const key = entry.identifier === 'M' ? 'MP' : `${entry.identifier}P`;
+            labviewItemObject[key] = valueTPToUse;
+          }
+        }
       }
     } else if (payload.item === 'TN/TP') {
+      // (기존) TN/TP 분기 - P 접미사 리매핑 사용
       if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
-        const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+        const valueToUse = entry.value.match(/-?\d+(\.\d+)?/)?.[0] || null; // PATCH: 고정
         if (valueToUse !== null) {
           const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
           labviewItemObject[ktlIdentifier] = valueToUse;
         }
       }
       if (entry.identifierTP && typeof entry.valueTP === 'string' && entry.valueTP.trim()) {
-        const valueTPToUse = entry.valueTP.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+        const valueTPToUse = entry.valueTP.match(/-?\d+(\.\d+)?/)?.[0] || null; // PATCH: 고정
         if (valueTPToUse !== null) {
           const ktlIdentifierTP = getNextKtlIdentifier(entry.identifierTP);
           labviewItemObject[ktlIdentifierTP] = valueTPToUse;
@@ -254,7 +285,7 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
       }
     } else {
       if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
-        const valueToUse = entry.value.match(/^-?\d+(\.\d+)?/)?.[0] || null;
+        const valueToUse = entry.value.match(/-?\d+(\.\d+)?/)?.[0] || null; // 기존 로직 대비 개선(앵커 제거)
         if (valueToUse !== null) {
           const ktlIdentifier = getNextKtlIdentifier(entry.identifier);
           labviewItemObject[ktlIdentifier] = valueToUse;
@@ -263,8 +294,8 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
     }
   });
 
-  // === (C) 사진 매핑 (핵심 변경) ===
-  // 1) 합성 JPG 여러 장 → M1_사진, M2_사진, ... 순서대로
+  // === (C) 사진 매핑 ===
+  // 1) 합성 JPG 여러 장 → M1_사진, M2_사진, ...
   const order = DEFAULT_PHOTO_KEY_ORDER;
   compositeFiles.forEach((filename, idx) => {
     const keyBase = order[idx] ?? `PHOTO${idx + 1}`;
@@ -273,16 +304,16 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
 
   // 2) 레거시/호환 키도 유지 (첫 장, ZIP, 데이터테이블)
   if (compositeFiles[0]) {
-  labviewItemObject['PHOTO_사진'] = compositeFiles[0];
+    labviewItemObject['PHOTO_사진'] = compositeFiles[0];
   }
   if (zipPhotoFileName) {
-  labviewItemObject['PHOTO_압축'] = zipPhotoFileName;
+    labviewItemObject['PHOTO_압축'] = zipPhotoFileName;
   }
   if (dataTableFileName) {
-  labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName;
+    labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName;
   }
 
-  // OCR이 아예 없고(=값 없음) 그래도 사진은 실어야 하는 경우의 방어 로직
+  // OCR이 아예 없고 사진만 있는 경우의 방어
   if (payload.ocrData.length === 0) {
     if (compositeFiles[0] && !labviewItemObject['PHOTO_사진']) {
       labviewItemObject['PHOTO_사진'] = compositeFiles[0];
@@ -305,7 +336,7 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   if (payload.updateUser)   labviewItemObject['시험자'] = payload.updateUser;
   if (payload.siteLocation) labviewItemObject['현장']   = payload.siteLocation;
 
-  // === (E) GUBN/ DESC 구성 (기존 로직 유지) ===
+  // === (E) GUBN/ DESC 구성 (P3 고정 GUBN 패치) ===
   let gubnPrefix = '수질';
   const drinkingWaterItems = ANALYSIS_ITEM_GROUPS.find((g) => g.label === '먹는물')?.items || [];
   if (payload.pageType === 'FieldCount') gubnPrefix = '현장계수';
@@ -320,7 +351,13 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
 
   const labviewDescComment = `${gubnPrefix} (항목: ${payload.item}, 현장: ${siteLocationForDesc})`;
   const labviewDescObject = { comment: labviewDescComment };
-  const dynamicLabviewGubn = `${gubnPrefix}_${payload.item.replace('/', '_')}`;
+
+  // 기존: `${gubnPrefix}_${payload.item.replace('/', '_')}`
+  // PATCH: P3(DrinkingWater)는 스키마 안전을 위해 GUBN을 '먹는물'로 고정
+  let dynamicLabviewGubn = `${gubnPrefix}_${payload.item.replace('/', '_')}`;
+  if (payload.pageType === 'DrinkingWater') {
+    dynamicLabviewGubn = '먹는물';
+  }
 
   return {
     LABVIEW_GUBN: dynamicLabviewGubn,
