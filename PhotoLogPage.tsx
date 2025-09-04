@@ -527,9 +527,16 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setIsLoading(true); setProcessingError(null);
     updateActiveJob(j => ({ ...j, processedOcrData: null, decimalPlaces: 0, submissionStatus: 'idle', submissionMessage: undefined }));
 
-    let allRawExtractedEntries: RawEntryUnion[] = []; let batchHadError = false; let criticalErrorOccurred: string | null = null;
+    let allRawExtractedEntries: RawEntryUnion[] = [];
+    let batchHadError = false;
+    let criticalErrorOccurred: string | null = null;
+    
     try {
-        if (!process.env.API_KEY) throw new Error("API_KEY 환경 변수가 설정되지 않았습니다.");
+        // ✅ [수정 1] Vite 환경 변수인 VITE_API_KEY를 가져오도록 변경
+        const apiKey = import.meta.env.VITE_API_KEY;
+        if (!apiKey) {
+            throw new Error("VITE_API_KEY 환경 변수가 설정되지 않았습니다.");
+        }
         
         let responseSchema;
         if (activeJob.selectedItem === "TN/TP") {
@@ -543,12 +550,19 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             try {
                 const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
                 const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
-                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
+                
+                // ✅ [수정 2] API 서비스 호출 시 가져온 apiKey를 전달
+                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig, apiKey);
+                
                 const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
-                if (Array.isArray(jsonDataFromImage)) return { status: 'fulfilled', value: jsonDataFromImage };
+                if (Array.isArray(jsonDataFromImage)) {
+                    return { status: 'fulfilled', value: jsonDataFromImage };
+                }
                 return { status: 'rejected', reason: `Image ${image.file.name} did not return a valid JSON array.` };
             } catch (imgErr: any) {
-                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) criticalErrorOccurred = imgErr.message;
+                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) {
+                    criticalErrorOccurred = imgErr.message;
+                }
                 let reason = (imgErr instanceof SyntaxError) ? `JSON parsing failed: ${imgErr.message}. AI response: ${jsonStr}` : imgErr.message;
                 return { status: 'rejected', reason };
             }
