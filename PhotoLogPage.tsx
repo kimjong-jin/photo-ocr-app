@@ -520,23 +520,51 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     return prompt;
   };
   const handleExtractText = useCallback(async () => {
-    if (!activeJob || activeJob.photos.length === 0) {
-      setProcessingError("먼저 이미지를 선택하거나 촬영해주세요.");
-      return;
-    }
-    setIsLoading(true); setProcessingError(null);
-    updateActiveJob(j => ({ ...j, processedOcrData: null, decimalPlaces: 0, submissionStatus: 'idle', submissionMessage: undefined }));
+    // ... 초기 설정 ...
+    setIsLoading(true);
+    setProcessingError(null);
+    updateActiveJob(j => ({ ...j, processedOcrData: null, /* ... */ }));
 
-    let allRawExtractedEntries: RawEntryUnion[] = []; let batchHadError = false; let criticalErrorOccurred: string | null = null;
-    try {
-      const API_KEY = (import.meta as any).env?.VITE_API_KEY; if (!API_KEY) throw new Error('VITE_API_KEY 환경 변수가 설정되지 않았습니다.');
-      const responseSchema = activeJob.selectedItem === 'TN/TP'
-        ? { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING } }, required: ['time'] } }
-        : { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value: { type: Type.STRING } }, required: ['time','value'] } };
-      // 이후 로직 동일: extractTextFromImage 호출 → JSON.parse → allRawExtractedEntries 병합
-    } catch (e: any) {
-      setProcessingError(e.message || '데이터 추출 중 알 수 없는 오류가 발생했습니다.');
-    } finally { setIsLoading(false); }
+    try { // ✅ try 블록 시작
+        const API_KEY = (import.meta as any).env?.VITE_API_KEY;
+        if (!API_KEY) {
+            throw new Error('VITE_API_KEY 환경 변수가 설정되지 않았습니다.');
+        }
+
+        const responseSchema = activeJob.selectedItem === 'TN/TP'
+            ? { /* ... */ }
+            : { /* ... */ };
+        
+        let allRawExtractedEntries: RawEntryUnion[] = [];
+        let batchHadError = false;
+        let criticalErrorOccurred: string | null = null;
+        
+        const imageProcessingPromises = activeJob.photos.map(async (image) => {
+            // ... 이미지 처리 로직 ...
+        });
+
+        const results = await Promise.all(imageProcessingPromises);
+        
+        // ... 결과 처리 로직 ...
+
+        if (criticalErrorOccurred) {
+            throw new Error(criticalErrorOccurred);
+        }
+
+        if (allRawExtractedEntries.length > 0) {
+            // ... 최종 데이터 업데이트 ...
+        } else {
+            if (!batchHadError) {
+                setProcessingError("AI가 이미지에서 유효한 데이터를 추출하지 못했습니다.");
+            }
+        }
+
+    } catch (e: any) { // ✅ 모든 오류를 여기서 처리
+        setProcessingError(e.message || "데이터 추출 중 알 수 없는 오류가 발생했습니다.");
+    } finally {
+        setIsLoading(false);
+    }
+}, [activeJob, siteLocation, updateActiveJob]);
 
         const imageProcessingPromises = activeJob.photos.map(async (image) => {
             let jsonStr: string = "";
