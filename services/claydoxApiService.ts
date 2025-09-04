@@ -336,7 +336,7 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   if (payload.updateUser)   labviewItemObject['시험자'] = payload.updateUser;
   if (payload.siteLocation) labviewItemObject['현장']   = payload.siteLocation;
 
-  // === (E) GUBN/ DESC 구성 (P3 고정 GUBN 패치) ===
+  // === (E) GUBN/ DESC 구성 — FIX(P3): 항목 포함 형식으로 복구 ===
   let gubnPrefix = '수질';
   const drinkingWaterItems = ANALYSIS_ITEM_GROUPS.find((g) => g.label === '먹는물')?.items || [];
   if (payload.pageType === 'FieldCount') gubnPrefix = '현장계수';
@@ -352,12 +352,8 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   const labviewDescComment = `${gubnPrefix} (항목: ${payload.item}, 현장: ${siteLocationForDesc})`;
   const labviewDescObject = { comment: labviewDescComment };
 
-  // 기존: `${gubnPrefix}_${payload.item.replace('/', '_')}`
-  // PATCH: P3(DrinkingWater)는 스키마 안전을 위해 GUBN을 '먹는물'로 고정
-  let dynamicLabviewGubn = `${gubnPrefix}_${payload.item.replace('/', '_')}`;
-  if (payload.pageType === 'DrinkingWater') {
-    dynamicLabviewGubn = '먹는물';
-  }
+  // ✅ 최종: '먹는물' 고정 제거, 항목 포함하여 전송
+  const dynamicLabviewGubn = `${gubnPrefix}_${payload.item.replace('/', '_')}`;
 
   return {
     LABVIEW_GUBN: dynamicLabviewGubn,
