@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserRole } from '../UserNameInput';
 import { ActionButton } from '../ActionButton';
@@ -18,7 +17,6 @@ interface UserToList {
   name: string;
   role: UserRole;
   lastSeen: number;
-  isGuest: boolean;
 }
 
 interface AdminPanelProps {
@@ -57,7 +55,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ adminUserName }) => {
           name,
           role: sessionData.role,
           lastSeen: sessionData.lastSeen,
-          isGuest: name.toLowerCase() === '게스트',
         }))
         .sort((a,b) => b.lastSeen - a.lastSeen); // Show most recent first
 
@@ -115,21 +112,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ adminUserName }) => {
           {usersToList.map(user => (
             <div key={user.name} className="flex items-center justify-between p-2.5 bg-slate-600 rounded-md shadow">
               <div>
-                <span className={`font-medium ${user.isGuest ? 'text-amber-300' : 'text-slate-100'}`}>{user.name}</span>
+                <span className="font-medium text-slate-100">{user.name}</span>
                 <span className="text-xs text-slate-400 ml-2">({user.role})</span>
                 <p className="text-xs text-slate-500">
                   마지막 활동: {new Date(user.lastSeen).toLocaleString()}
                 </p>
               </div>
-              {!user.isGuest && ( // Do not allow forcing logout of "게스트" as it's a shared special account
-                <ActionButton
-                  onClick={() => handleForceLogout(user.name)}
-                  variant="danger"
-                  className="text-xs px-2.5 py-1 h-auto"
-                >
-                  강제 로그아웃
-                </ActionButton>
-              )}
+              <ActionButton
+                onClick={() => handleForceLogout(user.name)}
+                variant="danger"
+                className="text-xs px-2.5 py-1 h-auto"
+              >
+                강제 로그아웃
+              </ActionButton>
             </div>
           ))}
         </div>
