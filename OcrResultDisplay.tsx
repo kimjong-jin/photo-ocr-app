@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Spinner } from './Spinner';
-import { ExtractedEntry } from '../PhotoLogPage';
+// FIX: Corrected import path for ExtractedEntry type
+import { ExtractedEntry } from './shared/types';
 import { ActionButton } from './ActionButton'; 
 
 interface OcrResultDisplayProps {
@@ -89,7 +90,7 @@ const renderResponseTimeMultiInputCell = (
       <div className="flex items-center gap-1.5">
           <input type="text" value={values[0]} onChange={(e) => handleInputChange(0, e.target.value)} className={baseInputClass} placeholder="초"/>
           <input type="text" value={values[1]} onChange={(e) => handleInputChange(1, e.target.value)} className={baseInputClass} placeholder="분"/>
-          <input type="text" value={values[2]} onChange={(e) => handleInputChange(2, e.target.value)} className={baseInputClass} placeholder="길이"/>
+          <input type="text" value={values[2]} onChange={(e) => handleInputChange(2, e.target.value)} className={baseInputClass} placeholder="mm"/>
       </div>
   );
 };
