@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Spinner } from './Spinner';
-import { ExtractedEntry } from '../PhotoLogPage';
+import type { ExtractedEntry } from '../../PhotoLogPage';
 import { ActionButton } from './ActionButton'; 
 
 interface OcrResultDisplayProps {
@@ -25,8 +25,8 @@ interface OcrResultDisplayProps {
   ktlJsonToPreview?: string | null;
   draftJsonToPreview?: string | null;
   isManualEntryMode?: boolean;
-  decimalPlaces?: number;
   timeColumnHeader?: string;
+  decimalPlaces?: number;
 }
 
 // Helper Icons
@@ -55,7 +55,7 @@ const ShuffleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 const sequenceRelatedIdentifiers = new Set([
-  "Z1", "Z2", "S1", "S2", "Z3", "Z4", "S3", "S4", "Z5", "S5", "M", "응답"
+  "Z1", "Z2", "S1", "S2", "Z3", "Z4", "S3", "S4", "Z5", "S5", "M", "응답시간"
 ]);
 
 const dividerIdentifiers = new Set(['Z 2시간 시작 - 종료', '드리프트 완료', '반복성 완료']);
@@ -66,72 +66,60 @@ const getDisplayValue = (originalValue: string | undefined): string => {
 };
 
 const renderResponseTimeMultiInputCell = (
-  entry: ExtractedEntry,
+  entry: ExtractedEntry, 
   valueSource: 'primary' | 'tp',
-  onValueChange: (entryId: string, newValue: string) => void,
-  onBlur: ((entryId: string, valueType: 'primary' | 'tp') => void) | undefined
+  onValueChange: (entryId: string, newValue: string) => void
 ) => {
   const rawValue = valueSource === 'primary' ? entry.value : entry.valueTP;
-  let values: string[] = ['', '', ''];
+  let values = ['','',''];
   try {
-    if (rawValue && rawValue.trim().startsWith('[')) {
-      const parsed = JSON.parse(rawValue);
+      const parsed = JSON.parse(rawValue || '[]');
       if (Array.isArray(parsed) && parsed.length <= 3) {
-        values = [String(parsed[0] || ''), String(parsed[1] || ''), String(parsed[2] || '')];
+          values = [String(parsed[0] || ''), String(parsed[1] || ''), String(parsed[2] || '')];
       }
-    }
-  } catch (e) { /* ignore parse error */ }
+  } catch(e) {}
 
   const handleInputChange = (index: number, inputValue: string) => {
-    const newValues = [...values];
-    newValues[index] = inputValue;
-    const hasAnyValue = newValues.some(v => v.trim() !== '');
-    onValueChange(entry.id, hasAnyValue ? JSON.stringify(newValues) : '');
-  };
-
-  const baseInputClass = "w-full bg-slate-700 border border-slate-600 rounded-md p-1.5 text-xs focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400 text-slate-200 text-center";
+      const newValues = [...values];
+      newValues[index] = inputValue;
+      const hasValue = newValues.some(v => v.trim() !== '');
+      onValueChange(entry.id, hasValue ? JSON.stringify(newValues) : '');
+  }
+  
+  const baseInputClass = "w-full bg-slate-700 border border-slate-600 rounded-md p-1.5 text-xs focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400 text-slate-200";
 
   return (
-    <div className="flex items-start gap-1.5">
-      <div className="flex-1 flex flex-col items-center gap-1">
-        <input type="text" value={values[0]} onChange={(e) => handleInputChange(0, e.target.value)} onBlur={() => onBlur?.(entry.id, valueSource)} className={baseInputClass} placeholder="." />
-        <label className="text-xs text-slate-400 whitespace-nowrap">초</label>
+      <div className="flex items-center gap-1.5">
+          <input type="text" value={values[0]} onChange={(e) => handleInputChange(0, e.target.value)} className={baseInputClass} placeholder="초"/>
+          <input type="text" value={values[1]} onChange={(e) => handleInputChange(1, e.target.value)} className={baseInputClass} placeholder="분"/>
+          <input type="text" value={values[2]} onChange={(e) => handleInputChange(2, e.target.value)} className={baseInputClass} placeholder="mm"/>
       </div>
-      <div className="flex-1 flex flex-col items-center gap-1">
-        <input type="text" value={values[1]} onChange={(e) => handleInputChange(1, e.target.value)} onBlur={() => onBlur?.(entry.id, valueSource)} className={baseInputClass} placeholder=".." />
-        <label className="text-xs text-slate-400 whitespace-nowrap">분</label>
-      </div>
-      <div className="flex-1 flex flex-col items-center gap-1">
-        <input type="text" value={values[2]} onChange={(e) => handleInputChange(2, e.target.value)} onBlur={() => onBlur?.(entry.id, valueSource)} className={baseInputClass} placeholder="---" />
-        <label className="text-xs text-slate-400 whitespace-nowrap">mm</label>
-      </div>
-    </div>
   );
 };
 
 export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({ 
-  ocrData, 
-  error, 
-  isLoading,
-  contextProvided, 
-  hasImage,
-  selectedItem,
-  onEntryIdentifierChange,
-  onEntryIdentifierTPChange,
-  onEntryTimeChange,
-  onEntryPrimaryValueChange,
-  onEntryValueTPChange,
-  onEntryValueBlur,
-  onAddEntry,
-  onReorderRows,
-  availableIdentifiers,
-  tnIdentifiers,
-  tpIdentifiers,
-  rawJsonForCopy,
-  ktlJsonToPreview,
-  draftJsonToPreview,
-  isManualEntryMode = false,
-  timeColumnHeader,
+    ocrData, 
+    error, 
+    isLoading,
+    contextProvided, 
+    hasImage,
+    selectedItem,
+    onEntryIdentifierChange,
+    onEntryIdentifierTPChange,
+    onEntryTimeChange,
+    onEntryPrimaryValueChange,
+    onEntryValueTPChange,
+    onEntryValueBlur,
+    onAddEntry,
+    onReorderRows,
+    availableIdentifiers,
+    tnIdentifiers,
+    tpIdentifiers,
+    rawJsonForCopy,
+    ktlJsonToPreview,
+    draftJsonToPreview,
+    isManualEntryMode = false,
+    timeColumnHeader
 }) => {
   const [rowToMoveInput, setRowToMoveInput] = useState('');
   const [newPositionInput, setNewPositionInput] = useState('');
@@ -195,7 +183,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
     try {
       await navigator.clipboard.writeText(text);
       alert(`${type} 복사 완료!`);
-    } catch (err) {
+    } catch (err: any) {
       console.error(`클립보드에 ${type} 복사 실패:`, err);
       alert(`${type} 복사에 실패했습니다. 콘솔을 확인해주세요.`);
     }
@@ -210,19 +198,19 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
     return (
       <div className="mt-6 space-y-4">
         <div className="flex justify-between items-center">
-          <h3 className="text-xl font-semibold text-sky-400 flex items-center">
-            <TableIcon className="w-6 h-6 mr-2"/> {isManualEntryMode ? "데이터 입력" : "추출된 데이터"}
-          </h3>
-          {rawJsonForCopy && !isManualEntryMode && (
-            <ActionButton 
-              onClick={() => copyToClipboard(rawJsonForCopy, "JSON 데이터")}
-              variant="secondary"
-              disabled={!rawJsonForCopy || ocrData.length === 0}
-              aria-label="추출된 원시 JSON 데이터 클립보드에 복사"
-            >
-              JSON 복사
-            </ActionButton>
-          )}
+            <h3 className="text-xl font-semibold text-sky-400 flex items-center">
+                <TableIcon className="w-6 h-6 mr-2"/> {isManualEntryMode ? "데이터 입력" : "추출된 데이터"}
+            </h3>
+            {rawJsonForCopy && !isManualEntryMode && (
+                <ActionButton 
+                    onClick={() => copyToClipboard(rawJsonForCopy, "JSON 데이터")}
+                    variant="secondary"
+                    disabled={!rawJsonForCopy || ocrData.length === 0}
+                    aria-label="추출된 원시 JSON 데이터 클립보드에 복사"
+                >
+                    JSON 복사
+                </ActionButton>
+            )}
         </div>
 
         {!isManualEntryMode && ocrData.length > 0 && (
@@ -272,265 +260,164 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
         )}
 
         {ocrData.length === 0 && !isLoading && (
-          <div className="p-4 bg-slate-700/30 border border-slate-600/50 rounded-lg shadow text-center">
-            <InfoIcon className="w-10 h-10 text-sky-400 mx-auto mb-2" />
-            <p className="text-sm text-slate-300">
-              {isManualEntryMode ? "데이터가 없습니다. 아래 '행 추가' 버튼을 사용하거나 '불러오기'를 통해 데이터를 가져오세요." : "추출된 데이터가 없습니다. 이미지를 다시 확인하거나, 아래 '행 추가' 버튼을 사용하여 수동으로 데이터를 입력할 수 있습니다."}
-            </p>
-            {rawJsonForCopy && rawJsonForCopy !== "[]" && !isManualEntryMode && ( 
-              <details className="mt-3 text-left text-xs">
-                <summary className="cursor-pointer text-slate-500 hover:text-slate-400">
-                  (참고: 원본 AI 응답 보기)
-                </summary>
-                <pre className="mt-1 text-slate-400 bg-slate-800 p-2 rounded overflow-x-auto max-h-32">
-                  {rawJsonForCopy}
-                </pre>
-              </details>
-            )}
-          </div>
-        )}
-
-        {ocrData.length > 0 && (
-          <div className="overflow-x-auto bg-slate-800 p-1 rounded-lg shadow-md border border-slate-700">
-            {/* ⬇️ 모바일은 auto, 데스크탑은 fixed (모바일 표시 깨짐 방지) */}
-            <table className="min-w-full divide-y divide-slate-700 table-auto md:table-fixed">
-              <thead className="bg-slate-700/50">
-                <tr>
-                  <th scope="col" className="px-2 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider w-12">
-                    No.
-                  </th>
-                  <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">
-                    {timeColumnHeader || '최종 저장 시간'}
-                  </th>
-
-                  {showTwoValueColumns ? (
-                    <>
-                      <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">
-                        {isTnTpMode ? 'TN 값' : 'TU 값'}
-                      </th>
-                      <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">
-                        {isTnTpMode ? 'TP 값' : 'Cl 값'}
-                      </th>
-                    </>
-                  ) : (
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">
-                      값
-                    </th>
-                  )}
-
-                  <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider whitespace-nowrap">
-                    {isManualEntryMode ? '구분' : (isTnTpMode ? 'TN 식별자' : '식별자')}
-                  </th>
-                  {isTnTpMode && !isManualEntryMode && (
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider whitespace-nowrap">
-                      TP 식별자
-                    </th>
-                  )}
-                </tr>
-              </thead>
-
-              <tbody className="bg-slate-800 divide-y divide-slate-700">
-                {ocrData.map((entry, index) => {
-                  const baseInputClass = "w-full bg-slate-700 p-2 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500";
-
-                  // ⬇️ select는 w-full, 최소폭은 td가 보장
-                  const identifierSelectClass = (ident?: string) =>
-                    `${baseInputClass} h-10 md:h-auto w-full ${ident ? 'text-red-400 font-bold' : 'text-slate-200'}`;
-
-                  const isDividerRow = isManualEntryMode && !!entry.identifier && dividerIdentifiers.has(entry.identifier);
-                  const isSequenceRow = isManualEntryMode && !!entry.identifier && sequenceRelatedIdentifiers.has(entry.identifier);
-                  const isResponseTimeRow = isManualEntryMode && entry.identifier === '응답';
-                  
-                  if (isDividerRow) {
-                    const colSpan = 3 + (showTwoValueColumns ? 2 : 1);
-                    return (
-                      <tr key={entry.id}>
-                        <td colSpan={colSpan} className="py-3 px-2">
-                          <div className="flex items-center text-slate-500">
-                            <div className="flex-grow border-t border-slate-600"></div>
-                            <span className="px-4 text-xs font-semibold tracking-wider whitespace-nowrap">
-                              {entry.identifier}
-                            </span>
-                            <div className="flex-grow border-t border-slate-600"></div>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-                  
-                  return (
-                    <tr
-                      key={entry.id}
-                      className={`${isSequenceRow ? 'bg-slate-900' : 'hover:bg-slate-700/30'} transition-colors duration-100 [&>td]:h-10 md:[&>td]:h-auto [&>td]:align-middle md:[&>td]:align-top`}
-                    >
-                      <td className="px-2 py-2.5 whitespace-nowrap text-sm text-slate-400 text-center align-top">
-                        {index + 1}
-                      </td>
-
-                      <td className="px-2 py-2.5 whitespace-nowrap align-top">
-                        <input
-                          type="text"
-                          value={entry.time}
-                          onChange={(e) => onEntryTimeChange(entry.id, e.target.value)}
-                          className={`${baseInputClass} text-slate-200 disabled:bg-slate-800/50 disabled:text-slate-400`}
-                          aria-label={`시간 입력 필드 ${index + 1}`}
-                          disabled={isDividerRow || isManualEntryMode}
-                        />
-                      </td>
-
-                      {isResponseTimeRow && isManualEntryMode ? (
-                        showTwoValueColumns ? (
-                          <>
-                            <td className="px-2 py-2.5 whitespace-nowrap align-top">
-                              {renderResponseTimeMultiInputCell(entry, 'primary', onEntryPrimaryValueChange, onEntryValueBlur)}
-                            </td>
-                            <td className="px-2 py-2.5 whitespace-nowrap align-top">
-                              {renderResponseTimeMultiInputCell(entry, 'tp', onEntryValueTPChange, onEntryValueBlur)}
-                            </td>
-                          </>
-                        ) : (
-                          <td colSpan={1} className="px-2 py-2.5 whitespace-nowrap align-top">
-                            {renderResponseTimeMultiInputCell(entry, 'primary', onEntryPrimaryValueChange, onEntryValueBlur)}
-                          </td>
-                        )
-                      ) : (
-                        <>
-                          <td className="px-2 py-2.5 whitespace-nowrap align-top">
-                            <input
-                              type="text"
-                              value={getDisplayValue(entry.value)}
-                              onChange={(e) => onEntryPrimaryValueChange(entry.id, e.target.value)}
-                              onBlur={() => onEntryValueBlur?.(entry.id, 'primary')}
-                              className={`${baseInputClass} text-slate-200`}
-                              aria-label={`${showTwoValueColumns ? (isTnTpMode ? 'TN 값' : 'TU 값') : '값'} 입력 필드 ${index + 1}`}
-                              disabled={isDividerRow}
-                            />
-                          </td>
-                          {showTwoValueColumns && (
-                            <td className="px-2 py-2.5 whitespace-nowrap align-top">
-                              <input
-                                type="text"
-                                value={getDisplayValue(entry.valueTP)}
-                                onChange={(e) => onEntryValueTPChange(entry.id, e.target.value)}
-                                onBlur={() => onEntryValueBlur?.(entry.id, 'tp')}
-                                className={`${baseInputClass} text-slate-200`}
-                                aria-label={`${isTnTpMode ? 'TP 값' : 'Cl 값'} 입력 필드 ${index + 1}`}
-                                disabled={isDividerRow}
-                              />
-                            </td>
-                          )}
-                        </>
-                      )}
-
-                      {isManualEntryMode ? (
-                        <td className={`px-2 py-2.5 whitespace-nowrap text-sm text-center align-top ${isSequenceRow ? 'text-red-400 font-semibold' : 'text-slate-300'}`}>
-                          {entry.identifier === '응답' ? '응답시간' : entry.identifier}
-                        </td>
-                      ) : (
-                        <>
-                          {/* ⬇️ 식별자: 모바일 최소폭 8.5rem 보장, md+ 해제 */}
-                          <td className="px-2 py-2.5 text-sm align-top min-w-[4rem] md:min-w-0">
-                            <select
-                              value={entry.identifier || ''}
-                              onChange={(e) => onEntryIdentifierChange(entry.id, e.target.value)}
-                              className={identifierSelectClass(entry.identifier)}
-                              aria-label={`${isTnTpMode ? 'TN' : ''} 식별자 선택 ${index + 1}`}
-                            >
-                              <option value="" className="text-slate-400">지정 안함</option>
-                              {(isTnTpMode ? tnIdentifiers : availableIdentifiers).map(opt => (
-                                <option
-                                  key={opt}
-                                  value={opt}
-                                  className={entry.identifier === opt ? 'text-red-400 font-bold' : 'text-slate-200'}
-                                >
-                                  {opt}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-
-                          {isTnTpMode && (
-                            <td className="px-2 py-2.5 text-sm align-top min-w-[4rem] md:min-w-0">
-                              <select
-                                value={entry.identifierTP || ''}
-                                onChange={(e) => onEntryIdentifierTPChange(entry.id, e.target.value)}
-                                className={identifierSelectClass(entry.identifierTP)}
-                                aria-label={`TP 식별자 선택 ${index + 1}`}
-                              >
-                                <option value="" className="text-slate-400">지정 안함</option>
-                                {tpIdentifiers.map(opt => (
-                                  <option
-                                    key={opt}
-                                    value={opt}
-                                    className={entry.identifierTP === opt ? 'text-red-400 font-bold' : 'text-slate-200'}
-                                  >
-                                    {opt}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                          )}
-                        </>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {!isManualEntryMode && (
-          <div className="mt-4 flex justify-end">
-            <ActionButton onClick={onAddEntry} variant="primary" icon={<PlusIcon />} aria-label="추출된 데이터 테이블에 새 행 추가" disabled={isLoading}>
-              행 추가
-            </ActionButton>
-          </div>
-        )}
-
-        <div className="no-capture mt-4">
-          {(draftJsonToPreview || ktlJsonToPreview) && (
-            <details className="bg-slate-700/30 p-3 rounded-md border border-slate-600/50">
-              <summary className="cursor-pointer list-none">
-                <div className="flex items-center justify-center space-x-4">
-                  {draftJsonToPreview && (
-                    <h4 className="text-sm font-medium text-amber-400">
-                      임시 저장용
-                    </h4>
-                  )}
-                  {draftJsonToPreview && ktlJsonToPreview && (
-                    <span className="text-slate-600">|</span>
-                  )}
-                  {ktlJsonToPreview && (
-                    <h4 className="text-sm font-medium text-sky-400">
-                      KTL 전송용
-                    </h4>
-                  )}
-                  <span className="text-xs text-slate-500">(JSON 미리보기)</span>
-                </div>
-              </summary>
-
-              <div className="flex flex-col sm:flex-row gap-4 mt-4 pt-4 border-t border-slate-600">
-                {draftJsonToPreview && (
-                  <div className="flex-1 min-w-0">
-                    <pre className="text-xs text-slate-300 bg-slate-800 p-3 rounded-md overflow-x-auto max-h-60 border border-slate-700">
-                      {draftJsonToPreview}
-                    </pre>
-                  </div>
+             <div className="p-4 bg-slate-700/30 border border-slate-600/50 rounded-lg shadow text-center">
+                <InfoIcon className="w-10 h-10 text-sky-400 mx-auto mb-2" />
+                <p className="text-sm text-slate-300">
+                {isManualEntryMode ? "데이터가 없습니다. 아래 '행 추가' 버튼을 사용하거나 '불러오기'를 통해 데이터를 가져오세요." : "추출된 데이터가 없습니다. 이미지를 다시 확인하거나, 아래 '행 추가' 버튼을 사용하여 수동으로 데이터를 입력할 수 있습니다."}
+                </p>
+                 {rawJsonForCopy && rawJsonForCopy !== "[]" && !isManualEntryMode && ( 
+                    <details className="mt-3 text-left text-xs">
+                        <summary className="cursor-pointer text-slate-500 hover:text-slate-400">
+                            (참고: 원본 AI 응답 보기)
+                        </summary>
+                        <pre className="mt-1 text-slate-400 bg-slate-800 p-2 rounded overflow-x-auto max-h-32">
+                            {rawJsonForCopy}
+                        </pre>
+                    </details>
                 )}
-                {ktlJsonToPreview && (
-                  <div className="flex-1 min-w-0">
-                    <pre className="text-xs text-slate-300 bg-slate-800 p-3 rounded-md overflow-x-auto max-h-60 border border-slate-700">
-                      {ktlJsonToPreview}
+            </div>
+        )}
+        {ocrData.length > 0 && (
+            <div className="overflow-x-auto bg-slate-800 p-1 rounded-lg shadow-md border border-slate-700">
+            <table className={`min-w-full divide-y divide-slate-700 ${isManualEntryMode ? 'table-auto' : 'table-fixed'}`}>
+                <thead className="bg-slate-700/50">
+                <tr>
+                    <th scope="col" className="px-2 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">No.</th>
+                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">{timeColumnHeader || "측정 시간"}</th>
+                    {showTwoValueColumns ? (
+                    <>
+                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">{isTnTpMode ? 'TN 값' : 'TU 값'}</th>
+                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">{isTnTpMode ? 'TP 값' : 'Cl 값'}</th>
+                    </>
+                    ) : (
+                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">값</th>
+                    )}
+                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">{isManualEntryMode ? '구분' : (isTnTpMode ? 'TN 식별자' : '식별자')}</th>
+                    {isTnTpMode && !isManualEntryMode && <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">TP 식별자</th>}
+
+                </tr>
+                </thead>
+                <tbody className="bg-slate-800 divide-y divide-slate-700">
+                {ocrData.map((entry, index) => {
+                    const baseInputClass = "w-full bg-slate-700 p-2 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500";
+                    const identifierSelectClass = (ident?: string) => `${baseInputClass} ${ident ? 'text-red-400 font-bold' : 'text-slate-200'}`;
+                    const isDividerRow = isManualEntryMode && dividerIdentifiers.has(entry.identifier || '');
+                    const isSequenceRow = isManualEntryMode && !!entry.identifier && sequenceRelatedIdentifiers.has(entry.identifier);
+                    const isResponseTimeRow = isManualEntryMode && entry.identifier === '응답';
+                    
+                    if (isDividerRow) {
+                        const colSpan = 3 + (showTwoValueColumns ? 1 : 0) + (isTnTpMode && !isManualEntryMode ? 1 : 0);
+                        return (
+                            <tr key={entry.id}>
+                                <td colSpan={colSpan} className="py-3 px-2">
+                                    <div className="flex items-center text-slate-500">
+                                        <div className="flex-grow border-t border-slate-600"></div>
+                                        <span className="px-4 text-xs font-semibold tracking-wider whitespace-nowrap">
+                                            {entry.identifier}
+                                        </span>
+                                        <div className="flex-grow border-t border-slate-600"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        );
+                    }
+                    
+                    return (
+                    <tr key={entry.id} className={`${isSequenceRow ? 'bg-slate-900' : 'hover:bg-slate-700/30'} transition-colors duration-100`}>
+                        <td className={`px-2 whitespace-nowrap text-sm text-slate-400 text-center align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>{index + 1}</td>
+                        <td className={`px-2 whitespace-nowrap align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>
+                            <input type="text" value={entry.time} onChange={(e) => onEntryTimeChange(entry.id, e.target.value)} className={`${baseInputClass} text-slate-200`} aria-label={`시간 입력 필드 ${index + 1}`} disabled={isDividerRow}/>
+                        </td>
+                        
+                        {isResponseTimeRow && isManualEntryMode ? (
+                            showTwoValueColumns ? (
+                                <>
+                                    <td className={`px-2 whitespace-nowrap align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>
+                                        {renderResponseTimeMultiInputCell(entry, 'primary', onEntryPrimaryValueChange)}
+                                    </td>
+                                    <td className={`px-2 whitespace-nowrap align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>
+                                        {renderResponseTimeMultiInputCell(entry, 'tp', onEntryValueTPChange)}
+                                    </td>
+                                </>
+                            ) : (
+                                <td colSpan={1} className={`px-2 whitespace-nowrap align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>
+                                    {renderResponseTimeMultiInputCell(entry, 'primary', onEntryPrimaryValueChange)}
+                                </td>
+                            )
+                        ) : (
+                            <>
+                                <td className={`px-2 whitespace-nowrap align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>
+                                    <input type="text" value={getDisplayValue(entry.value)} onChange={(e) => onEntryPrimaryValueChange(entry.id, e.target.value)} onBlur={() => onEntryValueBlur?.(entry.id, 'primary')} className={`${baseInputClass} text-slate-200`} aria-label={`${showTwoValueColumns ? (isTnTpMode ? 'TN 값' : 'TU 값') : '값'} 입력 필드 ${index + 1}`} disabled={isDividerRow}/>
+                                </td>
+                                {showTwoValueColumns && (
+                                    <td className={`px-2 whitespace-nowrap align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>
+                                        <input type="text" value={getDisplayValue(entry.valueTP)} onChange={(e) => onEntryValueTPChange(entry.id, e.target.value)} onBlur={() => onEntryValueBlur?.(entry.id, 'tp')} className={`${baseInputClass} text-slate-200`} aria-label={`${isTnTpMode ? 'TP 값' : 'Cl 값'} 입력 필드 ${index + 1}`} disabled={isDividerRow}/>
+                                    </td>
+                                )}
+                            </>
+                        )}
+
+
+                        {isManualEntryMode ? (
+                           <td className={`px-2 whitespace-nowrap text-sm text-center align-top ${isSequenceRow ? 'py-1 text-red-400 font-semibold' : 'py-2.5 text-slate-300'}`}>
+                             {isResponseTimeRow ? '응답시간' : entry.identifier}
+                           </td>
+                        ) : (
+                           <>
+                            <td className="px-2 py-2.5 whitespace-nowrap text-sm align-top"> 
+                                <select value={entry.identifier || ''} onChange={(e) => onEntryIdentifierChange(entry.id, e.target.value)} className={identifierSelectClass(entry.identifier)} aria-label={`${isTnTpMode ? 'TN' : ''} 식별자 선택 ${index + 1}`}>
+                                    <option value="" className="text-slate-400">지정 안함</option>
+                                    {(isTnTpMode ? tnIdentifiers : availableIdentifiers).map(opt => <option key={opt} value={opt} className={entry.identifier === opt ? 'text-red-400 font-bold' : 'text-slate-200'}>{opt}</option>)}
+                                </select>
+                            </td>
+                            {isTnTpMode && (
+                                <td className="px-2 py-2.5 whitespace-nowrap text-sm align-top">
+                                    <select value={entry.identifierTP || ''} onChange={(e) => onEntryIdentifierTPChange(entry.id, e.target.value)} className={identifierSelectClass(entry.identifierTP)} aria-label={`TP 식별자 선택 ${index + 1}`}>
+                                        <option value="" className="text-slate-400">지정 안함</option>
+                                        {tpIdentifiers.map(opt => <option key={opt} value={opt} className={entry.identifierTP === opt ? 'text-red-400 font-bold' : 'text-slate-200'}>{opt}</option>)}
+                                    </select>
+                                </td>
+                            )}
+                           </>
+                        )}
+                    </tr>
+                )})}
+                </tbody>
+            </table>
+            </div>
+        )}
+        {!isManualEntryMode && (
+            <div className="mt-4 flex justify-end">
+                <ActionButton onClick={onAddEntry} variant="primary" icon={<PlusIcon />} aria-label="추출된 데이터 테이블에 새 행 추가" disabled={isLoading}>
+                    행 추가
+                </ActionButton>
+            </div>
+        )}
+
+        <div className="no-capture flex flex-col md:flex-row gap-4 mt-4">
+            {draftJsonToPreview && (
+                <details className="flex-1 text-left bg-slate-700/30 p-3 rounded-md border border-slate-600/50">
+                    <summary className="cursor-pointer text-sm font-medium text-amber-400 hover:text-amber-300">
+                        임시 저장용 JSON 미리보기
+                    </summary>
+                    <pre className="mt-2 text-xs text-slate-300 bg-slate-800 p-3 rounded-md overflow-x-auto max-h-60 border border-slate-700">
+                        {draftJsonToPreview}
+                    </pre>
+                </details>
+            )}
+            {ktlJsonToPreview && (
+                <details className="flex-1 text-left bg-slate-700/30 p-3 rounded-md border border-slate-600/50">
+                    <summary className="cursor-pointer text-sm font-medium text-sky-400 hover:text-sky-300">
+                        KTL 전송용 JSON 미리보기
+                    </summary>
+                    <pre className="mt-2 text-xs text-slate-300 bg-slate-800 p-3 rounded-md overflow-x-auto max-h-60 border border-slate-700">
+                        {ktlJsonToPreview}
                     </pre>
                     <ActionButton onClick={() => copyToClipboard(ktlJsonToPreview, "KTL JSON")} variant="secondary" className="text-xs mt-2" disabled={!ktlJsonToPreview} aria-label="KTL JSON 데이터 클립보드에 복사">
-                      KTL JSON 복사
+                        KTL JSON 복사
                     </ActionButton>
-                  </div>
-                )}
-              </div>
-            </details>
-          )}
+                </details>
+            )}
         </div>
       </div>
     );
