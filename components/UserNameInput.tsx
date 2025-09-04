@@ -11,6 +11,7 @@ interface UserCredential {
 }
 
 export const USER_CREDENTIALS: Record<string, UserCredential> = {
+  "관리자": { password: "admin", role: "admin", contact: "010-0000-0000" },
   "김종진": { password: "1212", role: "user", contact: "010-8412-8602" },
   "김성대": { password: "3621", role: "user", contact: "010-5325-9074" },
   "정진욱": { password: "2543", role: "user", contact: "010-4480-3262" },
