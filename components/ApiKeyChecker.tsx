@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 
 const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
