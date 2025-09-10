@@ -60,7 +60,6 @@ const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ children }) => {
       </div>
     );
   }
-
   return <>{children}</>;
 };
 
