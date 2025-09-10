@@ -158,7 +158,7 @@ export const DrinkingWaterSnapshot: React.FC<DrinkingWaterSnapshotProps> = ({ jo
                                     </>
                                 )}
 
-                                <td style={currentIdentifierTdStyle}>{isResponseTimeRow ? '응답시간' : entry.identifier}</td>
+                                <td style={currentIdentifierTdStyle}>{isResponseTimeRow ? '응답' : entry.identifier}</td>
                             </tr>
                         );
                     })}
