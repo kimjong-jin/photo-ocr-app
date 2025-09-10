@@ -1,5 +1,8 @@
+
+
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import ReactDOM from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
 import {
   MAIN_STRUCTURAL_ITEMS,
@@ -16,7 +19,7 @@ import {
   EMISSION_STANDARD_ITEM_NAME,
   RESPONSE_TIME_ITEM_NAME,
   PREFERRED_MEASUREMENT_METHODS,
-} from './shared/structuralChecklists';
+} from './shared/StructuralChecklists';
 import { ImageInput, ImageInfo } from './components/ImageInput';
 import { CameraView } from './components/CameraView';
 import { ChecklistItemRow } from './components/structural/ChecklistItemRow';
@@ -65,6 +68,12 @@ const TrashIcon: React.FC = () => (
     </svg>
 );
 
+const CalendarIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18M-4.5 12h22.5" />
+  </svg>
+);
+
 const sanitizeFilenameComponent = (component: string): string => {
   if (!component) return '';
   return component.replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_').replace(/__+/g, '_');
@@ -108,8 +117,56 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ userName, job
   const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
   const [isSendingToClaydox, setIsSendingToClaydox] = useState<boolean>(false);
   const snapshotHostRef = useRef<HTMLDivElement | null>(null);
+  const [overrideDate, setOverrideDate] = useState<string | null>(null);
 
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
+
+  // FIX: Moved 'updateActiveJob' before its usage in 'handleOverrideDateChange' to resolve the declaration error.
+  const updateActiveJob = useCallback((updater: (job: StructuralJob) => StructuralJob) => {
+    if (!activeJobId) return;
+    setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
+  }, [activeJobId, setJobs]);
+
+  useEffect(() => {
+    setOverrideDate(null);
+  }, [activeJobId]);
+
+  const handleToggleDateOverride = useCallback(() => {
+    if (overrideDate === null) {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        setOverrideDate(`${year}-${month}-${day}`);
+    } else {
+        setOverrideDate(null);
+    }
+  }, [overrideDate]);
+
+  const handleOverrideDateChange = useCallback((newDate: string) => {
+    if (!activeJob) return;
+
+    const currentTime = getCurrentTimestamp().split(' ')[1] || '00:00';
+
+    updateActiveJob(job => {
+        const updatedChecklistData = { ...job.checklistData };
+        for (const itemName in updatedChecklistData) {
+            const item = updatedChecklistData[itemName];
+            if (item.status === '적합' || item.status === '부적합') {
+                const existingTime = (item.confirmedAt && item.confirmedAt.includes(' '))
+                    ? item.confirmedAt.split(' ')[1]
+                    : currentTime;
+                
+                updatedChecklistData[itemName] = {
+                    ...item,
+                    confirmedAt: `${newDate} ${existingTime}`,
+                };
+            }
+        }
+        return { ...job, checklistData: updatedChecklistData, submissionStatus: 'idle', submissionMessage: undefined };
+    });
+    setOverrideDate(newDate);
+  }, [activeJob, updateActiveJob]);
 
   const getAnalysisTypeDisplayString = useCallback((analysisType: AnalysisType): string => {
     const mainItemKey = activeJob?.mainItemKey;
@@ -203,12 +260,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ userName, job
     } else {
         return `(주의) 표시사항과 증명서 정보가 다릅니다:\n- ${messages.join('\n- ')}\n내용을 확인하세요.`;
     }
-}, [activeJob]);
-
-  const updateActiveJob = useCallback((updater: (job: StructuralJob) => StructuralJob) => {
-    if (!activeJobId) return;
-    setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
-  }, [activeJobId, setJobs]);
+  }, [activeJob]);
   
   const resetActiveJobSubmissionStatus = useCallback(() => {
     if (!activeJobId) return;
@@ -605,7 +657,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
     
     // Use the snapshot component for rendering
     if (snapshotHostRef.current) {
-        const snapshotRoot = ReactDOM.createRoot(snapshotHostRef.current);
+        const snapshotRoot = createRoot(snapshotHostRef.current);
         // Use a promise to ensure rendering completes before capturing
         const renderPromise = new Promise<void>(resolve => {
             snapshotRoot.render(
@@ -738,7 +790,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
             setBatchSendProgress(`(${(i + 1)}/${jobs.length}) '${job.receiptNumber}' 체크리스트 캡처 중...`);
             
             if (snapshotHostRef.current) {
-                const snapshotRoot = ReactDOM.createRoot(snapshotHostRef.current);
+                const snapshotRoot = createRoot(snapshotHostRef.current);
                 const renderPromise = new Promise<void>(resolve => {
                     snapshotRoot.render(
                         <ChecklistSnapshot job={job} />
@@ -968,7 +1020,24 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
             <div className="space-y-1 mt-4 p-3 bg-slate-700/40 rounded-lg border border-slate-600/50">
               <div className="flex flex-wrap gap-2 justify-between items-center mb-2">
                 <h3 className="text-lg font-semibold text-slate-100">체크리스트: {activeJob.receiptNumber} / {MAIN_STRUCTURAL_ITEMS.find(item => item.key === activeJob.mainItemKey)?.name}</h3>
-                <ActionButton onClick={handleSetAllSuitableForActiveJob} variant="secondary" className="text-xs py-1.5 px-3 bg-green-600 hover:bg-green-500" disabled={isControlsDisabled}>일괄 적합</ActionButton>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={handleToggleDateOverride}
+                        className="p-1.5 text-slate-400 hover:text-sky-400 rounded-full transition-colors"
+                        aria-label="날짜 일괄 변경"
+                    >
+                        <CalendarIcon className="w-5 h-5" />
+                    </button>
+                    {overrideDate !== null && (
+                        <input
+                            type="date"
+                            value={overrideDate}
+                            onChange={(e) => handleOverrideDateChange(e.target.value)}
+                            className="block p-1 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm text-slate-300"
+                        />
+                    )}
+                    <ActionButton onClick={handleSetAllSuitableForActiveJob} variant="secondary" className="text-xs py-1.5 px-3 bg-green-600 hover:bg-green-500" disabled={isControlsDisabled}>일괄 적합</ActionButton>
+                </div>
               </div>
               <div id={`checklist-for-${activeJob.id}`}>
                 {CHECKLIST_DEFINITIONS[activeJob.mainItemKey].map((itemName, index) => {
@@ -1031,11 +1100,6 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                             </select>
                         )}
                     </div>
-                    {activeJob.postInspectionDateConfirmedAt && !isFixedDateItem && (
-                        <p className="text-xs text-slate-400 md:text-right pb-2.5">
-                            (확인: {activeJob.postInspectionDateConfirmedAt})
-                        </p>
-                    )}
                 </div>
               </div>
 
