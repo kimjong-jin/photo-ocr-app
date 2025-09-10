@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import PhotoLogPage from './PhotoLogPage';
-import type { PhotoLogJob } from './PhotoLogPage';
+import type { PhotoLogJob } from './shared/types';
 import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
 import FieldCountPage from './FieldCountPage';
 import StructuralCheckPage, { type StructuralJob } from './StructuralCheckPage';
@@ -13,9 +13,8 @@ import { UserRole } from './components/UserNameInput';
 import AdminPanel from './components/admin/AdminPanel';
 import { callSaveTempApi, callLoadTempApi, SaveDataPayload, LoadedData, SavedValueEntry } from './services/apiService';
 import { Spinner } from './components/Spinner';
-import { MAIN_STRUCTURAL_ITEMS, MainStructuralItemKey, STRUCTURAL_ITEM_GROUPS, CHECKLIST_DEFINITIONS, CertificateDetails, StructuralCheckSubItemData, PREFERRED_MEASUREMENT_METHODS } from './shared/structuralChecklists';
+import { MAIN_STRUCTURAL_ITEMS, MainStructuralItemKey, STRUCTURAL_ITEM_GROUPS, CHECKLIST_DEFINITIONS, CertificateDetails, StructuralCheckSubItemData, PREFERRED_MEASUREMENT_METHODS } from './shared/StructuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
-import LoadDataModal, { LoadSelections } from './components/LoadDataModal';
 
 
 type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
@@ -87,8 +86,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [currentGpsAddress, setCurrentGpsAddress] = useState('');
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
-  const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
-  const [loadedData, setLoadedData] = useState<LoadedData | null>(null);
 
   const [openSections, setOpenSections] = useState<string[]>(['addTask']);
 
@@ -236,15 +233,39 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
         jobsToSaveP3.forEach(job => {
             const itemsToProcess = job.selectedItem === 'TU/CL' ? ['TU', 'Cl'] : [job.selectedItem];
+            allItems.add(job.selectedItem); // Ensure main item key is saved for metadata
             itemsToProcess.forEach(item => allItems.add(item));
+            
+            // Store P3-specific metadata under the main item key
+            const p3Metadata = {
+                details: job.details,
+                decimalPlaces: job.decimalPlaces,
+                decimalPlacesCl: job.decimalPlacesCl,
+            };
+
+            if (!apiPayload[job.selectedItem]) {
+                apiPayload[job.selectedItem] = {};
+            }
+            apiPayload[job.selectedItem]['_p3_metadata'] = { val: JSON.stringify(p3Metadata), time: new Date().toISOString() };
             
             itemsToProcess.forEach(subItem => {
                 if (!apiPayload[subItem]) apiPayload[subItem] = {};
                 (job.processedOcrData || []).forEach(entry => {
                     if (!entry.identifier || entry.identifier.includes('시작') || entry.identifier.includes('완료')) return;
-                    let valueSource = (subItem === 'TU') ? entry.value : (job.selectedItem === 'TU/CL' ? entry.valueTP : entry.value);
+                    
+                    let valueSource;
+                    if (job.selectedItem === 'TU/CL') {
+                        valueSource = (subItem === 'TU') ? entry.value : entry.valueTP;
+                    } else { // Single item mode
+                        valueSource = entry.value;
+                    }
+
                     if (entry.identifier && valueSource && valueSource.trim()) {
-                        apiPayload[subItem]![entry.identifier] = { val: valueSource.trim(), time: entry.time };
+                        let key = entry.identifier;
+                        // Handle response time special case which has a different identifier for Cl in the UI
+                        if(subItem === 'Cl' && key === '응답시간_Cl') key = '응답시간';
+
+                        apiPayload[subItem]![key] = { val: valueSource.trim(), time: entry.time };
                     }
                 });
             });
@@ -253,10 +274,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         jobsToSaveP4.forEach(job => {
             allItems.add(job.mainItemKey);
             const timestamp = new Date().toISOString();
-            apiPayload[job.mainItemKey] = {
+            
+            if (!apiPayload[job.mainItemKey]) {
+                apiPayload[job.mainItemKey] = {};
+            }
+            
+            Object.assign(apiPayload[job.mainItemKey], {
                 '_checklistData': { val: JSON.stringify(job.checklistData), time: timestamp },
                 '_postInspectionDate': { val: job.postInspectionDate, time: timestamp },
-            };
+            });
         });
 
         jobsToSaveP6.forEach(job => {
@@ -299,156 +325,212 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   }, [getReceiptNumberForSaveLoad, userName, photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs, siteLocation]);
 
-  const createDrinkingWaterJob = (itemName: string, data: LoadedData): DrinkingWaterJob => {
-    const { receipt_no, site, values } = data;
-    const siteParts = (site || '').split(' / ');
-    const reconstructedOcrData = DRINKING_WATER_IDENTIFIERS.map(identifier => {
-        const entry: DrinkingWaterJob['processedOcrData'][0] = { id: self.crypto.randomUUID(), time: '', value: '', identifier };
-        if (itemName === 'TU/CL') entry.valueTP = '';
-        const tuData = values.TU || {}; const clData = values.Cl || {};
-        let pVal, sVal, tVal;
-        if (itemName === 'TU') { pVal = tuData[identifier]?.val; tVal = tuData[identifier]?.time; } 
-        else if (itemName === 'Cl') { pVal = clData[identifier]?.val; tVal = clData[identifier]?.time; } 
-        else if (itemName === 'TU/CL') { pVal = tuData[identifier]?.val; sVal = clData[identifier]?.val; tVal = tuData[identifier]?.time || clData[identifier]?.time; }
-        entry.value = pVal || '';
-        if (entry.valueTP !== undefined) entry.valueTP = sVal || '';
-        entry.time = tVal || '';
-        return entry;
-    });
-    return {
-        id: self.crypto.randomUUID(),
-        receiptNumber: receipt_no,
-        selectedItem: itemName,
-        details: siteParts.slice(1).join(' / '),
-        processedOcrData: reconstructedOcrData,
-        decimalPlaces: 2,
-        photos: [],
-        submissionStatus: 'idle',
-        submissionMessage: undefined,
-        ...(itemName === 'TU/CL' && { decimalPlacesCl: 2 })
-    };
-  };
-
   const handleLoadDraft = useCallback(async () => {
-    const receiptToLoad = receiptNumber; 
+    const receiptToLoad = receiptNumber;
     if (!receiptToLoad || !receiptToLoad.trim()) {
         setDraftMessage({ type: 'error', text: '불러오려면 접수번호를 입력하세요.' });
         clearDraftMessage();
         return;
     }
-    
+
     setIsLoading(true);
     setDraftMessage(null);
 
     try {
-        const data = await callLoadTempApi(receiptToLoad);
-        setLoadedData(data);
-        setIsLoadModalOpen(true);
+        const loadedData = await callLoadTempApi(receiptToLoad);
+        const { receipt_no, site, item: loadedItems, values } = loadedData;
+
+        // Set common info
+        const receiptParts = receipt_no.split('-');
+        const detail = receiptParts.pop() || '';
+        const common = receiptParts.join('-');
+        setReceiptNumberCommon(common);
+        setReceiptNumberDetail(detail);
+        setSiteLocation(site);
+
+        // Categorize all available items from the loaded data
+        const p1Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
+        const p2Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '현장 계수')?.items || [];
+        const p3Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '먹는물')?.items || [];
+        const p4Items = MAIN_STRUCTURAL_ITEMS.map(i => i.key);
+
+        const available = {
+            photoLog: new Set<string>(),
+            fieldCount: new Set<string>(),
+            drinkingWater: new Set<string>(),
+            structuralCheck: new Set<string>(),
+        };
+
+        if (loadedData.values.TN && loadedData.values.TP) {
+            if (p1Items.includes('TN/TP')) available.photoLog.add('TN/TP');
+            if (p2Items.includes('TN/TP')) available.fieldCount.add('TN/TP');
+        }
+        
+        loadedItems.forEach(item => {
+            if (p1Items.includes(item)) available.photoLog.add(item);
+            if (p2Items.includes(item)) available.fieldCount.add(item);
+            if (p3Items.includes(item)) available.drinkingWater.add(item);
+            if (p4Items.includes(item as any)) available.structuralCheck.add(item);
+        });
+    
+        if(loadedData.values.TU && loadedData.values.Cl && p3Items.includes('TU/CL')) {
+            available.drinkingWater.add('TU/CL');
+            available.drinkingWater.delete('TU');
+            available.drinkingWater.delete('Cl');
+        }
+
+        const allSelections = {
+            photoLog: Array.from(available.photoLog),
+            fieldCount: Array.from(available.fieldCount),
+            drinkingWater: Array.from(available.drinkingWater),
+            structuralCheck: Array.from(available.structuralCheck),
+        };
+
+        // --- Create jobs for all categorized items ---
+        
+        // P1 & P2 Job Creator
+        const createP1P2Job = (itemName: string): PhotoLogJob => {
+            const reconstructedOcrData: PhotoLogJob['processedOcrData'] = [];
+            if (itemName === "TN/TP") {
+                const tnData = values.TN || {};
+                const tpData = values.TP || {};
+                const timeToEntryMap: Record<string, Partial<PhotoLogJob['processedOcrData'][0]>> = {};
+                
+                Object.entries(tnData).forEach(([id, data]) => {
+                    if (id === '_checklistData' || id === '_postInspectionDate') return;
+                    const key = (data as any).time || id;
+                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
+                    (timeToEntryMap[key] as any).value = (data as any).val;
+                    (timeToEntryMap[key] as any).identifier = id;
+                });
+                Object.entries(tpData).forEach(([id, data]) => {
+                    if (id === '_checklistData' || id === '_postInspectionDate') return;
+                    const key = (data as any).time || id;
+                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
+                    (timeToEntryMap[key] as any).valueTP = (data as any).val;
+                    (timeToEntryMap[key] as any).identifierTP = id;
+                });
+                Object.values(timeToEntryMap).sort((a,b) => (a.time || '').localeCompare(b.time || '')).forEach(partialEntry => {
+                    reconstructedOcrData.push({
+                        id: partialEntry.id!, time: partialEntry.time || '', value: (partialEntry as any).value || '',
+                        valueTP: (partialEntry as any).valueTP, identifier: (partialEntry as any).identifier, identifierTP: (partialEntry as any).identifierTP,
+                    });
+                });
+            } else {
+                const itemData = (values as any)[itemName] || {};
+                Object.entries(itemData).sort(([,a],[,b]) => ((a as any).time || '').localeCompare((b as any).time || '')).forEach(([id, entryData]) => {
+                    if (id === '_checklistData' || id === '_postInspectionDate') return;
+                    if (entryData) {
+                        reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: (entryData as any).time, value: (entryData as any).val, identifier: id });
+                    }
+                });
+            }
+            return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, siteLocation: site, selectedItem: itemName, photos: [], photoComments: {}, processedOcrData: reconstructedOcrData, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', decimalPlacesCl: undefined, ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined };
+        };
+
+        // P3 Job Creator
+        const createDrinkingWaterJob = (itemName: string, data: LoadedData): DrinkingWaterJob => {
+            const { receipt_no: local_receipt_no, site: local_site, values: local_values } = data;
+            
+            let details = '';
+            let decimalPlaces = 2;
+            let decimalPlacesCl: number | undefined = undefined;
+
+            const metadataEntry = local_values[itemName]?._p3_metadata;
+            if (metadataEntry?.val) {
+                try {
+                    const parsedMeta = JSON.parse(metadataEntry.val);
+                    details = parsedMeta.details || '';
+                    decimalPlaces = parsedMeta.decimalPlaces ?? 2;
+                    if (itemName === 'TU/CL') {
+                        decimalPlacesCl = parsedMeta.decimalPlacesCl ?? 2;
+                    }
+                } catch (e) {
+                    console.warn(`[LOAD] P3 메타데이터 파싱 실패 (항목: ${itemName}):`, e);
+                }
+            }
+
+            const reconstructedOcrData = DRINKING_WATER_IDENTIFIERS.map(identifier => {
+                const entry: DrinkingWaterJob['processedOcrData'][0] = { id: self.crypto.randomUUID(), time: '', value: '', identifier };
+                if (itemName === 'TU/CL') entry.valueTP = '';
+                const tuData = local_values.TU || {}; const clData = local_values.Cl || {};
+                let pVal, sVal, tVal;
+                if (itemName === 'TU') { pVal = tuData[identifier]?.val; tVal = tuData[identifier]?.time; } 
+                else if (itemName === 'Cl') { pVal = clData[identifier]?.val; tVal = clData[identifier]?.time; } 
+                else if (itemName === 'TU/CL') { pVal = tuData[identifier]?.val; sVal = clData[identifier]?.val; tVal = tuData[identifier]?.time || clData[identifier]?.time; }
+                entry.value = pVal || '';
+                if (entry.valueTP !== undefined) entry.valueTP = sVal || '';
+                entry.time = tVal || '';
+                return entry;
+            });
+            return {
+                id: self.crypto.randomUUID(),
+                receiptNumber: local_receipt_no,
+                selectedItem: itemName,
+                details: details,
+                processedOcrData: reconstructedOcrData,
+                decimalPlaces: decimalPlaces,
+                photos: [],
+                submissionStatus: 'idle',
+                submissionMessage: undefined,
+                ...(itemName === 'TU/CL' && { decimalPlacesCl: decimalPlacesCl })
+            };
+        };
+
+        // P1 Jobs
+        const newP1Jobs = allSelections.photoLog.map(createP1P2Job);
+        if (newP1Jobs.length > 0) {
+            setPhotoLogJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP1Jobs]);
+            if (activePage === 'photoLog') setActivePhotoLogJobId(newP1Jobs[0]?.id || null);
+        }
+        
+        // P2 Jobs
+        const newP2Jobs = allSelections.fieldCount.map(createP1P2Job);
+        if (newP2Jobs.length > 0) {
+            setFieldCountJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP2Jobs]);
+            if (activePage === 'fieldCount') setActiveFieldCountJobId(newP2Jobs[0]?.id || null);
+        }
+    
+        // P3 Jobs
+        const newP3Jobs: DrinkingWaterJob[] = allSelections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
+        if (newP3Jobs.length > 0) {
+            setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
+            if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
+        }
+    
+        // P4 Jobs
+        const newP4Jobs = allSelections.structuralCheck.map(itemName => {
+            const itemData = (values as any)[itemName as MainStructuralItemKey];
+            if (!itemData || !itemData['_checklistData']) return null;
+            return { 
+                id: self.crypto.randomUUID(), 
+                receiptNumber: receipt_no, 
+                mainItemKey: itemName as MainStructuralItemKey, 
+                checklistData: JSON.parse(itemData['_checklistData'].val), 
+                postInspectionDate: itemData['_postInspectionDate']?.val || '선택 안됨', 
+                postInspectionDateConfirmedAt: null, 
+                photos: [], 
+                photoComments: {},
+                submissionStatus: 'idle',
+                submissionMessage: undefined,
+            } as StructuralJob;
+        }).filter(Boolean) as StructuralJob[];
+    
+        if (newP4Jobs.length > 0) {
+            setStructuralCheckJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP4Jobs]);
+            if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP4Jobs[0]?.id || null);
+        }
+
+        setDraftMessage({ type: 'success', text: `'${receipt_no}' 데이터를 모두 불러왔습니다.`});
+        clearDraftMessage();
+
     } catch (error: any) {
-        setDraftMessage({ type: 'error', text: `불러오기 실패: ${error.message}`});
+        setDraftMessage({ type: 'error', text: `불러오기 실패: ${error.message}` });
         clearDraftMessage();
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  }, [receiptNumber]);
-
-  const handleConfirmLoad = useCallback((selections: LoadSelections) => {
-    if (!loadedData) return;
-    const { receipt_no, site, item: loadedItems, values } = loadedData;
-
-    const receiptParts = receipt_no.split('-');
-    const detail = receiptParts.pop() || '';
-    const common = receiptParts.join('-');
-    setReceiptNumberCommon(common);
-    setReceiptNumberDetail(detail);
-    setSiteLocation(site);
-    
-    // P1 & P2
-    const createP1P2Job = (itemName: string): PhotoLogJob => {
-        const reconstructedOcrData: PhotoLogJob['processedOcrData'] = [];
-       if (itemName === "TN/TP") {
-           const tnData = values.TN || {};
-           const tpData = values.TP || {};
-           const timeToEntryMap: Record<string, Partial<PhotoLogJob['processedOcrData'][0]>> = {};
-           
-           Object.entries(tnData).forEach(([id, data]) => {
-               const key = (data as any).time || id;
-               if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
-               (timeToEntryMap[key] as any).value = (data as any).val;
-               (timeToEntryMap[key] as any).identifier = id;
-           });
-           Object.entries(tpData).forEach(([id, data]) => {
-               const key = (data as any).time || id;
-               if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
-               (timeToEntryMap[key] as any).valueTP = (data as any).val;
-               (timeToEntryMap[key] as any).identifierTP = id;
-           });
-           Object.values(timeToEntryMap).sort((a,b) => (a.time || '').localeCompare(b.time || '')).forEach(partialEntry => {
-               reconstructedOcrData.push({
-                   id: partialEntry.id!, time: partialEntry.time || '', value: (partialEntry as any).value || '',
-                   valueTP: (partialEntry as any).valueTP, identifier: (partialEntry as any).identifier, identifierTP: (partialEntry as any).identifierTP,
-               });
-           });
-       } else {
-            const itemData = (values as any)[itemName] || {};
-            Object.entries(itemData).sort(([,a],[,b]) => ((a as any).time || '').localeCompare((b as any).time || '')).forEach(([id, entryData]) => {
-               if (entryData) {
-                   reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: (entryData as any).time, value: (entryData as any).val, identifier: id });
-               }
-           });
-       }
-       return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, siteLocation: site, selectedItem: itemName, photos: [], photoComments: {}, processedOcrData: reconstructedOcrData, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', decimalPlacesCl: undefined, ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined };
-   };
-   
-    const newP1Jobs = selections.photoLog.map(createP1P2Job);
-    if (newP1Jobs.length > 0) {
-        setPhotoLogJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP1Jobs]);
-        if (activePage === 'photoLog') setActivePhotoLogJobId(newP1Jobs[0]?.id || null);
-    }
-    
-    const newP2Jobs = selections.fieldCount.map(createP1P2Job);
-    if (newP2Jobs.length > 0) {
-        setFieldCountJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP2Jobs]);
-        if (activePage === 'fieldCount') setActiveFieldCountJobId(newP2Jobs[0]?.id || null);
-    }
-
-    // P3
-    const newP3Jobs: DrinkingWaterJob[] = selections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
-    if (newP3Jobs.length > 0) {
-        setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
-        if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
-    }
-
-    // P4
-    const newP4Jobs = selections.structuralCheck.map(itemName => {
-        const itemData = (values as any)[itemName as MainStructuralItemKey];
-        if (!itemData || !itemData['_checklistData']) return null;
-        return { 
-            id: self.crypto.randomUUID(), 
-            receiptNumber: receipt_no, 
-            mainItemKey: itemName as MainStructuralItemKey, 
-            checklistData: JSON.parse(itemData['_checklistData'].val), 
-            postInspectionDate: itemData['_postInspectionDate']?.val || '선택 안됨', 
-            postInspectionDateConfirmedAt: null, 
-            photos: [], 
-            photoComments: {},
-            submissionStatus: 'idle',
-            submissionMessage: undefined,
-        } as StructuralJob;
-    }).filter(Boolean) as StructuralJob[];
-
-    if (newP4Jobs.length > 0) {
-        setStructuralCheckJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP4Jobs]);
-        if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP4Jobs[0]?.id || null);
-    }
-
-    setDraftMessage({ type: 'success', text: `'${receipt_no}' 데이터를 선택한 페이지에 불러왔습니다.`});
-    clearDraftMessage();
-    setIsLoadModalOpen(false);
-    setLoadedData(null);
-
-  }, [loadedData, activePage]);
-
+  }, [receiptNumber, activePage, siteLocation]);
 
   const handleAddTask = useCallback(() => {
     if (!receiptNumber) {
@@ -967,15 +1049,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
       {renderActivePage()}
       
-      {isLoadModalOpen && loadedData && (
-        <LoadDataModal
-          isOpen={isLoadModalOpen}
-          onClose={() => setIsLoadModalOpen(false)}
-          onConfirm={handleConfirmLoad}
-          loadedData={loadedData}
-        />
-      )}
-
       {userRole === 'admin' && <AdminPanel adminUserName={userName} />}
 
       <Footer />
