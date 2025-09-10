@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ChecklistStatus, MainStructuralItemKey, OTHER_DIRECT_INPUT_OPTION, CertificateDetails, CertificatePresenceStatus, ANALYSIS_IMPOSSIBLE_OPTION, MAIN_STRUCTURAL_ITEMS, EMISSION_STANDARD_ITEM_NAME, RESPONSE_TIME_ITEM_NAME } from '../../shared/structuralChecklists';
+import { ChecklistStatus, MainStructuralItemKey, OTHER_DIRECT_INPUT_OPTION, CertificateDetails, CertificatePresenceStatus, ANALYSIS_IMPOSSIBLE_OPTION, MAIN_STRUCTURAL_ITEMS, EMISSION_STANDARD_ITEM_NAME, RESPONSE_TIME_ITEM_NAME } from '../../shared/StructuralChecklists';
 import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
 
