@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Spinner } from './Spinner';
 // FIX: Corrected import path for ExtractedEntry type
-import { ExtractedEntry } from './shared/types';
+import { ExtractedEntry } from '@/shared/types';
 import { ActionButton } from './ActionButton'; 
 
 interface OcrResultDisplayProps {
