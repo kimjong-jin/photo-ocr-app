@@ -1,3 +1,5 @@
+
+
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ImageInput, ImageInfo as BaseImageInfo } from '../ImageInput';
 import { CameraView } from '../CameraView';
@@ -11,7 +13,7 @@ import JSZip from 'jszip';
 import { TN_IDENTIFIERS, TP_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
-import { SchemaType } from '@google/generative-ai';
+import { Type } from '@google/genai';
 import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
 import { generateA4CompositeJPEGPages, dataURLtoBlob, generateStampedImage, CompositeImageInput } from '../../services/imageStampingService';
