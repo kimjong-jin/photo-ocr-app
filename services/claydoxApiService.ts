@@ -1,6 +1,7 @@
 //claydoxApiService.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
-import { ExtractedEntry } from '../PhotoLogPage';
+// FIX: The ExtractedEntry type should be imported from the shared types definition file.
+import type { ExtractedEntry } from '../shared/types';
 import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, ANALYSIS_ITEM_GROUPS } from '../shared/constants';
 import {
   MainStructuralItemKey,
@@ -13,7 +14,7 @@ import {
   OTHER_DIRECT_INPUT_OPTION,
   EMISSION_STANDARD_ITEM_NAME,
   RESPONSE_TIME_ITEM_NAME
-} from '../shared/structuralChecklists';
+} from '../shared/StructuralChecklists';
 import { ImageInfo } from '../components/ImageInput';
 import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput } from './imageStampingService';
 import JSZip from 'jszip';
@@ -456,7 +457,7 @@ export const sendToClaydoxApi = async (
 
 // --- END: Page 1 (Photo Log / OCR Data) Functionality ---
 
-// --- START: Page 2 (Structural Check) Functionality ---
+// --- START: Page 4 (Structural Check) Functionality ---
 
 interface StructuralCheckPayloadForKtl {
   receiptNumber: string;
@@ -807,7 +808,6 @@ export const sendBatchStructuralChecksToKtlApi = async (
       const imageSourcesForComposite: CompositeImageInput[] = photosForThisReceipt.map((p) => {
         const sourceJob = jobs.find((j) => j.id === p.jobId);
         const comment = sourceJob?.photoComments[p.uid];
-        // 합성(미리보기)에는 스탬프 버전 사용
         // @ts-ignore
         const stampedBase64 = p.base64Stamped || (p as any).base64;
         return {
@@ -832,14 +832,11 @@ export const sendBatchStructuralChecksToKtlApi = async (
         const compositeDataUrl = await generateCompositeImage(imageSourcesForComposite, stampDetailsComposite, 'image/png');
         const compositeBlob = dataURLtoBlob(compositeDataUrl);
         const compositeFileNameOnServer = generateCompositeImageNameForKtl(receiptNo);
-
-        // NOTE: 브라우저 환경 기준. Node 환경이면 File 대신 Blob 사용 필요.
         const compositeFile = new File([compositeBlob], compositeFileNameOnServer, { type: 'image/png' });
-
         filesToUploadDirectly.push(compositeFile);
         receiptToCompositeFileNameMap.set(receiptNo, compositeFileNameOnServer);
       } catch (compositeGenError: any) {
-        console.error(`[ClaydoxAPI - Page 2] Error generating composite image for ${receiptNo}:`, compositeGenError);
+        console.error(`[ClaydoxAPI - Page 4] Error generating composite image for ${receiptNo}:`, compositeGenError);
         jobs
           .filter((j) => j.receiptNumber === receiptNo)
           .forEach((job) => {
@@ -867,7 +864,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
           const fileNameInZip = safeNameWithExt(photo.file.name, photo.mimeType);
           zip.file(fileNameInZip, rawBlob);
         } catch (zipError: any) {
-          console.error(`[ClaydoxAPI - Page 2] Error adding raw photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
+          console.error(`[ClaydoxAPI - Page 4] Error adding raw photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
         }
       }
       if (Object.keys(zip.files).length > 0) {
@@ -879,7 +876,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
           filesToUploadDirectly.push(zipFile);
           receiptToZipFileNameMap.set(receiptNo, zipFileNameOnServer);
         } catch (zipGenError: any) {
-          console.error(`[ClaydoxAPI - Page 2] Error generating ZIP file for ${receiptNo}:`, zipGenError);
+          console.error(`[ClaydoxAPI - Page 4] Error generating ZIP file for ${receiptNo}:`, zipGenError);
           jobs
             .filter((j) => j.receiptNumber === receiptNo)
             .forEach((job) => {
@@ -925,7 +922,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
     if (relatedJobStrict) {
       relatedJobStrict.checklistImageFileName = chkImgInfo.file.name;
     } else {
-      console.warn(`[ClaydoxAPI - Page 2] Could not find related job for checklist image: ${chkImgInfo.file.name}`);
+      console.warn(`[ClaydoxAPI - Page 4] Could not find related job for checklist image: ${chkImgInfo.file.name}`);
     }
   });
 
@@ -935,7 +932,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       formDataForAllUploads.append('files', file, file.name);
     });
     try {
-      console.log('[ClaydoxAPI - Page 2] Uploading all files directly to KTL /uploadfiles:', filesToUploadDirectly.map((f) => f.name));
+      console.log('[ClaydoxAPI - Page 4] Uploading all files directly to KTL /uploadfiles:', filesToUploadDirectly.map((f) => f.name));
       await retryKtlApiCall<KtlApiResponseData>(
         () =>
           axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formDataForAllUploads, {
@@ -944,11 +941,11 @@ export const sendBatchStructuralChecksToKtlApi = async (
           }),
         2,
         2000,
-        'Page 2 All Files Upload (Direct to KTL /uploadfiles)'
+        'Page 4 All Files Upload (Direct to KTL /uploadfiles)'
       );
-      console.log('[ClaydoxAPI - Page 2] All files for Page 2 uploaded successfully to KTL /uploadfiles.');
+      console.log('[ClaydoxAPI - Page 4] All files for Page 4 uploaded successfully to KTL /uploadfiles.');
     } catch (filesUploadError: any) {
-      console.error('[ClaydoxAPI - Page 2] Files upload to KTL /uploadfiles failed:', filesUploadError);
+      console.error('[ClaydoxAPI - Page 4] Files upload to KTL /uploadfiles failed:', filesUploadError);
       jobs.forEach((job) => {
         if (!results.find((r) => r.receiptNo === job.receiptNumber && (MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey) === r.mainItem)) {
           results.push({
@@ -1007,12 +1004,12 @@ export const sendBatchStructuralChecksToKtlApi = async (
     };
 
     const jsonTargetUrl = `${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`;
-    const operationLogName = `Page 2 JSON Send for ${receiptNo} directly to /env`;
+    const operationLogName = `Page 4 JSON Send for ${receiptNo} directly to /env`;
 
     console.log(
-      `[ClaydoxAPI - Page 2] Sending MERGED JSON for ${receiptNo} (Items: ${mainItemNamesForDesc.join(', ')}) directly to URL: ${jsonTargetUrl}`
+      `[ClaydoxAPI - Page 4] Sending MERGED JSON for ${receiptNo} (Items: ${mainItemNamesForDesc.join(', ')}) directly to URL: ${jsonTargetUrl}`
     );
-    console.log(`[ClaydoxAPI - Page 2] Stringified JSON length for ${receiptNo}: ${JSON.stringify(finalKtlJsonObject).length}`);
+    console.log(`[ClaydoxAPI - Page 4] Stringified JSON length for ${receiptNo}: ${JSON.stringify(finalKtlJsonObject).length}`);
 
     try {
       const jsonResponse = await retryKtlApiCall<KtlApiResponseData>(
@@ -1029,7 +1026,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
         operationLogName
       );
 
-      console.log(`[ClaydoxAPI - Page 2] MERGED JSON for ${receiptNo} sent. Response:`, jsonResponse.data);
+      console.log(`[ClaydoxAPI - Page 4] MERGED JSON for ${receiptNo} sent. Response:`, jsonResponse.data);
       currentGroupOfJobs.forEach((job) => {
         results.push({
           receiptNo: job.receiptNumber,
@@ -1044,7 +1041,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
         const axiosError = error as AxiosError;
         const responseData = axiosError.response?.data;
         console.error(
-          `[ClaydoxAPI - Page 2] Axios MERGED JSON send for ${receiptNo} directly to /env failed. TargetURL: ${jsonTargetUrl}. Error:`,
+          `[ClaydoxAPI - Page 4] Axios MERGED JSON send for ${receiptNo} directly to /env failed. TargetURL: ${jsonTargetUrl}. Error:`,
           responseData || axiosError.message
         );
 
@@ -1065,7 +1062,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
         // @ts-ignore
         errorMsg = error.isNetworkError ? error.message : error.message || `알 수 없는 비-Axios 오류 (${receiptNo}, 직접 전송)`;
       }
-      console.error(`[ClaydoxAPI - Page 2] Final error message for ${receiptNo} (direct to /env):`, errorMsg);
+      console.error(`[ClaydoxAPI - Page 4] Final error message for ${receiptNo} (direct to /env):`, errorMsg);
       currentGroupOfJobs.forEach((job) => {
         results.push({
           receiptNo: job.receiptNumber,
@@ -1079,9 +1076,9 @@ export const sendBatchStructuralChecksToKtlApi = async (
   return results;
 };
 
-// --- END: Page 2 (Structural Check) Functionality ---
+// --- END: Page 4 (Structural Check) Functionality ---
 
-// --- START: Page 3 (KakaoTalk) Functionality ---
+// --- START: Page 5 (KakaoTalk) Functionality ---
 
 const KAKAO_API_KEY = '9f04ece57d9f1f613b8888dae1997c57d3f';
 
@@ -1116,7 +1113,7 @@ export const sendKakaoTalkMessage = async (
   };
 
   try {
-    console.log('[ClaydoxAPI - Page 3] Sending KakaoTalk message with payload:', labviewItemValue);
+    console.log('[ClaydoxAPI - Page 5] Sending KakaoTalk message with payload:', labviewItemValue);
     const response = await retryKtlApiCall<KtlApiResponseData>(
       () =>
         axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_KAKAO_API_ENDPOINT}`, payloadForJsonRequest, {
@@ -1127,30 +1124,23 @@ export const sendKakaoTalkMessage = async (
         }),
       2,
       2000,
-      'Page 3 KakaoTalk Send'
+      'Page 5 KakaoTalk Send'
     );
-    console.log('[ClaydoxAPI - Page 3] KakaoTalk message sent. Response:', response.data);
+    console.log('[ClaydoxAPI - Page 5] KakaoTalk message sent. Response:', response.data);
     return { message: response.data?.message || '카카오톡 메시지 전송 요청 완료', data: response.data };
   } catch (error: any) {
-    let errorMsg = '알 수 없는 오류 발생 (Page 3)';
+    let errorMsg = '알 수 없는 오류 발생 (카카오톡)';
     if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError;
-      const responseData = axiosError.response?.data;
-      if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof (responseData as any).message === 'string') {
-        errorMsg = (responseData as any).message;
-      } else if (typeof responseData === 'string' && responseData.length < 500 && responseData.trim()) {
-        errorMsg = responseData.trim();
-      } else if (axiosError.message) {
-        errorMsg = axiosError.message;
-      } else {
-        errorMsg = 'KTL API와 통신 중 알 수 없는 오류가 발생했습니다. (Page 3)';
-      }
+        const axiosError = error as AxiosError;
+        const responseData = axiosError.response?.data;
+        if (responseData && typeof responseData === 'object' && 'message' in responseData) {
+            errorMsg = (responseData as any).message;
+        } else if (axiosError.message) {
+            errorMsg = axiosError.message;
+        }
     } else {
-      errorMsg = error.message || '알 수 없는 비-Axios 오류 발생 (Page 3)';
+        errorMsg = error.message || '알 수 없는 비-Axios 오류 발생 (카카오톡)';
     }
-    console.error('[ClaydoxAPI - Page 3] Final error message to throw:', errorMsg);
     throw new Error(errorMsg);
   }
 };
-
-// --- END: Page 3 (KakaoTalk) Functionality ---
