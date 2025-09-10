@@ -1,5 +1,5 @@
 import React from 'react';
-import { CHECKLIST_DEFINITIONS, MAIN_STRUCTURAL_ITEMS, CertificateDetails, EMISSION_STANDARD_ITEM_NAME, RESPONSE_TIME_ITEM_NAME } from '../../shared/structuralChecklists';
+import { CHECKLIST_DEFINITIONS, MAIN_STRUCTURAL_ITEMS, CertificateDetails, EMISSION_STANDARD_ITEM_NAME, RESPONSE_TIME_ITEM_NAME } from '../../shared/StructuralChecklists';
 import type { StructuralJob } from '../../StructuralCheckPage';
 
 interface ChecklistSnapshotProps {
@@ -191,9 +191,6 @@ export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => 
           <span style={{ fontWeight: '600', fontSize: '16px', color: '#f8fafc' }}>
               {isFixedDateItem ? '사후검사일' : '사후검사 유효일자'}: {job.postInspectionDate}
           </span>
-          {job.postInspectionDateConfirmedAt && (
-              <span style={{ fontSize: '12px', color: '#94a3b8' }}>(확인: {job.postInspectionDateConfirmedAt})</span>
-          )}
         </div>
 
         {checklistItems.map((itemName, index) => {
