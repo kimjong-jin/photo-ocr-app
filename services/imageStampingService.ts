@@ -78,28 +78,6 @@ const ensureDataUrl = (src: string, mimeType: string) =>
 
 const mm2px = (mm: number, dpi: number) => Math.round(mm * dpi / 25.4);
 
-/** cover: 비율 유지 + 중앙 크롭하여 셀을 꽉 채움 */
-function drawImageInCellCover(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  x: number, y: number, w: number, h: number
-) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(x, y, w, h);
-  ctx.clip();
-
-  const s = Math.max(w / img.width, h / img.height);
-  const dw = img.width * s;
-  const dh = img.height * s;
-  const dx = x + (w - dw) / 2;
-  const dy = y + (h - dh) / 2;
-
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(img, dx, dy, dw, dh);
-  ctx.restore();
-}
-
 /** contain: 비율 유지 + 레터박스(여백 허용) */
 function drawImageInCellContain(
   ctx: CanvasRenderingContext2D,
@@ -113,16 +91,6 @@ function drawImageInCellContain(
   const dy = y + Math.round((h - dh) / 2);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(img, dx, dy, dw, dh);
-}
-
-/** fill: 비율 무시 + 셀 크기에 딱 맞춤(왜곡 가능) */
-function drawImageInCellFill(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  x: number, y: number, w: number, h: number
-) {
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(img, x, y, w, h);
 }
 
 function drawSlotLabel(
@@ -241,47 +209,53 @@ export const generateStampedImage = (
   });
 };
 
+/** dataURL → Blob 변환 */
+export const dataURLtoBlob = (dataurl: string): Blob => {
+  const arr = dataurl.split(',');
+  if (arr.length < 2) throw new Error('Invalid data URL format for blob conversion.');
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  if (!mimeMatch?.[1]) throw new Error('Could not determine MIME type from data URL.');
+
+  const mime = mimeMatch[1];
+  let bstr: string;
+  try {
+    bstr = atob(arr[1]);
+  } catch (e: any) {
+    throw new Error(`Invalid base64 data in data URL: ${e.message}`);
+  }
+
+  const n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  for (let i = 0; i < n; i++) u8arr[i] = bstr.charCodeAt(i);
+  return new Blob([u8arr], { type: mime });
+};
+
 /**
- * 여러 장을 그리드로 배치해 1장의 합성 이미지로 만들고,
- * 하단에 공통 스탬프(접수번호/현장/항목/검사시작일)를 그려 dataURL 반환.
- *
- * - 각 타일의 코멘트(comment)는 해당 타일의 좌상단에 표시
- * - 글자 크기 = (셀/캔버스) 짧은 변 × TEXT_SCALE (최소 12px)
- * - 결과 포맷: JPEG(기본) 또는 PNG
+ * 여러 이미지를 하나의 캔버스에 타일링하고 스탬프를 추가하여 단일 이미지 dataURL을 생성합니다. (Page 3, Page 4용)
+ * 결과 이미지의 크기는 MAX_COMPOSITE_DIMENSION을 초과하지 않도록 축소됩니다.
  */
-export const generateCompositeImage = (
+export const generateCompositeImage = async (
   images: CompositeImageInput[],
   stampDetails: StampDetails,
   outputMimeType: 'image/jpeg' | 'image/png' = 'image/jpeg',
   quality: number = 0.9
 ): Promise<string> => {
-  return new Promise(async (resolve, reject) => {
     if (!images.length) {
-      // 빈 안내 이미지
       const c = document.createElement('canvas');
       c.width = 400; c.height = 300;
       const ctx = c.getContext('2d');
-      if (!ctx) { reject(new Error('Failed to get 2D context for blank composite canvas.')); return; }
+      if (!ctx) { throw new Error('Failed to get 2D context for blank composite canvas.'); }
       ctx.fillStyle = '#fff'; ctx.fillRect(0,0,c.width,c.height);
       ctx.fillStyle = '#777'; ctx.font = '20px Arial'; ctx.textAlign='center';
       ctx.fillText('첨부된 사진 없음', c.width/2, c.height/2);
-      resolve(c.toDataURL(outputMimeType, quality));
-      return;
+      return c.toDataURL(outputMimeType, quality);
     }
 
-    // (1) 이미지 로드
-    const loaded = await Promise
-      .all(images.map(info => new Promise<HTMLImageElement>((ok, bad) => {
-        const im = new Image();
-        im.onload = () => ok(im);
-        im.onerror = () => bad(new Error(`Failed to load an image (MIME: ${info.mimeType}) for composite.`));
-        im.src = ensureDataUrl(info.base64, info.mimeType);
-      })))
-      .catch(reject);
-    if (!loaded) return;
+    const loadedImages = await Promise.all(
+      images.map(img => loadImageFromBase64(ensureDataUrl(img.base64, img.mimeType)))
+    );
 
-    // (2) 그리드 계산 (간단 자동 배치)
-    const n = loaded.length;
+    const n = loadedImages.length;
     let padding = 10;
     let cols = Math.ceil(Math.sqrt(n));
     let rows = Math.ceil(n / cols);
@@ -289,8 +263,8 @@ export const generateCompositeImage = (
     else if (n === 3) { cols = 3; rows = 1; }
     else if (n === 4) { cols = 2; rows = 2; }
 
-    const maxW = Math.max(...loaded.map(i => i.width), 300);
-    const maxH = Math.max(...loaded.map(i => i.height), 200);
+    const maxW = Math.max(...loadedImages.map(i => i.width), 300);
+    const maxH = Math.max(...loadedImages.map(i => i.height), 200);
     const cellW0 = maxW;
     const cellH0 = maxH;
 
@@ -314,44 +288,33 @@ export const generateCompositeImage = (
     canvas.height = Math.round(canvasH * scale);
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) { reject(new Error('Failed to get 2D context for composite canvas.')); return; }
+    if (!ctx) { throw new Error('Failed to get 2D context for composite canvas.'); }
 
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // (3) 각 이미지 그리기 + 코멘트
-    loaded.forEach((img, idx) => {
+    loadedImages.forEach((img, idx) => {
       const r = Math.floor(idx / cols);
       const c = idx % cols;
       const x = padding + c * (cellW + padding);
       const y = padding + r * (cellH + padding);
 
-      const hRatio = cellW / img.width;
-      const vRatio = cellH / img.height;
-      const ratio = Math.min(hRatio, vRatio);
+      drawImageInCellContain(ctx, img, x, y, cellW, cellH);
 
-      const dw = Math.round(img.width * ratio);
-      const dh = Math.round(img.height * ratio);
-      const cx = x + Math.round((cellW - dw) / 2);
-      const cy = y + Math.round((cellH - dh) / 2);
-
-      ctx.drawImage(img, cx, cy, dw, dh);
-
-      // 코멘트(타일 좌상단)
       const comment = images[idx].comment?.trim();
       if (comment) {
-        const baseDim = Math.min(dw, dh);
-        const fontSize = Math.max(12, Math.round(baseDim * TEXT_SCALE)); // 셀 기준 3%
+        const baseDim = Math.min(cellW, cellH);
+        const fontSize = Math.max(12, Math.round(baseDim * TEXT_SCALE));
         const pad = Math.round(fontSize * 0.4);
 
         ctx.font = `bold ${fontSize}px Arial, sans-serif`;
         const text = `코멘트: ${comment}`;
         const metrics = ctx.measureText(text);
-        const blockW = Math.min(dw - pad * 2, Math.round(metrics.width + pad * 2));
+        const blockW = Math.min(cellW - pad * 4, Math.round(metrics.width + pad * 2));
         const blockH = Math.round(fontSize + pad * 2);
 
-        const rx = cx + pad;
-        const ry = cy + pad;
+        const rx = x + pad;
+        const ry = y + pad;
 
         ctx.fillStyle = 'rgba(0,0,0,0.75)';
         ctx.fillRect(rx, ry, blockW, blockH);
@@ -363,10 +326,9 @@ export const generateCompositeImage = (
       }
     });
 
-    // (4) 하단 공통 스탬프
     const { receiptNumber, siteLocation, inspectionStartDate, item } = stampDetails;
     const canvasBase = Math.min(canvas.width, canvas.height);
-    const stampFont = Math.max(12, Math.round(canvasBase * TEXT_SCALE)); // 캔버스 기준 3%
+    const stampFont = Math.max(12, Math.round(canvasBase * TEXT_SCALE));
     const stampPad = Math.round(stampFont * 0.5);
     const lineH = Math.round(stampFont * 1.4);
 
@@ -399,38 +361,16 @@ export const generateCompositeImage = (
       });
     }
 
-    // (5) export
-    resolve(canvas.toDataURL(outputMimeType, quality));
-  });
+    return canvas.toDataURL(outputMimeType, quality);
 };
 
-/** dataURL → Blob 변환 */
-export const dataURLtoBlob = (dataurl: string): Blob => {
-  const arr = dataurl.split(',');
-  if (arr.length < 2) throw new Error('Invalid data URL format for blob conversion.');
-  const mimeMatch = arr[0].match(/:(.*?);/);
-  if (!mimeMatch?.[1]) throw new Error('Could not determine MIME type from data URL.');
-
-  const mime = mimeMatch[1];
-  let bstr: string;
-  try {
-    bstr = atob(arr[1]);
-  } catch (e: any) {
-    throw new Error(`Invalid base64 data in data URL: ${e.message}`);
-  }
-
-  const n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  for (let i = 0; i < n; i++) u8arr[i] = bstr.charCodeAt(i);
-  return new Blob([u8arr], { type: mime });
-};
 
 // ===== A4 composite: 2×2(4분면) 고정 + 옵션 확장 =====
 
 type A4Base64Image = { base64: string; mimeType: string; comment?: string };
 
 /**
- * 입력 이미지를 A4 JPG로, 페이지당 최대 4장(2×2) 타일링하여 여러 장 생성.
+ * 입력 이미지를 A4 JPG로, 페이지당 최대 4장(2×2) 타일링하여 여러 장 생성. (P1/P2/P4 페이지용)
  * - 기본 "4분면 고정"(TL,TR,BL,BR). keepEmptySlots=true면 1~3장도 2×2 유지.
  * - fitMode:
  *    'fill'    → 왜곡 허용, 셀 100% 채움(여백/크롭 없음)
@@ -531,9 +471,35 @@ export async function generateA4CompositeJPEGPages(
 
       if (img) {
         if (mode === 'fill') {
-          drawImageInCellFill(ctx, img, cell.x, cell.y, cell.w, cell.h);
+            const drawImageInCellFill = (
+                ctx: CanvasRenderingContext2D,
+                img: HTMLImageElement,
+                x: number, y: number, w: number, h: number
+            ) => {
+              ctx.imageSmoothingEnabled = true;
+              ctx.drawImage(img, x, y, w, h);
+            }
+            drawImageInCellFill(ctx, img, cell.x, cell.y, cell.w, cell.h);
         } else if (mode === 'cover') {
-          drawImageInCellCover(ctx, img, cell.x, cell.y, cell.w, cell.h);
+            const drawImageInCellCover = (
+                ctx: CanvasRenderingContext2D,
+                img: HTMLImageElement,
+                x: number, y: number, w: number, h: number
+            ) => {
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(x, y, w, h);
+              ctx.clip();
+              const s = Math.max(w / img.width, h / img.height);
+              const dw = img.width * s;
+              const dh = img.height * s;
+              const dx = x + (w - dw) / 2;
+              const dy = y + (h - dh) / 2;
+              ctx.imageSmoothingEnabled = true;
+              ctx.drawImage(img, dx, dy, dw, dh);
+              ctx.restore();
+            }
+            drawImageInCellCover(ctx, img, cell.x, cell.y, cell.w, cell.h);
         } else {
           drawImageInCellContain(ctx, img, cell.x, cell.y, cell.w, cell.h);
         }
