@@ -11,7 +11,7 @@ import JSZip from 'jszip';
 import { TN_IDENTIFIERS, TP_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
-import { Type } from '@google/genai';
+import { Type } from '@google/generative-ai';
 import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
 import { generateA4CompositeJPEGPages, dataURLtoBlob, generateStampedImage, CompositeImageInput } from '../../services/imageStampingService';
