@@ -4,7 +4,7 @@ import {
   GenerateContentResponse,
   Part,
   GenerateContentParameters,
-} from "@google/genai";
+} from "@google/generative-ai";
 
 let aiClient: GoogleGenAI | null = null;
 
