@@ -26,8 +26,8 @@ import { sendBatchStructuralChecksToKtlApi, generateStructuralKtlJsonForPreview,
 import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
 import { ImagePreview } from './components/ImagePreview';
 import { extractTextFromImage } from './services/geminiService';
-import type { GenerateContentParameters } from "@google/genai";
-import { Type } from '@google/genai';
+import type { GenerateContentParameters } from "@google/generative-ai";
+import { SchemaType } from "@google/generative-ai";
 import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { ChecklistSnapshot } from './components/structural/ChecklistSnapshot';
 
