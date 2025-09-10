@@ -1,3 +1,4 @@
+// services/geminiService.ts
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 let aiClient: GoogleGenerativeAI | null = null;
@@ -18,17 +19,15 @@ const getGenAIClient = (): GoogleGenerativeAI => {
   return aiClient;
 };
 
-const MAX_RETRIES = 3;                // 최대 재시도 횟수
-const INITIAL_DELAY_MS = 1_000;       // 백오프 시작 지연 (1초)
+const MAX_RETRIES = 3;
+const INITIAL_DELAY_MS = 1_000;
 
 /** 지정된 시간(ms)만큼 대기 */
 async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * 재시도 + 지수적 백오프 로직 공통화
- */
+/** 재시도 + 지수적 백오프 로직 */
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   retries: number,
@@ -55,9 +54,6 @@ async function retryWithBackoff<T>(
 
 /**
  * 이미지에서 텍스트를 추출
- * @param imageBase64 Base64 인코딩된 이미지 데이터
- * @param mimeType 이미지 MIME 타입 (e.g. "image/jpeg")
- * @param promptText 분석용 프롬프트
  */
 export const extractTextFromImage = async (
   imageBase64: string,
@@ -67,7 +63,6 @@ export const extractTextFromImage = async (
   const client = getGenAIClient();
   const model = client.getGenerativeModel({ model: "gemini-2.5-pro" });
 
-  // 실제 API 호출 함수
   const callApi = async (): Promise<string> => {
     const result = await model.generateContent([
       { text: promptText },
@@ -76,7 +71,6 @@ export const extractTextFromImage = async (
     return result.response.text();
   };
 
-  // 재시도 로직 적용
   const isRetryableError = (error: any): boolean => {
     const message = error?.message?.toLowerCase() ?? "";
     return (
