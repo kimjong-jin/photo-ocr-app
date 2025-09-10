@@ -1,5 +1,9 @@
-// services/geminiService.ts
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import {
+  GoogleGenerativeAI,
+  GenerateContentResponse,
+  Part,
+  GenerateContentParameters,
+} from "@google/generative-ai";
 
 let aiClient: GoogleGenerativeAI | null = null;
 
