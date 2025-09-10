@@ -1,5 +1,5 @@
 import React from 'react';
-import AnalysisPage from './components/analysis/AnalysisPage';
+import AnalysisPage from './components/analysis/analysisPage';
 import type { PhotoLogJob } from './shared/types';
 
 interface PhotoLogPageProps {
