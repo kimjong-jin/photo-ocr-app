@@ -13,7 +13,7 @@ import { UserRole } from './components/UserNameInput';
 import AdminPanel from './components/admin/AdminPanel';
 import { callSaveTempApi, callLoadTempApi, SaveDataPayload, LoadedData, SavedValueEntry } from './services/apiService';
 import { Spinner } from './components/Spinner';
-import { MAIN_STRUCTURAL_ITEMS, MainStructuralItemKey, STRUCTURAL_ITEM_GROUPS, CHECKLIST_DEFINITIONS, CertificateDetails, StructuralCheckSubItemData, PREFERRED_MEASUREMENT_METHODS } from './shared/structuralChecklists';
+import { MAIN_STRUCTURAL_ITEMS, MainStructuralItemKey, STRUCTURAL_ITEM_GROUPS, CHECKLIST_DEFINITIONS, CertificateDetails, StructuralCheckSubItemData, PREFERRED_MEASUREMENT_METHODS } from './shared/StructuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
 
 
