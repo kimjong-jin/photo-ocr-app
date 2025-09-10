@@ -14,7 +14,7 @@ import {
   OTHER_DIRECT_INPUT_OPTION,
   EMISSION_STANDARD_ITEM_NAME,
   RESPONSE_TIME_ITEM_NAME
-} from '../shared/StructuralChecklists';
+} from '../shared/structuralChecklists';
 import { ImageInfo } from '../components/ImageInput';
 import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput } from './imageStampingService';
 import JSZip from 'jszip';
