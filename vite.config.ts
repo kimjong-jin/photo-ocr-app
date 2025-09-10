@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
       alias: {
         // src 디렉토리를 @ 로 매핑
         // 예: import AnalysisPage from '@/components/analysis/AnalysisPage'
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(__dirname, 'src'),
       },
     },
   };
