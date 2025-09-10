@@ -1,15 +1,9 @@
-import axios, { AxiosError } from "axios";
-import {
-  GoogleGenAI,
-  GenerateContentResponse,
-  Part,
-  GenerateContentParameters,
-} from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-let aiClient: GoogleGenAI | null = null;
+let aiClient: GoogleGenerativeAI | null = null;
 
 /** Gemini 클라이언트 싱글턴 생성 함수 */
-const getGenAIClient = (): GoogleGenAI => {
+const getGenAIClient = (): GoogleGenerativeAI => {
   const apiKey = import.meta.env.VITE_API_KEY;
   if (!apiKey) {
     console.error("[geminiService] 🚨 VITE_API_KEY 환경변수 미설정 또는 빈 값");
@@ -18,8 +12,8 @@ const getGenAIClient = (): GoogleGenAI => {
     );
   }
   if (!aiClient) {
-    aiClient = new GoogleGenAI({ apiKey });
-    console.info("[geminiService] GoogleGenAI 클라이언트 초기화 완료");
+    aiClient = new GoogleGenerativeAI(apiKey);
+    console.info("[geminiService] GoogleGenerativeAI 클라이언트 초기화 완료");
   }
   return aiClient;
 };
