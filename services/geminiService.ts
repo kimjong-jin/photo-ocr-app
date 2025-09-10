@@ -18,7 +18,6 @@ const getGenAIClient = (): GoogleGenerativeAI => {
   return aiClient;
 };
 
-const DEFAULT_TIMEOUT_MS = 20_000;    // 요청 타임아웃 (20초)
 const MAX_RETRIES = 3;                // 최대 재시도 횟수
 const INITIAL_DELAY_MS = 1_000;       // 백오프 시작 지연 (1초)
 
@@ -59,41 +58,31 @@ async function retryWithBackoff<T>(
  * @param imageBase64 Base64 인코딩된 이미지 데이터
  * @param mimeType 이미지 MIME 타입 (e.g. "image/jpeg")
  * @param promptText 분석용 프롬프트
- * @param modelConfig Gemini 모델 구성 (optional)
  */
 export const extractTextFromImage = async (
   imageBase64: string,
   mimeType: string,
-  promptText: string,
-  modelConfig: GenerateContentParameters["config"] = {}
+  promptText: string
 ): Promise<string> => {
   const client = getGenAIClient();
-
-  const parts: Part[] = [
-    { text: promptText },
-    { inlineData: { mimeType, data: imageBase64 } },
-  ];
-  // ✅ FIX: 고품질 멀티모달 처리에는 'gemini-2.5-pro' 모델 권장
-  const model = "gemini-2.5-pro";
+  const model = client.getGenerativeModel({ model: "gemini-2.5-pro" });
 
   // 실제 API 호출 함수
   const callApi = async (): Promise<string> => {
-    const response: GenerateContentResponse = await client.models.generateContent({
-      model,
-      contents: { parts },
-      config: modelConfig,
-      // @ts-ignore: SDK 내부 axios 옵션 전달용
-      axiosRequestConfig: { timeout: DEFAULT_TIMEOUT_MS },
-    });
-    return response.text;
+    const result = await model.generateContent([
+      { text: promptText },
+      { inlineData: { mimeType, data: imageBase64 } },
+    ]);
+    return result.response.text();
   };
 
-  // 500~599번대 서버 오류만 재시도 대상
+  // 재시도 로직 적용
   const isRetryableError = (error: any): boolean => {
-    const status = (error as AxiosError).response?.status;
+    const message = error?.message?.toLowerCase() ?? "";
     return (
-      (status !== undefined && status >= 500 && status < 600) ||
-      error.message?.toLowerCase().includes("internal error encountered")
+      message.includes("internal error") ||
+      message.includes("unavailable") ||
+      message.includes("timeout")
     );
   };
 
@@ -108,12 +97,12 @@ export const extractTextFromImage = async (
     return extractedText;
   } catch (error: any) {
     console.error("[geminiService] 모든 재시도 실패:", error.message);
-    if (error.message.includes("API Key not valid")) {
+    if (error.message.includes("api key not valid")) {
       throw new Error(
-        "유효하지 않은 Gemini API Key입니다. API_KEY 환경변수를 확인해주세요."
+        "유효하지 않은 Gemini API Key입니다. VITE_API_KEY 환경변수를 확인해주세요."
       );
     }
-    if (error.message.includes("Quota exceeded")) {
+    if (error.message.includes("quota exceeded")) {
       throw new Error("Gemini API 할당량을 초과했습니다. 사용량을 확인해주세요.");
     }
     throw new Error(
