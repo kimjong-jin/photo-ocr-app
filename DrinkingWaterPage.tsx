@@ -1,5 +1,8 @@
+
+
+
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import ReactDOM from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview } from './services/claydoxApiService';
@@ -14,17 +17,9 @@ import { generateCompositeImage, generateStampedImage, dataURLtoBlob } from './s
 import JSZip from 'jszip';
 import html2canvas from 'html2canvas';
 import { DrinkingWaterSnapshot } from './components/DrinkingWaterSnapshot';
+import { ExtractedEntry } from './shared/types';
 
 // --- Interfaces ---
-export interface ExtractedEntry {
-id: string;
-time: string;
-value: string;
-valueTP?: string;
-identifier?: string;
-isRuleMatched?: boolean; // Keep for type compatibility, though unused here
-}
-
 export interface DrinkingWaterJob {
 id: string;
 receiptNumber: string;
@@ -86,6 +81,7 @@ const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
 const fileInputRef = useRef<HTMLInputElement>(null);
 const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
 const snapshotHostRef = useRef<HTMLDivElement | null>(null);
+const [overrideDate, setOverrideDate] = useState<string | null>(null);
 
 const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
@@ -245,6 +241,7 @@ if (fileInputRef.current) {
 fileInputRef.current.value = '';
 }
 resetSubmissionState();
+setOverrideDate(null);
 }, [activeJobId, resetSubmissionState, updateActiveJob]);
 
 const updateJobOcrData = (jobId: string, updatedData: ExtractedEntry[]) => {
@@ -447,7 +444,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
         // Capture data table image using the new snapshot component
         let dataTableFile: File | null = null;
         if (snapshotHostRef.current) {
-            const snapshotRoot = ReactDOM.createRoot(snapshotHostRef.current);
+            const snapshotRoot = createRoot(snapshotHostRef.current);
             const renderPromise = new Promise<void>(resolve => {
                 snapshotRoot.render(<DrinkingWaterSnapshot job={activeJob} siteLocation={siteLocation} />);
                 setTimeout(resolve, 100); 
@@ -519,6 +516,36 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
     }
 }, [activeJob, userName, siteLocation, updateActiveJob]);
 
+const handleToggleDateOverride = useCallback(() => {
+    if (overrideDate === null) {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        setOverrideDate(`${year}-${month}-${day}`);
+    } else {
+        setOverrideDate(null);
+    }
+}, [overrideDate]);
+
+const handleOverrideDateChange = useCallback((newDate: string) => {
+    setOverrideDate(newDate);
+    if (!activeJob || !activeJob.processedOcrData || !newDate) return;
+
+    const updatedData = activeJob.processedOcrData.map(entry => {
+        if (entry.time) { // Only update entries that have a time
+            const timeParts = entry.time.split('T');
+            const timePart = timeParts.length > 1 ? timeParts[1] : null;
+            if (timePart) {
+                return { ...entry, time: `${newDate}T${timePart}` };
+            }
+        }
+        return entry;
+    });
+
+    updateActiveJob(j => ({ ...j, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined }));
+}, [activeJob, updateActiveJob]);
+
 const representativeActiveJobPhoto = useMemo(() =>
 activeJob && activeJob.photos.length > 0 && currentPhotoIndexOfActiveJob !== -1
 ? activeJob.photos[currentPhotoIndexOfActiveJob]
@@ -567,7 +594,7 @@ return (
             className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
           >
             <div className="flex justify-between items-center">
-                <div className="flex-grow cursor-pointer" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); }}>
+                <div className="flex-grow cursor-pointer" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); setOverrideDate(null); }}>
                     <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>
                     {job.receiptNumber} / {job.selectedItem} {job.details && `(${job.details})`}
                     </span>
@@ -581,7 +608,7 @@ return (
                     <TrashIcon />
                 </button>
             </div>
-             <div className="mt-1 text-right cursor-pointer self-start" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); }}>
+             <div className="mt-1 text-right cursor-pointer self-start" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); setOverrideDate(null); }}>
                 <StatusIndicator status={job.submissionStatus} message={job.submissionMessage} />
             </div>
           </div>
@@ -725,7 +752,11 @@ return (
           ktlJsonToPreview={ktlJsonPreview}
           draftJsonToPreview={draftJsonPreview}
           isManualEntryMode={true}
+          timeColumnHeader="최종 저장 시간"
           decimalPlaces={activeJob.decimalPlaces}
+          overrideDate={overrideDate}
+          onToggleDateOverride={handleToggleDateOverride}
+          onOverrideDateChange={handleOverrideDateChange}
         />
       </div>
     </div>
