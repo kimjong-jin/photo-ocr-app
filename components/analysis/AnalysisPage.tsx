@@ -1,3 +1,5 @@
+
+
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ImageInput, ImageInfo as BaseImageInfo } from '../ImageInput';
 import { CameraView } from '../CameraView';
@@ -14,30 +16,9 @@ import { ThumbnailGallery } from '../ThumbnailGallery';
 import { Type } from '@google/genai';
 import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
-import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput } from '../../services/imageStampingService';
+import { generateA4CompositeJPEGPages, dataURLtoBlob, generateStampedImage, CompositeImageInput } from '../../services/imageStampingService';
 import { autoAssignIdentifiersByConcentration } from '../../services/identifierAutomationService';
-
-export interface JobPhoto extends BaseImageInfo {
-  uid: string;
-}
-
-export interface ExtractedEntry {
-  id: string;
-  time: string;
-  value: string;
-  valueTP?: string;
-  identifier?: string;
-  identifierTP?: string;
-  isRuleMatched?: boolean;
-}
-
-interface ConcentrationBoundaries {
-  overallMin: number;
-  overallMax: number;
-  span: number;
-  boundary1: number;
-  boundary2: number;
-}
+import type { PhotoLogJob, JobPhoto, ExtractedEntry, ConcentrationBoundaries } from '../../shared/types';
 
 type AppRangeResults = DisplayRangeResults;
 type KtlApiCallStatus = 'idle' | 'success' | 'error';
@@ -53,25 +34,6 @@ interface RawEntrySingle extends RawEntryBase {
   value: string;
 }
 type RawEntryUnion = RawEntryTnTp | RawEntrySingle;
-
-export interface PhotoLogJob {
-    id: string;
-    receiptNumber: string;
-    siteLocation: string;
-    selectedItem: string;
-    photos: JobPhoto[];
-    photoComments: Record<string, string>;
-    processedOcrData: ExtractedEntry[] | null;
-    rangeDifferenceResults: AppRangeResults | null;
-    concentrationBoundaries: ConcentrationBoundaries | null;
-    decimalPlaces: number;
-    details: string;
-    decimalPlacesCl?: number;
-    ktlJsonPreview: string | null;
-    draftJsonPreview: string | null;
-    submissionStatus: 'idle' | 'sending' | 'success' | 'error';
-    submissionMessage?: string;
-}
 
 const TrashIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -206,9 +168,21 @@ const calculateConcentrationBoundariesInternal = (
 };
 
 const sanitizeFilenameComponent = (component: string): string => {
-  if (!component) return '';
-  return component.replace(/[/\\[\]:*?"<>|]/g, '_').replace(/__+/g, '_');
+  if (!component) return 'untitled';
+  // 점(.) 허용
+  let s = component
+    .replace(/[^\w.\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_');
+
+  // 중복 언더스코어/점 정리 + 앞/뒤 점 제거(숨김파일 방지)
+  s = s
+    .replace(/__+/g, '_')
+    .replace(/\.{2,}/g, '.')  // ..... → .
+    .replace(/^\.+/, '')      // 앞쪽 점 제거
+    .replace(/\.+$/, '');     // 뒤쪽 점 제거
+
+  return s || 'untitled';
 };
+
 
 const generateIdentifierSequence = (
     ocrData: ExtractedEntry[] | null,
@@ -274,7 +248,6 @@ const calculateMaxDecimalPlaces = (
   return maxPlaces;
 };
 
-
 interface AnalysisPageProps {
   pageTitle: string;
   pageType: 'PhotoLog' | 'FieldCount';
@@ -290,7 +263,7 @@ interface AnalysisPageProps {
 }
 
 const AnalysisPage: React.FC<AnalysisPageProps> = ({
-  pageTitle, pageType, showRangeDifferenceDisplay,
+  pageTitle, pageType, showRangeDifferenceDisplay, showAutoAssignIdentifiers,
   userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob
 }) => {
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
@@ -300,7 +273,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const [isSendingToClaydox, setIsSendingToClaydox] = useState<boolean>(false);
-  const [isKtlPreflightModalOpen, setKtlPreflightModalOpen] = useState<boolean>(false);
+  const [isKtlPreflightModalOpen, setIsKtlPreflightModalOpen] = useState<boolean>(false);
   const [ktlPreflightData, setKtlPreflightData] = useState<KtlPreflightData | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState<number>(-1);
   const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
@@ -356,7 +329,14 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     const sanitizedSite = sanitizeFilenameComponent(siteLocation);
     const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem === "TN/TP" ? "TN_TP" : activeJob.selectedItem);
     const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
-    return [ `${baseName}_composite.jpg`, `${baseName}_Compression.zip` ];
+    
+    const pageCount = Math.ceil(activeJob.photos.length / 4);
+    const compositeNames = Array.from({ length: pageCount }, (_, i) => {
+        const pageNum = (i + 1).toString().padStart(2, '0');
+        return `${baseName}_composite_${pageNum}.jpg`;
+    });
+
+    return [ ...compositeNames, `${baseName}_Compression.zip` ];
   }, [activeJob, siteLocation]);
 
   const ktlJsonPreview = useMemo(() => {
@@ -407,9 +387,6 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
         newRangeResults = { low: calculateRangeDetails(lowValues), medium: calculateRangeDetails(mediumValues), high: calculateRangeDetails(highValues) };
     }
     
-    // This effect should only synchronize derived data and should not interfere with submission status,
-    // which is managed by explicit user actions (e.g., sending to KTL, modifying data).
-    // We only update if the derived data has actually changed to prevent re-render loops.
     if (
         JSON.stringify(activeJob.concentrationBoundaries) !== JSON.stringify(boundaries) ||
         JSON.stringify(activeJob.rangeDifferenceResults) !== JSON.stringify(newRangeResults) ||
@@ -539,38 +516,11 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     let criticalErrorOccurred: string | null = null;
     
     try {
-        // ✅ Vite 환경 변수인 VITE_API_KEY를 사용하도록 수정
-        const apiKey = import.meta.env.VITE_API_KEY;
-        if (!apiKey) {
-            throw new Error("VITE_API_KEY 환경 변수가 설정되지 않았습니다.");
-        }
-        
         let responseSchema;
         if (activeJob.selectedItem === "TN/TP") {
-            responseSchema = { 
-                type: Type.ARRAY, 
-                items: { 
-                    type: Type.OBJECT, 
-                    properties: { 
-                        time: { type: Type.STRING }, 
-                        value_tn: { type: Type.STRING }, 
-                        value_tp: { type: Type.STRING } 
-                    }, 
-                    required: ["time"] 
-                } 
-            };
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING } }, required: ["time"] } };
         } else {
-            responseSchema = { 
-                type: Type.ARRAY, 
-                items: { 
-                    type: Type.OBJECT, 
-                    properties: { 
-                        time: { type: Type.STRING }, 
-                        value: { type: Type.STRING } 
-                    }, 
-                    required: ["time", "value"] 
-                } 
-            };
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value: { type: Type.STRING } }, required: ["time", "value"] } };
         }
 
         const imageProcessingPromises = activeJob.photos.map(async (image) => {
@@ -578,12 +528,18 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             try {
                 const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
                 const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
+                
                 jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
+                
                 const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
-                if (Array.isArray(jsonDataFromImage)) return { status: 'fulfilled', value: jsonDataFromImage };
+                if (Array.isArray(jsonDataFromImage)) {
+                    return { status: 'fulfilled', value: jsonDataFromImage };
+                }
                 return { status: 'rejected', reason: `Image ${image.file.name} did not return a valid JSON array.` };
             } catch (imgErr: any) {
-                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) criticalErrorOccurred = imgErr.message;
+                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) {
+                    criticalErrorOccurred = imgErr.message;
+                }
                 let reason = (imgErr instanceof SyntaxError) ? `JSON parsing failed: ${imgErr.message}. AI response: ${jsonStr}` : imgErr.message;
                 return { status: 'rejected', reason };
             }
@@ -603,7 +559,6 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         if (allRawExtractedEntries.length > 0) {
             const normalizeTime = (timeStr: string): string => {
                 if (!timeStr) return '';
-                // Standardize date separators and remove seconds
                 const standardized = timeStr.replace(/-/g, '/');
                 const match = standardized.match(/(\d{4}\/\d{2}\/\d{2}\s\d{2}:\d{2})/);
                 return match ? match[1] : standardized;
@@ -639,7 +594,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                 } else {
                     primaryValue = (rawEntry as RawEntrySingle).value || '';
                 }
-                return { id: self.crypto.randomUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue };
+                return { id: self.crypto.randomUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
             });
             updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
             if (batchHadError) setProcessingError("일부 이미지를 처리하지 못했습니다.");
@@ -671,6 +626,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             time: '',
             value: '',
             valueTP: job.selectedItem === "TN/TP" ? '' : undefined,
+            identifier: undefined,
+            identifierTP: undefined,
+            isRuleMatched: false
         };
         const updatedData = [...(job.processedOcrData || []), newEntry];
         return { ...job, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined };
@@ -724,36 +682,48 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     }));
   }, [activeJob, updateActiveJob]);
 
-  const handleAutoAssignIdentifiers = useCallback(() => {
+  const handleAutoAssignIdentifiers = useCallback((startRowStr?: string, endRowStr?: string) => {
     if (!activeJob || !activeJob.processedOcrData || !activeJob.concentrationBoundaries) {
       setProcessingError("자동 할당을 위해선 추출된 데이터와 농도 분석이 필요합니다.");
       return;
     }
 
+    const totalRows = activeJob.processedOcrData.length;
+    const startIndex = startRowStr && startRowStr.trim() ? parseInt(startRowStr, 10) - 1 : 0;
+    const endIndex = endRowStr && endRowStr.trim() ? parseInt(endRowStr, 10) - 1 : totalRows - 1;
+
+    if (isNaN(startIndex) || isNaN(endIndex) || startIndex < 0 || endIndex >= totalRows || startIndex > endIndex) {
+        setProcessingError("자동 할당을 위한 행 범위가 잘못되었습니다. 데이터 범위를 확인해주세요.");
+        return;
+    }
+
+    const dataSlice = activeJob.processedOcrData.slice(startIndex, endIndex + 1);
+
     const isTpMode = activeJob.selectedItem === "TN/TP";
     const assignments = autoAssignIdentifiersByConcentration(
-        activeJob.processedOcrData,
+        dataSlice,
         activeJob.concentrationBoundaries,
         isTpMode
     );
 
-    const updatedOcrData = activeJob.processedOcrData.map((entry, index) => {
-      const assignment = assignments[index];
-      const newIdentifier = assignment.tn !== undefined ? assignment.tn : entry.identifier;
-      const newIdentifierTP = assignment.tp !== undefined ? assignment.tp : entry.identifierTP;
-      
-      return {
-        ...entry,
-        identifier: newIdentifier,
-        identifierTP: isTpMode ? newIdentifierTP : undefined,
-      };
+    const updatedOcrData = [...activeJob.processedOcrData];
+    assignments.forEach((assignment, index) => {
+        const originalIndex = startIndex + index;
+        const newIdentifier = assignment.tn !== undefined ? assignment.tn : updatedOcrData[originalIndex].identifier;
+        const newIdentifierTP = assignment.tp !== undefined ? assignment.tp : updatedOcrData[originalIndex].identifierTP;
+
+        updatedOcrData[originalIndex] = {
+            ...updatedOcrData[originalIndex],
+            identifier: newIdentifier,
+            identifierTP: isTpMode ? newIdentifierTP : undefined,
+        };
     });
 
-    updateActiveJob(j => ({ 
-        ...j, 
-        processedOcrData: updatedOcrData, 
-        submissionStatus: 'idle', 
-        submissionMessage: undefined 
+    updateActiveJob(j => ({
+        ...j,
+        processedOcrData: updatedOcrData,
+        submissionStatus: 'idle',
+        submissionMessage: undefined
     }));
     setProcessingError(null);
   }, [activeJob, updateActiveJob]);
@@ -769,13 +739,15 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         fileNames: hypotheticalKtlFileNamesForPreview,
         context: { receiptNumber: activeJob.receiptNumber, siteLocation: siteLocation, selectedItem: activeJob.selectedItem, userName }
     });
-    setKtlPreflightModalOpen(true);
+    // FIX: Corrected state setter function name from setKtlPreflightModalOpen to setIsKtlPreflightModalOpen.
+    setIsKtlPreflightModalOpen(true);
   }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
 
   const handleSendToClaydoxConfirmed = useCallback(async () => {
-    setKtlPreflightModalOpen(false);
+    // FIX: Corrected state setter function name from setKtlPreflightModalOpen to setIsKtlPreflightModalOpen.
+    setIsKtlPreflightModalOpen(false);
     if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
-      updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: "KTL 전송에 필요한 데이터가 없습니다 (데이터, 사용자, 사진 확인)." }));
+      updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: "KTL 전송을 위한 필수 데이터가 누락되었습니다." }));
       return;
     }
     updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "전송 중..."}));
@@ -787,21 +759,33 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             ocrData: activeJob.processedOcrData,
             identifierSequence: identifierSequence,
             maxDecimalPlaces: activeJob.decimalPlaces,
-            pageType: 'PhotoLog',
+            pageType: pageType,
         };
 
         const sanitizedSite = sanitizeFilenameComponent(siteLocation);
         const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
         const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
         
-        const imagesForComposite: CompositeImageInput[] = activeJob.photos.map(p => ({
-          base64: p.base64,
-          mimeType: p.mimeType,
-          comment: activeJob.photoComments[p.uid]
-        }));
-        const compositeDataUrl = await generateCompositeImage(imagesForComposite, { receiptNumber: activeJob.receiptNumber, siteLocation, item: activeJob.selectedItem }, 'image/jpeg');
+        const compositeFiles: File[] = [];
+        const compositeFileNames: string[] = [];
 
-        const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
+        if (activeJob.photos.length > 0) {
+            const imagesForA4: CompositeImageInput[] = activeJob.photos.map(p => ({
+                base64: p.base64,
+                mimeType: p.mimeType,
+                comment: activeJob.photoComments[p.uid]
+            }));
+
+            const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4);
+
+            a4PageDataUrls.forEach((dataUrl, index) => {
+                const pageNum = (index + 1).toString().padStart(2, '0');
+                const fileName = `${baseName}_composite_${pageNum}.jpg`;
+                const file = new File([dataURLtoBlob(dataUrl)], fileName, { type: 'image/jpeg' });
+                compositeFiles.push(file);
+                compositeFileNames.push(fileName);
+            });
+        }
         
         const zip = new JSZip();
         for (let i = 0; i < activeJob.photos.length; i++) {
@@ -812,13 +796,16 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
         
-        const response = await sendToClaydoxApi(payload, [compositeFile, zipFile], activeJob.selectedItem, [compositeFile.name, zipFile.name]);
+        const filesToUpload = [...compositeFiles, zipFile];
+        const fileNamesForKtlJson = [...compositeFileNames, zipFile.name];
+
+        const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, fileNamesForKtlJson);
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
 
     } catch (error: any) {
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
     }
-  }, [activeJob, siteLocation, userName, updateActiveJob]);
+  }, [activeJob, siteLocation, userName, updateActiveJob, pageType]);
 
 
   const handleBatchSendToKtl = async () => {
@@ -841,20 +828,32 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
             const payload: ClaydoxPayload = {
                 receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
-                identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: 'PhotoLog',
+                identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: pageType,
             };
             const sanitizedSite = sanitizeFilenameComponent(siteLocation);
             const sanitizedItemName = sanitizeFilenameComponent(job.selectedItem.replace('/', '_'));
             const baseName = `${job.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
             
-            const imagesForComposite: CompositeImageInput[] = job.photos.map(p => ({
-              base64: p.base64,
-              mimeType: p.mimeType,
-              comment: job.photoComments[p.uid]
-            }));
-            const compositeDataUrl = await generateCompositeImage(imagesForComposite, { receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem }, 'image/jpeg');
+            const compositeFiles: File[] = [];
+            const compositeFileNames: string[] = [];
 
-            const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
+            if (job.photos.length > 0) {
+                const imagesForA4: CompositeImageInput[] = job.photos.map(p => ({
+                    base64: p.base64,
+                    mimeType: p.mimeType,
+                    comment: job.photoComments[p.uid]
+                }));
+    
+                const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4);
+    
+                a4PageDataUrls.forEach((dataUrl, index) => {
+                    const pageNum = (index + 1).toString().padStart(2, '0');
+                    const fileName = `${baseName}_composite_${pageNum}.jpg`;
+                    const file = new File([dataURLtoBlob(dataUrl)], fileName, { type: 'image/jpeg' });
+                    compositeFiles.push(file);
+                    compositeFileNames.push(fileName);
+                });
+            }
             
             const zip = new JSZip();
             for (const imageInfo of job.photos) {
@@ -864,7 +863,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             const zipBlob = await zip.generateAsync({ type: "blob" });
             const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
 
-            const response = await sendToClaydoxApi(payload, [compositeFile, zipFile], job.selectedItem, [compositeFile.name, zipFile.name]);
+            const filesToUpload = [...compositeFiles, zipFile];
+            const fileNamesForKtlJson = [...compositeFileNames, zipFile.name];
+
+            const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, fileNamesForKtlJson);
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message || '전송 성공' } : j));
         } catch (error: any) {
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
@@ -993,7 +995,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             isClaydoxDisabled={isControlsDisabled || !activeJob.processedOcrData || activeJob.processedOcrData.length === 0 || activeJob.submissionStatus === 'sending'} 
             isSendingToClaydox={isSendingToClaydox || (activeJob?.submissionStatus === 'sending')}
             ktlApiCallStatus={ocrControlsKtlStatus} 
-            onAutoAssignIdentifiers={handleAutoAssignIdentifiers} 
+            onAutoAssignIdentifiers={showAutoAssignIdentifiers ? handleAutoAssignIdentifiers : undefined} 
             isAutoAssignDisabled={isControlsDisabled || !activeJob.processedOcrData || !activeJob.concentrationBoundaries}
           />
           <OcrResultDisplay 
@@ -1016,7 +1018,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             rawJsonForCopy={JSON.stringify(activeJob.processedOcrData, null, 2)} 
             ktlJsonToPreview={ktlJsonPreview}
           />
-          <RangeDifferenceDisplay results={activeJob.rangeDifferenceResults} />
+          {showRangeDifferenceDisplay && <RangeDifferenceDisplay results={activeJob.rangeDifferenceResults} />}
         </div>
       )}
       
@@ -1044,7 +1046,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           </div>
       )}
 
-      {isKtlPreflightModalOpen && ktlPreflightData && ( <KtlPreflightModal isOpen={isKtlPreflightModalOpen} onClose={() => setKtlPreflightModalOpen(false)} onConfirm={handleSendToClaydoxConfirmed} preflightData={ktlPreflightData} /> )}
+      {/* FIX: Corrected state setter function name from setKtlPreflightModalOpen to setIsKtlPreflightModalOpen. */}
+      {isKtlPreflightModalOpen && ktlPreflightData && ( <KtlPreflightModal isOpen={isKtlPreflightModalOpen} onClose={() => setIsKtlPreflightModalOpen(false)} onConfirm={handleSendToClaydoxConfirmed} preflightData={ktlPreflightData} /> )}
     </div>
   );
 };
