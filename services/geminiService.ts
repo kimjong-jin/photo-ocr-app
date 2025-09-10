@@ -1,5 +1,3 @@
-
-
 import axios, { AxiosError } from "axios";
 import {
   GoogleGenAI,
@@ -12,11 +10,11 @@ let aiClient: GoogleGenAI | null = null;
 
 /** Gemini 클라이언트 싱글턴 생성 함수 */
 const getGenAIClient = (): GoogleGenAI => {
-  const apiKey = (import.meta as any).env.VITE_API_KEY?.trim();
+  const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    console.error("[geminiService] 🚨 VITE_API_KEY 환경변수 미설정 또는 빈 값");
+    console.error("[geminiService] 🚨 API_KEY 환경변수 미설정 또는 빈 값");
     throw new Error(
-      "Gemini API Key가 설정되지 않았습니다. VITE_API_KEY 환경변수를 확인해주세요."
+      "Gemini API Key가 설정되지 않았습니다. API_KEY 환경변수를 확인해주세요."
     );
   }
   if (!aiClient) {
@@ -37,10 +35,6 @@ async function delay(ms: number): Promise<void> {
 
 /**
  * 재시도 + 지수적 백오프 로직 공통화
- * @param fn 호출 함수
- * @param retries 최대 재시도 횟수
- * @param initialDelay 시작 지연(ms)
- * @param shouldRetry 재시도 여부 판별 함수
  */
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -85,6 +79,7 @@ export const extractTextFromImage = async (
     { text: promptText },
     { inlineData: { mimeType, data: imageBase64 } },
   ];
+  // ✅ FIX: 고품질 멀티모달 처리에는 'gemini-2.5-pro' 모델 권장
   const model = "gemini-2.5-pro";
 
   // 실제 API 호출 함수
@@ -121,7 +116,7 @@ export const extractTextFromImage = async (
     console.error("[geminiService] 모든 재시도 실패:", error.message);
     if (error.message.includes("API Key not valid")) {
       throw new Error(
-        "유효하지 않은 Gemini API Key입니다. VITE_API_KEY 환경변수를 확인해주세요."
+        "유효하지 않은 Gemini API Key입니다. API_KEY 환경변수를 확인해주세요."
       );
     }
     if (error.message.includes("Quota exceeded")) {
