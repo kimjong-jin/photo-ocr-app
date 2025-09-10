@@ -10,12 +10,11 @@
     "moduleDetection": "force",
 
     "experimentalDecorators": true,
-    "useDefineForClassFields": false,
+    "useDefineForClassFields": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "allowJs": true,
+    "allowJs": false,
     "resolveJsonModule": true,
-    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
 
     "baseUrl": ".",
