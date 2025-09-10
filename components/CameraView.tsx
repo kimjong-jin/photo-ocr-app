@@ -1,169 +1,230 @@
-import React from 'react';
-import type { DrinkingWaterJob } from '../DrinkingWaterPage';
 
-interface DrinkingWaterSnapshotProps {
-  job: DrinkingWaterJob;
-  siteLocation: string;
+import React, { useRef, useEffect, useCallback, useState } from 'react';
+import { ActionButton } from './ActionButton';
+import { Spinner } from './Spinner';
+
+interface CameraViewProps {
+  onCapture: (file: File, base64: string, mimeType: string) => void;
+  onClose: () => void;
 }
 
-const dividerIdentifiers = new Set(['Z 2시간 시작 - 종료', '드리프트 완료', '반복성 완료']);
+const CaptureIcon: React.FC = () => (
+ <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+  </svg>
+);
 
-const formatResponseTimeValue = (value: string): {초: string; 분: string; 길이: string} => {
-    try {
-        if (value && value.trim().startsWith('[')) {
-            const parsed = JSON.parse(value);
-            if (Array.isArray(parsed)) {
-                return {
-                    초: String(parsed[0] || '-'),
-                    분: String(parsed[1] || '-'),
-                    길이: String(parsed[2] || '-')
-                };
-            }
+const CancelIcon: React.FC = () => (
+ <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
+
+const SwitchCameraIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+  </svg>
+);
+
+
+export const CameraView: React.FC<CameraViewProps> = ({ onCapture, onClose }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(true);
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [currentDeviceId, setCurrentDeviceId] = useState<string | undefined>(undefined);
+  const [isFrontCamera, setIsFrontCamera] = useState<boolean>(false);
+  const [isStreamPlaying, setIsStreamPlaying] = useState<boolean>(false);
+
+  const stopCurrentStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  const setupStream = useCallback(async (constraints: MediaStreamConstraints) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("이 브라우저에서는 카메라 API를 사용할 수 없습니다.");
+    }
+    stopCurrentStream();
+    
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      streamRef.current = stream;
+
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(e => {
+            console.error("[CameraView] Video play failed:", e);
+            setCameraError("비디오 재생에 실패했습니다. 페이지를 새로고침하거나 브라우저 설정을 확인해주세요.");
+        });
+      };
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      setAvailableCameras(videoDevices);
+      
+      const currentTrack = stream.getVideoTracks()[0];
+      const currentSettings = currentTrack.getSettings();
+      setCurrentDeviceId(currentSettings.deviceId);
+
+      if (currentSettings.facingMode) {
+        setIsFrontCamera(currentSettings.facingMode === 'user');
+      } else {
+        const currentDevice = videoDevices.find(d => d.deviceId === currentSettings.deviceId);
+        setIsFrontCamera(!!currentDevice?.label.toLowerCase().includes('front'));
+      }
+    }
+  }, [stopCurrentStream]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const initializeCamera = async () => {
+      setIsCameraLoading(true);
+      setCameraError(null);
+      try {
+        await setupStream({ video: { facingMode: { ideal: 'environment' } } });
+      } catch (err) {
+        console.warn("[CameraView] Ideal 'environment' camera failed, trying any video device.", err);
+        try {
+          await setupStream({ video: true });
+        } catch (fallbackErr: any) {
+          if (!isMounted) return;
+          console.error("[CameraView] All camera attempts failed:", fallbackErr);
+          let errorMessage = "카메라를 시작할 수 없습니다.";
+          if (fallbackErr.name === 'NotAllowedError') {
+              errorMessage = "카메라 접근 권한이 거부되었습니다. 브라우저 설정에서 권한을 허용해주세요.";
+          } else if (fallbackErr.name === 'NotFoundError') {
+              errorMessage = "사용 가능한 카메라를 찾을 수 없습니다.";
+          } else {
+              errorMessage = `카메라 오류: ${fallbackErr.message}`;
+          }
+          setCameraError(errorMessage);
         }
-    } catch (e) { /* fall through */ }
-    return { 초: '-', 분: '-', 길이: '-' };
-};
-
-
-export const DrinkingWaterSnapshot: React.FC<DrinkingWaterSnapshotProps> = ({ job, siteLocation }) => {
-    const fullSite = job.details && job.details.trim() ? `${siteLocation.trim()}_(${job.details.trim()})` : siteLocation.trim();
-    const showTwoValueColumns = job.selectedItem === 'TU/CL';
-    
-    // Inline styles
-    const containerStyle: React.CSSProperties = {
-        position: 'absolute',
-        left: '-9999px',
-        top: '0px',
-        width: '800px',
-        padding: '24px',
-        backgroundColor: '#0f172a', // slate-900
-        color: '#e2e8f0', // slate-200
-        fontFamily: 'Inter, sans-serif',
-        lineHeight: '1.5',
-    };
-
-    const headerStyle: React.CSSProperties = {
-        fontSize: '20px',
-        fontWeight: 'bold',
-        color: '#e2e8f0',
-        backgroundColor: '#1e293b', // slate-800
-        padding: '12px 16px',
-        borderRadius: '8px',
-        marginBottom: '24px',
-        borderLeft: '4px solid #38bdf8' // sky-500
-    };
-
-    const tableStyle: React.CSSProperties = {
-        width: '100%',
-        borderCollapse: 'collapse',
-        border: '1px solid #334155',
-        borderRadius: '8px',
-        overflow: 'hidden',
+      }
     };
     
-    const thStyle: React.CSSProperties = {
-        backgroundColor: '#1e293b',
-        padding: '12px',
-        textAlign: 'center',
-        fontSize: '12px',
-        fontWeight: '600',
-        color: '#94a3b8',
-        textTransform: 'uppercase',
-        borderBottom: '1px solid #334155',
-    };
-
-    const tdStyle: React.CSSProperties = {
-        padding: '10px 12px',
-        borderBottom: '1px solid #334155',
-        fontSize: '14px',
-        textAlign: 'center',
-        verticalAlign: 'middle', // Key fix for vertical alignment
-        color: '#cbd5e1',
-        height: '50px' // Ensure consistent row height
-    };
+    initializeCamera();
     
-    const lastRowTdStyle: React.CSSProperties = { ...tdStyle, borderBottom: 'none' };
-
-    const identifierTdStyle: React.CSSProperties = {
-        ...tdStyle,
-        color: '#f87171', // red-400
-        fontWeight: '600'
+    return () => {
+      isMounted = false;
+      stopCurrentStream();
     };
+  }, [setupStream, stopCurrentStream]);
 
-    return (
-        <div id={`snapshot-container-for-${job.id}`} style={containerStyle}>
-            <div style={headerStyle}>
-                먹는물 분석 데이터: {job.receiptNumber} / {job.selectedItem} ({fullSite})
-            </div>
-            <table style={tableStyle}>
-                <thead>
-                    <tr>
-                        <th style={{...thStyle, width: '5%'}}>NO.</th>
-                        <th style={{...thStyle, width: '25%'}}>최종 저장 시간</th>
-                        {showTwoValueColumns ? (
-                            <>
-                                <th style={thStyle}>TU 값</th>
-                                <th style={thStyle}>Cl 값</th>
-                            </>
-                        ) : (
-                            <th style={thStyle}>값</th>
-                        )}
-                        <th style={{...thStyle, width: '20%'}}>구분</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {(job.processedOcrData || []).map((entry, index) => {
-                        const isLastRow = index === (job.processedOcrData?.length || 0) - 1;
-                        const currentTdStyle = isLastRow ? lastRowTdStyle : tdStyle;
-                        const currentIdentifierTdStyle = isLastRow ? { ...identifierTdStyle, ...lastRowTdStyle } : identifierTdStyle;
 
-                        if (dividerIdentifiers.has(entry.identifier || '')) {
-                            return (
-                                <tr key={entry.id}>
-                                    <td colSpan={showTwoValueColumns ? 5 : 4} style={{...currentTdStyle, padding: '16px 8px'}}>
-                                        <div style={{ display: 'flex', alignItems: 'center', color: '#64748b' }}>
-                                            <div style={{ flexGrow: 1, borderTop: '1px solid #475569' }}></div>
-                                            <span style={{ padding: '0 16px', fontSize: '12px', fontWeight: '600' }}>
-                                                {entry.identifier}
-                                            </span>
-                                            <div style={{ flexGrow: 1, borderTop: '1px solid #475569' }}></div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            );
-                        }
-                        
-                        const isResponseTimeRow = entry.identifier === '응답';
+  const handleSwitchCamera = useCallback(async () => {
+    if (availableCameras.length <= 1 || isCameraLoading) return;
+    
+    setIsCameraLoading(true);
+    setCameraError(null);
+    const currentIndex = availableCameras.findIndex(cam => cam.deviceId === currentDeviceId);
+    const nextIndex = (currentIndex + 1) % availableCameras.length;
+    const nextDeviceId = availableCameras[nextIndex].deviceId;
 
-                        return (
-                            <tr key={entry.id}>
-                                <td style={currentTdStyle}>{index + 1}</td>
-                                <td style={{...currentTdStyle, fontSize: '13px'}}>{entry.time || '-'}</td>
-                                
-                                {isResponseTimeRow ? (
-                                    <>
-                                        <td colSpan={showTwoValueColumns ? 1 : 1} style={currentTdStyle}>
-                                            {formatResponseTimeValue(entry.value).초} 초 / {formatResponseTimeValue(entry.value).분} 분 / {formatResponseTimeValue(entry.value).길이} mm
-                                        </td>
-                                        {showTwoValueColumns && (
-                                            <td style={currentTdStyle}>
-                                                    {formatResponseTimeValue(entry.valueTP || '').초} 초 / {formatResponseTimeValue(entry.valueTP || '').분} 분 / {formatResponseTimeValue(entry.valueTP || '').길이} mm
-                                            </td>
-                                        )}
-                                    </>
-                                ) : (
-                                    <>
-                                        <td style={currentTdStyle}>{entry.value || '-'}</td>
-                                        {showTwoValueColumns && <td style={currentTdStyle}>{entry.valueTP || '-'}</td>}
-                                    </>
-                                )}
+    try {
+      await setupStream({ video: { deviceId: { exact: nextDeviceId } } });
+    } catch (err: any) {
+      console.error(`[CameraView] Error switching to device ${nextDeviceId}:`, err);
+      setCameraError("카메라 전환에 실패했습니다.");
+    } finally {
+      setIsCameraLoading(false);
+    }
+  }, [availableCameras, currentDeviceId, isCameraLoading, setupStream]);
 
-                                <td style={currentIdentifierTdStyle}>{isResponseTimeRow ? '응답' : entry.identifier}</td>
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
+
+  const handleCapture = useCallback(() => {
+    if (!videoRef.current || !isStreamPlaying) {
+      setCameraError("카메라가 준비되지 않았습니다. 캡처할 수 없습니다.");
+      return;
+    }
+    
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    if (canvas.width === 0 || canvas.height === 0) {
+      setCameraError("캡처 실패: 비디오 크기가 0입니다.");
+      return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      setCameraError("캡처를 위한 캔버스 컨텍스트를 가져올 수 없습니다.");
+      return;
+    }
+
+    if (isFrontCamera) {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const dataUrl = canvas.toDataURL('image/png');
+    const base64 = dataUrl.split(',')[1];
+
+    canvas.toBlob(blob => {
+      if (blob) {
+        const file = new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' });
+        onCapture(file, base64, 'image/png');
+      } else {
+        setCameraError("캔버스에서 이미지 Blob 생성에 실패했습니다.");
+      }
+    }, 'image/png');
+  }, [onCapture, isFrontCamera, isStreamPlaying]);
+
+  return (
+    <div className="space-y-4 flex flex-col items-center">
+      {(isCameraLoading && !cameraError) && (
+        <div className="w-full aspect-video bg-slate-700 rounded-lg flex items-center justify-center">
+          <Spinner /> <span className="ml-2 text-slate-300">카메라 시작 중...</span>
         </div>
-    );
+      )}
+      {cameraError && (
+        <div className="w-full p-4 bg-red-700/30 border border-red-500 text-red-300 rounded-lg text-center">
+          <p className="font-semibold">카메라 오류:</p>
+          <p className="text-sm mt-1 whitespace-pre-wrap">{cameraError}</p>
+        </div>
+      )}
+      <video
+        ref={videoRef}
+        className={`w-full aspect-video bg-slate-900 rounded-lg shadow-md ${isCameraLoading || cameraError ? 'hidden' : 'block'} ${isFrontCamera ? 'transform scale-x-[-1]' : ''}`}
+        playsInline
+        muted
+        autoPlay
+        onPlaying={() => {
+            setIsStreamPlaying(true);
+            setIsCameraLoading(false);
+        }}
+        onPause={() => setIsStreamPlaying(false)}
+      />
+      {!isCameraLoading && !cameraError && (
+        <div className="grid grid-cols-1 gap-3 w-full sm:grid-cols-2">
+          <ActionButton onClick={handleCapture} icon={<CaptureIcon />} fullWidth disabled={!isStreamPlaying}>
+            촬영
+          </ActionButton>
+           {availableCameras.length > 1 && (
+            <ActionButton onClick={handleSwitchCamera} icon={<SwitchCameraIcon />} variant="secondary" fullWidth>
+              카메라 전환
+            </ActionButton>
+          )}
+        </div>
+      )}
+      <ActionButton
+        onClick={onClose}
+        variant="secondary"
+        icon={<CancelIcon />}
+        fullWidth
+        className={(!isCameraLoading && !cameraError && availableCameras.length > 1) ? "sm:col-span-2" : ""}
+      >
+        {isCameraLoading || cameraError ? "뒤로" : "취소"}
+      </ActionButton>
+    </div>
+  );
 };
