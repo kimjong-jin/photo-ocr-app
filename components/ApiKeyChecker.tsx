@@ -1,3 +1,5 @@
+
+
 import React from 'react';
 
 const AlertTriangleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -58,6 +60,7 @@ const ApiKeyChecker: React.FC<ApiKeyCheckerProps> = ({ children }) => {
       </div>
     );
   }
+
   return <>{children}</>;
 };
 
