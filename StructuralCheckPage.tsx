@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -27,9 +29,10 @@ import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightMo
 import { ImagePreview } from './components/ImagePreview';
 import { extractTextFromImage } from './services/geminiService';
 import type { GenerateContentParameters } from "@google/genai";
-import { Type } from "@google/genai";
+import { Type } from '@google/genai';
 import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { ChecklistSnapshot } from './components/structural/ChecklistSnapshot';
+import PasswordModal from './components/PasswordModal';
 
 
 export interface JobPhoto extends ImageInfo {
@@ -87,6 +90,12 @@ const getCurrentTimestamp = (): string => {
   return `${year}-${month}-${day} ${hours}:${minutes}`;
 };
 
+const getCurrentLocalDateTimeString = (): string => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+};
+
 interface StructuralCheckPageProps {
   userName: string;
   jobs: StructuralJob[];
@@ -114,56 +123,54 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ userName, job
   const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
   const [isSendingToClaydox, setIsSendingToClaydox] = useState<boolean>(false);
   const snapshotHostRef = useRef<HTMLDivElement | null>(null);
-  const [overrideDate, setOverrideDate] = useState<string | null>(null);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isDateOverrideUnlocked, setIsDateOverrideUnlocked] = useState(false);
+  const [overrideDateTime, setOverrideDateTime] = useState('');
 
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
-  // FIX: Moved 'updateActiveJob' before its usage in 'handleOverrideDateChange' to resolve the declaration error.
   const updateActiveJob = useCallback((updater: (job: StructuralJob) => StructuralJob) => {
     if (!activeJobId) return;
     setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
   }, [activeJobId, setJobs]);
 
   useEffect(() => {
-    setOverrideDate(null);
+    setIsDateOverrideUnlocked(false);
   }, [activeJobId]);
 
-  const handleToggleDateOverride = useCallback(() => {
-    if (overrideDate === null) {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        setOverrideDate(`${year}-${month}-${day}`);
-    } else {
-        setOverrideDate(null);
-    }
-  }, [overrideDate]);
+  const handleOverrideDateTimeChange = useCallback((newDateTime: string) => {
+    if (!activeJob || !newDateTime) return;
 
-  const handleOverrideDateChange = useCallback((newDate: string) => {
-    if (!activeJob) return;
+    const formattedDateTime = newDateTime.replace('T', ' ');
 
-    const currentTime = getCurrentTimestamp().split(' ')[1] || '00:00';
-
+    // FIX: Refactored to use an immutable update pattern, which resolves a TypeScript type inference error. The original implementation mutated an intermediate object, causing the type of `submissionStatus` to be inferred incorrectly as `string` instead of the specific union type required by the `StructuralJob` interface.
     updateActiveJob(job => {
         const updatedChecklistData = { ...job.checklistData };
         for (const itemName in updatedChecklistData) {
             const item = updatedChecklistData[itemName];
-            if (item.status === '적합' || item.status === '부적합') {
-                const existingTime = (item.confirmedAt && item.confirmedAt.includes(' '))
-                    ? item.confirmedAt.split(' ')[1]
-                    : currentTime;
-                
+            if (item.confirmedAt) { // Only update items that have been confirmed
                 updatedChecklistData[itemName] = {
                     ...item,
-                    confirmedAt: `${newDate} ${existingTime}`,
+                    confirmedAt: formattedDateTime,
                 };
             }
         }
-        return { ...job, checklistData: updatedChecklistData, submissionStatus: 'idle', submissionMessage: undefined };
+        
+        return {
+          ...job,
+          checklistData: updatedChecklistData,
+          submissionStatus: 'idle',
+          submissionMessage: undefined,
+          postInspectionDateConfirmedAt: job.postInspectionDateConfirmedAt ? formattedDateTime : job.postInspectionDateConfirmedAt,
+        };
     });
-    setOverrideDate(newDate);
   }, [activeJob, updateActiveJob]);
+
+  const handleDateTimeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newDateTime = e.target.value;
+    setOverrideDateTime(newDateTime);
+    handleOverrideDateTimeChange(newDateTime);
+  };
 
   const getAnalysisTypeDisplayString = useCallback((analysisType: AnalysisType): string => {
     const mainItemKey = activeJob?.mainItemKey;
@@ -1018,21 +1025,28 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
               <div className="flex flex-wrap gap-2 justify-between items-center mb-2">
                 <h3 className="text-lg font-semibold text-slate-100">체크리스트: {activeJob.receiptNumber} / {MAIN_STRUCTURAL_ITEMS.find(item => item.key === activeJob.mainItemKey)?.name}</h3>
                 <div className="flex items-center gap-2">
+                    {isDateOverrideUnlocked && (
+                        <input
+                            type="datetime-local"
+                            id="datetime-override-input-p4"
+                            value={overrideDateTime}
+                            onChange={handleDateTimeInputChange}
+                            className="p-2 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm text-slate-200"
+                        />
+                    )}
                     <button
-                        onClick={handleToggleDateOverride}
+                        onClick={() => {
+                            if (isDateOverrideUnlocked) {
+                                setIsDateOverrideUnlocked(false);
+                            } else {
+                                setIsPasswordModalOpen(true);
+                            }
+                        }}
                         className="p-1.5 text-slate-400 hover:text-sky-400 rounded-full transition-colors"
-                        aria-label="날짜 일괄 변경"
+                        aria-label="날짜/시간 일괄 변경"
                     >
                         <CalendarIcon className="w-5 h-5" />
                     </button>
-                    {overrideDate !== null && (
-                        <input
-                            type="date"
-                            value={overrideDate}
-                            onChange={(e) => handleOverrideDateChange(e.target.value)}
-                            className="block p-1 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm text-slate-300"
-                        />
-                    )}
                     <ActionButton onClick={handleSetAllSuitableForActiveJob} variant="secondary" className="text-xs py-1.5 px-3 bg-green-600 hover:bg-green-500" disabled={isControlsDisabled}>일괄 적합</ActionButton>
                 </div>
               </div>
@@ -1146,6 +1160,17 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
       {isKtlPreflightModalOpen && ktlPreflightData && (
         <KtlPreflightModal isOpen={isKtlPreflightModalOpen} onClose={() => setKtlPreflightModalOpen(false)} onConfirm={handleConfirmSendToKtl} preflightData={ktlPreflightData} />
       )}
+        {isPasswordModalOpen && (
+            <PasswordModal
+                isOpen={isPasswordModalOpen}
+                onClose={() => setIsPasswordModalOpen(false)}
+                onSuccess={() => {
+                    setIsDateOverrideUnlocked(true);
+                    setOverrideDateTime(getCurrentLocalDateTimeString());
+                    setIsPasswordModalOpen(false);
+                }}
+            />
+        )}
     </div>
   );
 };
