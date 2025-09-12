@@ -283,23 +283,22 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
         )}
         {ocrData.length > 0 && (
             <div className="overflow-x-auto bg-slate-800 p-1 rounded-lg shadow-md border border-slate-700">
-            <table className={`min-w-full divide-y divide-slate-700 ${isManualEntryMode ? 'table-auto' : 'table-fixed'}`}>
+            <table className={`min-w-full divide-y divide-slate-700 ${!isManualEntryMode ? 'table-fixed' : 'table-auto'}`}>
                 <thead className="bg-slate-700/50">
-                <tr>
-                    <th scope="col" className="px-2 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">No.</th>
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">{timeColumnHeader || "측정 시간"}</th>
-                    {showTwoValueColumns ? (
-                    <>
-                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">{isTnTpMode ? 'TN 값' : 'TU 값'}</th>
-                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">{isTnTpMode ? 'TP 값' : 'Cl 값'}</th>
-                    </>
-                    ) : (
-                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">값</th>
-                    )}
-                    <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">{isManualEntryMode ? '구분' : (isTnTpMode ? 'TN 식별자' : '식별자')}</th>
-                    {isTnTpMode && !isManualEntryMode && <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider">TP 식별자</th>}
-
-                </tr>
+                    <tr>
+                        <th scope="col" className={`px-2 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider ${!isManualEntryMode ? 'w-[8%]' : 'w-12'}`}>No.</th>
+                        <th scope="col" className={`px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider ${!isManualEntryMode ? (showTwoValueColumns ? 'w-[22%]' : 'w-[32%]') : 'w-48'}`}>{timeColumnHeader || "측정 시간"}</th>
+                        {showTwoValueColumns ? (
+                        <>
+                            <th scope="col" className={`px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider ${!isManualEntryMode ? (isTnTpMode ? 'w-[19%]' : 'w-[25%]') : 'w-32'}`}>{isTnTpMode ? 'TN 값' : 'TU 값'}</th>
+                            <th scope="col" className={`px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider ${!isManualEntryMode ? (isTnTpMode ? 'w-[19%]' : 'w-[25%]') : 'w-32'}`}>{isTnTpMode ? 'TP 값' : 'Cl 값'}</th>
+                        </>
+                        ) : (
+                            <th scope="col" className={`px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider ${!isManualEntryMode ? 'w-[34%]' : 'w-32'}`}>값</th>
+                        )}
+                        <th scope="col" className={`px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider ${!isManualEntryMode ? (showTwoValueColumns ? 'w-[16%]' : 'w-[26%]') : 'w-40'}`}>{isManualEntryMode ? '구분' : (isTnTpMode ? 'TN 식별자' : '식별자')}</th>
+                        {isTnTpMode && !isManualEntryMode && <th scope="col" className={`px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider ${!isManualEntryMode ? 'w-[16%]' : 'w-40'}`}>TP 식별자</th>}
+                    </tr>
                 </thead>
                 <tbody className="bg-slate-800 divide-y divide-slate-700">
                 {ocrData.map((entry, index) => {
