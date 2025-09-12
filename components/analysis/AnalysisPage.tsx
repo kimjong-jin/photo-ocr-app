@@ -326,9 +326,10 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
 
   const hypotheticalKtlFileNamesForPreview = useMemo(() => {
     if (!activeJob || activeJob.photos.length === 0) return [];
+    const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
     const sanitizedSite = sanitizeFilenameComponent(siteLocation);
     const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem === "TN/TP" ? "TN_TP" : activeJob.selectedItem);
-    const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
+    const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
     
     const pageCount = Math.ceil(activeJob.photos.length / 4);
     const compositeNames = Array.from({ length: pageCount }, (_, i) => {
@@ -337,7 +338,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     });
 
     return [ ...compositeNames, `${baseName}_Compression.zip` ];
-  }, [activeJob, siteLocation]);
+  }, [activeJob, siteLocation, pageType]);
 
   const ktlJsonPreview = useMemo(() => {
     if (!activeJob || !userName) return null;
@@ -886,9 +887,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             pageType: pageType,
         };
 
+        const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
         const sanitizedSite = sanitizeFilenameComponent(siteLocation);
         const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
-        const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
+        const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
         
         const compositeFiles: File[] = [];
         const compositeFileNames: string[] = [];
@@ -962,9 +964,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                 receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
                 identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: pageType,
             };
+            const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
             const sanitizedSite = sanitizeFilenameComponent(siteLocation);
             const sanitizedItemName = sanitizeFilenameComponent(job.selectedItem.replace('/', '_'));
-            const baseName = `${job.receiptNumber}_${sanitizedSite}_${sanitizedItemName}`;
+            const baseName = `${job.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
             
             const compositeFiles: File[] = [];
             const compositeFileNames: string[] = [];
@@ -1024,10 +1027,11 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setIsDownloadingStamped(true);
     try {
         const zip = new JSZip();
+        const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
         const sanitizedReceipt = sanitizeFilenameComponent(activeJob.receiptNumber);
         const sanitizedSite = sanitizeFilenameComponent(siteLocation);
         const sanitizedItem = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
-        const baseName = `${sanitizedReceipt}_${sanitizedSite}_${sanitizedItem}`;
+        const baseName = `${sanitizedReceipt}_${sanitizedSite}_${pageIdentifier}_${sanitizedItem}`;
 
         for (let i = 0; i < activeJob.photos.length; i++) {
             const imageInfo = activeJob.photos[i];
@@ -1060,7 +1064,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     } finally {
         setIsDownloadingStamped(false);
     }
-  }, [activeJob, siteLocation]);
+  }, [activeJob, siteLocation, pageType]);
 
   const isControlsDisabled = isLoading || isDownloadingStamped || isSendingToClaydox || isCameraOpen || !!batchSendProgress;
   const representativeImageData = activeJob && currentImageIndex !== -1 ? activeJob.photos[currentImageIndex] : null;
