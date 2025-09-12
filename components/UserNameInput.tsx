@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback } from 'react';
-import { ActionButton } from './ActionButton';
+import { ActionButton } from './actionButton';
 
 export type UserRole = 'user' | 'admin';
 
