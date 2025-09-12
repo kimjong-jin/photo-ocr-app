@@ -1,6 +1,5 @@
-// shared/types.ts
-import { ImageInfo as BaseImageInfo } from '@/components/ImageInput';
-import { RangeResults } from '@/components/RangeDifferenceDisplay';
+import { ImageInfo as BaseImageInfo } from '../components/ImageInput';
+import { RangeResults } from '../components/RangeDifferenceDisplay';
 
 export interface JobPhoto extends BaseImageInfo {
   uid: string;
@@ -31,7 +30,7 @@ export interface PhotoLogJob {
   selectedItem: string;
   photos: JobPhoto[];
   photoComments: Record<string, string>;
-  processedOcrData: ExtractedEntry[]; // 🔄 null 대신 빈 배열 []로 처리 권장
+  processedOcrData: ExtractedEntry[] | null;
   rangeDifferenceResults: RangeResults | null;
   concentrationBoundaries: ConcentrationBoundaries | null;
   decimalPlaces: number;
