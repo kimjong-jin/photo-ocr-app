@@ -640,8 +640,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       const { latitude, longitude } = position.coords;
       
       const NAVER_API_URL = 'https://naveropenapi.apigw.ntruss.com/map-reversegeocode/v2/gc';
-      const NAVER_CLIENT_ID = process.env.NAVER_CLIENT_ID;
-      const NAVER_CLIENT_SECRET = process.env.NAVER_CLIENT_SECRET;
+      const NAVER_CLIENT_ID = import.meta.env.VITE_NAVER_CLIENT_ID;
+      const NAVER_CLIENT_SECRET = import.meta.env.VITE_NAVER_CLIENT_SECRET;
 
       if (!NAVER_CLIENT_ID || !NAVER_CLIENT_SECRET) {
           setCurrentGpsAddress('Naver API 키가 설정되지 않았습니다.');
