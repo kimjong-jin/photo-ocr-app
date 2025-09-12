@@ -28,9 +28,6 @@ interface OcrResultDisplayProps {
   isManualEntryMode?: boolean;
   timeColumnHeader?: string;
   decimalPlaces?: number;
-  overrideDate?: string | null;
-  onToggleDateOverride?: () => void;
-  onOverrideDateChange?: (newDate: string) => void;
 }
 
 // Helper Icons
@@ -55,12 +52,6 @@ const PlusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 const ShuffleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5" {...props}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-  </svg>
-);
-
-const CalendarIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18M-4.5 12h22.5" />
   </svg>
 );
 
@@ -130,10 +121,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
     draftJsonToPreview,
     isManualEntryMode = false,
     timeColumnHeader,
-    decimalPlaces,
-    overrideDate,
-    onToggleDateOverride,
-    onOverrideDateChange
+    decimalPlaces
 }) => {
   const [rowToMoveInput, setRowToMoveInput] = useState('');
   const [newPositionInput, setNewPositionInput] = useState('');
@@ -210,41 +198,24 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
   
   if (ocrData !== null) {
     return (
-      <div className="mt-6 space-y-4">
-        <div className="flex justify-between items-center">
-            <h3 className="text-xl font-semibold text-sky-400 flex items-center">
-                <TableIcon className="w-6 h-6 mr-2"/> {isManualEntryMode ? "데이터 입력" : "추출된 데이터"}
-            </h3>
-            <div className="flex items-center gap-2">
-                {isManualEntryMode && onToggleDateOverride && (
-                    <button
-                        onClick={onToggleDateOverride}
-                        className="p-1 text-slate-400 hover:text-sky-400 rounded-full transition-colors"
-                    >
-                        <CalendarIcon className="w-5 h-5" />
-                    </button>
-                )}
-                {isManualEntryMode && overrideDate !== null && onOverrideDateChange && (
-                     <input
-                        type="date"
-                        id="date-override-input"
-                        value={overrideDate}
-                        onChange={(e) => onOverrideDateChange(e.target.value)}
-                        className="block p-1 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm text-slate-300"
-                    />
-                )}
-                {rawJsonForCopy && !isManualEntryMode && (
-                    <ActionButton 
-                        onClick={() => copyToClipboard(rawJsonForCopy, "JSON 데이터")}
-                        variant="secondary"
-                        disabled={!rawJsonForCopy || ocrData.length === 0}
-                        aria-label="추출된 원시 JSON 데이터 클립보드에 복사"
-                    >
-                        JSON 복사
-                    </ActionButton>
-                )}
-            </div>
-        </div>
+      <div className="mt-2 space-y-4">
+        {!isManualEntryMode && (
+          <div className="flex justify-between items-center">
+              <h3 className="text-xl font-semibold text-sky-400 flex items-center">
+                  <TableIcon className="w-6 h-6 mr-2"/> 추출된 데이터
+              </h3>
+              {rawJsonForCopy && (
+                  <ActionButton 
+                      onClick={() => copyToClipboard(rawJsonForCopy, "JSON 데이터")}
+                      variant="secondary"
+                      disabled={!rawJsonForCopy || ocrData.length === 0}
+                      aria-label="추출된 원시 JSON 데이터 클립보드에 복사"
+                  >
+                      JSON 복사
+                  </ActionButton>
+              )}
+          </div>
+        )}
         
         {!isManualEntryMode && ocrData.length > 0 && (
           <div className="p-3 bg-slate-700/30 rounded-md border border-slate-600/50 space-y-3">
