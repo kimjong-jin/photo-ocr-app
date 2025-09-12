@@ -1,4 +1,5 @@
-import { ExtractedEntry } from '../PhotoLogPage';
+// FIX: The ExtractedEntry type should be imported from the shared types definition file.
+import type { ExtractedEntry } from '../shared/types';
 
 interface ConcentrationBoundaries {
     overallMin: number;
