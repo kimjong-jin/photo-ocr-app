@@ -643,12 +643,17 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         const res = await fetch(
           `/api/naver-reverse-geocode?latitude=${latitude}&longitude=${longitude}`
         );
-        const data = await res.json();
 
-        if (!res.ok) throw new Error(data.error || "주소 탐색 실패");
+        const raw = await res.text();   // ⚠️ 먼저 text로 받기
+        let data: any = null;
+        try { data = JSON.parse(raw); } catch (_) {}
 
-        if (data.address) {
-          setCurrentGpsAddress(data.address); // ← 주소 문자열만 세팅
+        if (!res.ok) {
+          throw new Error(data?.error || raw || `HTTP ${res.status}`);
+        }
+
+        if (data?.address) {
+          setCurrentGpsAddress(data.address);
         } else {
           setCurrentGpsAddress("주소를 찾을 수 없습니다.");
         }
