@@ -608,6 +608,130 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     }
   }, [activeJob, siteLocation, updateActiveJob]);
 
+  const generatePromptForLogFileAnalysis = (): string => {
+    return `You are an expert data extraction assistant. Your task is to analyze an image of a data log screen titled 'FrmViewLog' and extract the tabular data into a structured JSON format.
+  
+  CRITICAL INSTRUCTIONS:
+  
+  1.  **Identify the Date:** First, locate the list of dates on the right side of the window. Identify the single date that is currently selected or highlighted. This is the date for ALL data rows in the main table.
+  
+  2.  **Extract Data Rows:** For each row in the main data table on the left, perform the following:
+      a.  **Construct Timestamp:** Take the time from the first column (e.g., \`[06:02:24]\`) and combine it with the single date you identified in step 1. The final format for the 'time' field must be 'YYYY-MM-DD HH:MM:SS'. For example, if the selected date is '2025-09-10' and the time is '[06:02:24]', the timestamp is '2025-09-10 06:02:24'.
+      b.  **Extract Values:** Extract ALL numerical values that appear after the timestamp column in that row. The values should be returned as an array of strings. Remove any commas from numbers (e.g., '2,611.27800' should become '2611.27800').
+  
+  3.  **JSON Output Format:** The final output MUST be a single, valid JSON array. Each object in the array represents a row from the table and must have the following keys:
+      *   \`time\`: The full timestamp string you constructed.
+      *   \`values\`: An array of strings, where each string is a numerical value from the columns following the timestamp.
+  
+  EXAMPLE:
+  If the selected date is '2025-09-10' and a row is \`[06:02:24]   4.333   0.302   2,611.27800\`, the corresponding JSON object should be:
+  {
+    "time": "2025-09-10 06:02:24",
+    "values": ["4.333", "0.302", "2611.27800"]
+  }
+  
+  Respond ONLY with the JSON array. Do not include any other text, explanations, or markdown formatting. If no valid data can be extracted, return an empty array \`[]\`.`;
+  };
+
+  const handleExtractFromLogFile = useCallback(async () => {
+    if (!activeJob || activeJob.photos.length === 0) {
+      setProcessingError("먼저 이미지를 선택하거나 촬영해주세요.");
+      return;
+    }
+    setIsLoading(true); setProcessingError(null);
+    updateActiveJob(j => ({ ...j, processedOcrData: null, decimalPlaces: 0, submissionStatus: 'idle', submissionMessage: undefined }));
+
+    interface RawLogEntry {
+      time: string;
+      values: string[];
+    }
+    
+    let allRawExtractedEntries: RawLogEntry[] = [];
+    let batchHadError = false;
+    let criticalErrorOccurred: string | null = null;
+    
+    try {
+        const prompt = generatePromptForLogFileAnalysis();
+        const responseSchema = {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    time: { type: Type.STRING },
+                    values: { type: Type.ARRAY, items: { type: Type.STRING } }
+                },
+                required: ["time", "values"]
+            }
+        };
+        const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
+
+        const imageProcessingPromises = activeJob.photos.map(async (image) => {
+            let jsonStr: string = "";
+            try {
+                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
+                const jsonDataFromImage = JSON.parse(jsonStr) as RawLogEntry[];
+                if (Array.isArray(jsonDataFromImage)) {
+                    return { status: 'fulfilled', value: jsonDataFromImage };
+                }
+                return { status: 'rejected', reason: `Image ${image.file.name} did not return a valid JSON array.` };
+            } catch (imgErr: any) {
+                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) {
+                    criticalErrorOccurred = imgErr.message;
+                }
+                let reason = (imgErr instanceof SyntaxError) ? `JSON parsing failed: ${imgErr.message}. AI response: ${jsonStr}` : imgErr.message;
+                return { status: 'rejected', reason };
+            }
+        });
+
+        const results = await Promise.all(imageProcessingPromises);
+        results.forEach(result => {
+            if (result.status === 'fulfilled' && result.value) {
+                if (Array.isArray(result.value)) allRawExtractedEntries.push(...result.value);
+            } else if (result.status === 'rejected') {
+                batchHadError = true;
+            }
+        });
+
+        if (criticalErrorOccurred) throw new Error(criticalErrorOccurred);
+        
+        if (allRawExtractedEntries.length > 0) {
+            const uniqueEntriesMap = new Map<string, RawLogEntry>();
+            allRawExtractedEntries.forEach(entry => {
+                if (!uniqueEntriesMap.has(entry.time)) {
+                    uniqueEntriesMap.set(entry.time, entry);
+                }
+            });
+
+            const isTnTpMode = activeJob.selectedItem === "TN/TP";
+            
+            const finalOcrData = Array.from(uniqueEntriesMap.values())
+              .sort((a,b) => (a.time || '').localeCompare(b.time || ''))
+              .map((rawEntry: RawLogEntry) => {
+                const primaryValue = rawEntry.values?.[0] || '';
+                const tpValue = isTnTpMode ? (rawEntry.values?.[1] || '') : undefined;
+                return {
+                  id: self.crypto.randomUUID(),
+                  time: rawEntry.time,
+                  value: primaryValue,
+                  valueTP: tpValue,
+                  identifier: undefined,
+                  identifierTP: undefined,
+                  isRuleMatched: false
+                };
+              });
+
+            updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
+            if (batchHadError) setProcessingError("일부 이미지를 처리하지 못했습니다.");
+        } else {
+            setProcessingError("AI가 이미지에서 유효한 데이터를 추출하지 못했습니다.");
+        }
+    } catch (e: any) {
+        setProcessingError(e.message || "데이터 추출 중 알 수 없는 오류가 발생했습니다.");
+    } finally {
+        setIsLoading(false);
+    }
+  }, [activeJob, updateActiveJob]);
+
   const handleEntryChange = useCallback((entryId: string, field: keyof ExtractedEntry, value: string | undefined) => {
     updateActiveJob(job => {
         if (!job.processedOcrData) return job;
@@ -776,7 +900,14 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                 comment: activeJob.photoComments[p.uid]
             }));
 
-            const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4);
+            const stampDetails = {
+                receiptNumber: activeJob.receiptNumber,
+                siteLocation: siteLocation,
+                item: activeJob.selectedItem,
+                inspectionStartDate: ''
+            };
+            const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails);
+
 
             a4PageDataUrls.forEach((dataUrl, index) => {
                 const pageNum = (index + 1).toString().padStart(2, '0');
@@ -790,8 +921,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const zip = new JSZip();
         for (let i = 0; i < activeJob.photos.length; i++) {
             const imageInfo = activeJob.photos[i];
-            const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, siteLocation, '', activeJob.selectedItem, activeJob.photoComments[imageInfo.uid]);
-            zip.file(`${baseName}_${i + 1}.png`, dataURLtoBlob(stampedDataUrl));
+            const originalDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
+            const fileNameInZip = `${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`;
+            zip.file(fileNameInZip, dataURLtoBlob(originalDataUrl));
         }
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
@@ -843,8 +975,14 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                     mimeType: p.mimeType,
                     comment: job.photoComments[p.uid]
                 }));
-    
-                const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4);
+                
+                const stampDetails = {
+                    receiptNumber: job.receiptNumber,
+                    siteLocation: siteLocation,
+                    item: job.selectedItem,
+                    inspectionStartDate: ''
+                };
+                const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails);
     
                 a4PageDataUrls.forEach((dataUrl, index) => {
                     const pageNum = (index + 1).toString().padStart(2, '0');
@@ -857,8 +995,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             
             const zip = new JSZip();
             for (const imageInfo of job.photos) {
-                const stampedDataUrl = await generateStampedImage(imageInfo.base64, imageInfo.mimeType, job.receiptNumber, siteLocation, '', job.selectedItem, job.photoComments[imageInfo.uid]);
-                zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`, dataURLtoBlob(stampedDataUrl));
+                const originalDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
+                zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`, dataURLtoBlob(originalDataUrl));
             }
             const zipBlob = await zip.generateAsync({ type: "blob" });
             const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
@@ -985,6 +1123,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           )}
           <OcrControls 
             onExtract={handleExtractText} 
+            onExtractLogFile={handleExtractFromLogFile}
+            isExtractLogFileDisabled={isControlsDisabled || activeJob.photos.length === 0}
             onClear={resetActiveJobData} 
             isExtractDisabled={isControlsDisabled || activeJob.photos.length === 0} 
             isClearDisabled={isControlsDisabled || activeJob.photos.length === 0} 
