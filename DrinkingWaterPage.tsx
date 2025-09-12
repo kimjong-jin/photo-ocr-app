@@ -1,8 +1,10 @@
+
+
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
-import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview } from './services/claydoxApiService';
+import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview, getFileExtensionFromMime } from './services/claydoxApiService';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
 import { ActionButton } from './components/ActionButton';
@@ -15,6 +17,8 @@ import JSZip from 'jszip';
 import html2canvas from 'html2canvas';
 import { DrinkingWaterSnapshot } from './components/DrinkingWaterSnapshot';
 import { ExtractedEntry } from './shared/types';
+import PasswordModal from './components/PasswordModal';
+
 
 // --- Interfaces ---
 export interface DrinkingWaterJob {
@@ -51,6 +55,12 @@ if (!component) return '';
 return component.replace(/[/\\:?*\"<>|]/g, '').replace(/__+/g, '');
 };
 
+const getCurrentLocalDateTimeString = (): string => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+};
+
 // --- Component ---
 interface DrinkingWaterPageProps {
   userName: string;
@@ -68,6 +78,18 @@ const TrashIcon: React.FC = () => (
     </svg>
 );
 
+const CalendarIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18M-4.5 12h22.5" />
+  </svg>
+);
+
+const TableIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+ <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+  </svg>
+);
+
 
 const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob }) => {
 const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -78,14 +100,11 @@ const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
 const fileInputRef = useRef<HTMLInputElement>(null);
 const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
 const snapshotHostRef = useRef<HTMLDivElement | null>(null);
-const [overrideDate, setOverrideDate] = useState<string | null>(null);
+const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+const [isDateOverrideUnlocked, setIsDateOverrideUnlocked] = useState(false);
+const [overrideDateTime, setOverrideDateTime] = useState('');
 
 const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
-
-const drinkingWaterItems = useMemo(() =>
-ANALYSIS_ITEM_GROUPS.find(group => group.label === '먹는물')?.items || [],
-[]
-);
 
 const ocrControlsKtlStatus = useMemo<KtlApiCallStatus>(() => {
     if (!activeJob) return 'idle';
@@ -105,14 +124,18 @@ const resetSubmissionState = useCallback(() => {
 }, []);
   
 useEffect(() => {
-    if (activeJob && activeJob.photos.length > 0) {
-        if (currentPhotoIndexOfActiveJob < 0 || currentPhotoIndexOfActiveJob >= activeJob.photos.length) {
-            setCurrentPhotoIndexOfActiveJob(0);
-        }
-    } else {
-        setCurrentPhotoIndexOfActiveJob(-1);
-    }
-  }, [activeJob, currentPhotoIndexOfActiveJob]);
+  if (activeJob && activeJob.photos.length > 0) {
+      if (currentPhotoIndexOfActiveJob < 0 || currentPhotoIndexOfActiveJob >= activeJob.photos.length) {
+          setCurrentPhotoIndexOfActiveJob(0);
+      }
+  } else {
+      setCurrentPhotoIndexOfActiveJob(-1);
+  }
+}, [activeJob, currentPhotoIndexOfActiveJob]);
+
+useEffect(() => {
+  setIsDateOverrideUnlocked(false);
+}, [activeJobId]);
 
 const hypotheticalKtlFileNamesForPreview = useMemo(() => {
 if (!activeJob) return [];
@@ -125,7 +148,6 @@ if (activeJob.photos.length > 0) {
   fileNames.push(`${baseName}_압축.zip`);
 }
 
-// Add hypothetical data table image name if there's data to send
 if (activeJob.processedOcrData?.some(d => d.value.trim() !== '' || (d.valueTP && d.valueTP.trim() !== ''))) {
     fileNames.push(`${baseName}_datatable.png`);
 }
@@ -152,71 +174,6 @@ const payload: ClaydoxPayload = {
 return generateKtlJsonForPreview(payload, selectedItem, hypotheticalKtlFileNamesForPreview);
 }, [activeJob, userName, siteLocation, hypotheticalKtlFileNamesForPreview]);
 
-const draftJsonPreview = useMemo(() => {
-if (!activeJob || !userName || !siteLocation.trim()) return null;
-const { receiptNumber, selectedItem, processedOcrData, details } = activeJob;
-
-const transformedValues: Record<string, Record<string, { val: string; time: string }>> = {};
-const itemsToProcess = selectedItem === 'TU/CL' ? ['TU', 'Cl'] : (selectedItem ? [selectedItem] : []);
-
-if (processedOcrData && itemsToProcess.length > 0) {
-  itemsToProcess.forEach(subItem => {
-    const subItemData: Record<string, { val: string; time: string }> = {};
-    processedOcrData.forEach(entry => {
-      if (entry.identifier === 'Z 2시간 시작 - 종료' || entry.identifier === '드리프트 완료' || entry.identifier === '반복성 완료') return;
-      
-      let key: string | null = null;
-      let value: string | null = null;
-
-      if (subItem === 'TU') {
-        key = entry.identifier || null;
-        value = entry.value || null;
-      } else if (subItem === 'Cl') {
-        key = entry.identifier ? entry.identifier : null;
-        if (activeJob.selectedItem === 'TU/CL') {
-          value = entry.valueTP || null;
-        } else {
-          value = entry.value || null;
-        }
-      }
-      
-      if (entry.identifier === '응답시간_Cl' && subItem === 'Cl') {
-        key = '응답시간';
-        value = entry.value;
-      } else if (entry.identifier === '응답' && subItem === 'TU') {
-        key = '응답시간';
-        value = entry.value;
-      }
-
-      if (key && value && value.trim() !== '') {
-        subItemData[key] = { val: value.trim(), time: entry.time };
-      }
-    });
-
-    if (Object.keys(subItemData).length > 0) {
-      transformedValues[subItem] = subItemData;
-    }
-  });
-}
-
-const finalSiteLocation = formatSite(siteLocation, details);
-
-const payload: {
-  receipt_no: string;
-  site: string;
-  item: string[];
-  user_name: string;
-  values: Record<string, Record<string, { val: string; time: string }>>;
-} = {
-  receipt_no: receiptNumber,
-  site: finalSiteLocation,
-  item: [selectedItem],
-  user_name: userName,
-  values: transformedValues,
-};
-return JSON.stringify(payload, null, 2);
-}, [activeJob, userName, siteLocation]);
-
 const handleJobDetailChange = (field: keyof Pick<DrinkingWaterJob, 'decimalPlaces' | 'decimalPlacesCl' | 'details'>, value: number | string) => {
     updateActiveJob(j => ({ ...j, [field]: value, submissionStatus: 'idle', submissionMessage: undefined }));
     resetSubmissionState();
@@ -238,15 +195,8 @@ if (fileInputRef.current) {
 fileInputRef.current.value = '';
 }
 resetSubmissionState();
-setOverrideDate(null);
+setIsDateOverrideUnlocked(false);
 }, [activeJobId, resetSubmissionState, updateActiveJob]);
-
-const updateJobOcrData = (jobId: string, updatedData: ExtractedEntry[]) => {
-    setJobs(prevJobs => prevJobs.map(job =>
-        job.id === jobId ? { ...job, processedOcrData: updatedData } : job
-    ));
-    resetSubmissionState();
-};
 
 const handleEntryValueChange = (entryId: string, valueType: 'primary' | 'tp', newValue: string) => {
 if (!activeJob || !activeJob.processedOcrData) return;
@@ -261,7 +211,7 @@ const updatedData = activeJob.processedOcrData.map(entry => {
     const hasTPValue = (valueType === 'tp' ? newValue : (entry.valueTP || ''))?.trim() !== '';
     
     if (hasPrimaryValue || hasTPValue) {
-        if (!entry.time) { // Only set timestamp if it's not already set
+        if (!entry.time) {
           updatedEntry.time = getCurrentTimestampForInput();
         }
     } else {
@@ -277,10 +227,8 @@ updateActiveJob(j => ({ ...j, processedOcrData: updatedData, submissionStatus: '
 const handleEntryValueBlur = (entryId: string, valueType: 'primary' | 'tp') => {
 if (!activeJob || !activeJob.processedOcrData) return;
 
-// Simplified formatter for non-response time values.
 const formatValue = (value: string | undefined, places: number): string => {
     if (value === null || value === undefined || value.trim() === '') return '';
-    if (value.trim().startsWith('[')) return value; // Don't format JSON strings
     const num = parseFloat(value);
     if (isNaN(num)) return value;
     return num.toFixed(places);
@@ -291,11 +239,7 @@ const updatedData = activeJob.processedOcrData.map(entry => {
         const updatedEntry = { ...entry };
         const isResponseTime = entry.identifier?.startsWith('응답');
         
-        if (isResponseTime) {
-            // Do nothing. The user has full control over the response time input.
-            // The value is already updated as a JSON string via onChange.
-        } else { 
-            // Apply decimal place formatting for all other measurement entries.
+        if (!isResponseTime) { 
             if (valueType === 'primary') {
                 updatedEntry.value = formatValue(entry.value, activeJob.decimalPlaces);
             } else if (valueType === 'tp' && activeJob.selectedItem === 'TU/CL') {
@@ -306,7 +250,7 @@ const updatedData = activeJob.processedOcrData.map(entry => {
     }
     return entry;
 });
-updateJobOcrData(activeJob.id, updatedData);
+updateActiveJob(j => ({ ...j, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined }));
 };
 
 const handleOpenCamera = useCallback(() => {
@@ -438,7 +382,6 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
     let actualKtlFileNames: string[] = [];
 
     try {
-        // Capture data table image using the new snapshot component
         let dataTableFile: File | null = null;
         if (snapshotHostRef.current) {
             const snapshotRoot = createRoot(snapshotHostRef.current);
@@ -464,7 +407,6 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
             snapshotRoot.unmount();
         }
 
-        // Process photos if they exist
         if (activeJob.photos.length > 0) {
             const imageInfosForComposite = activeJob.photos.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
             const baseName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}`;
@@ -513,29 +455,12 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
     }
 }, [activeJob, userName, siteLocation, updateActiveJob]);
 
-const handleToggleDateOverride = useCallback(() => {
-    if (overrideDate === null) {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        setOverrideDate(`${year}-${month}-${day}`);
-    } else {
-        setOverrideDate(null);
-    }
-}, [overrideDate]);
-
-const handleOverrideDateChange = useCallback((newDate: string) => {
-    setOverrideDate(newDate);
-    if (!activeJob || !activeJob.processedOcrData || !newDate) return;
+const handleOverrideDateTimeChange = useCallback((newDateTime: string) => {
+    if (!activeJob || !activeJob.processedOcrData || !newDateTime) return;
 
     const updatedData = activeJob.processedOcrData.map(entry => {
-        if (entry.time) { // Only update entries that have a time
-            const timeParts = entry.time.split('T');
-            const timePart = timeParts.length > 1 ? timeParts[1] : null;
-            if (timePart) {
-                return { ...entry, time: `${newDate}T${timePart}` };
-            }
+        if (entry.time) { // Only update entries that already have a time
+            return { ...entry, time: newDateTime };
         }
         return entry;
     });
@@ -543,25 +468,17 @@ const handleOverrideDateChange = useCallback((newDate: string) => {
     updateActiveJob(j => ({ ...j, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined }));
 }, [activeJob, updateActiveJob]);
 
+const handleDateTimeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newDateTime = e.target.value;
+    setOverrideDateTime(newDateTime);
+    handleOverrideDateTimeChange(newDateTime);
+};
+
 const representativeActiveJobPhoto = useMemo(() =>
 activeJob && activeJob.photos.length > 0 && currentPhotoIndexOfActiveJob !== -1
 ? activeJob.photos[currentPhotoIndexOfActiveJob]
 : null
 , [activeJob, currentPhotoIndexOfActiveJob]);
-
-const copyToClipboard = async (text: string | null | undefined, type: string) => {
-    if (!text) {
-      alert(`${type} 내용이 없습니다.`);
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      alert(`${type} 복사 완료!`);
-    } catch (err: any) {
-      console.error(`클립보드에 ${type} 복사 실패:`, err);
-      alert(`${type} 복사에 실패했습니다. 콘솔을 확인해주세요.`);
-    }
-  };
 
 const isControlsDisabled = isLoading;
 const isClaydoxDisabled = !activeJob || isControlsDisabled || !siteLocation.trim() || !activeJob.processedOcrData?.some(e => e.value.trim() || (e.valueTP && e.valueTP.trim()));
@@ -591,7 +508,7 @@ return (
             className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
           >
             <div className="flex justify-between items-center">
-                <div className="flex-grow cursor-pointer" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); setOverrideDate(null); }}>
+                <div className="flex-grow cursor-pointer" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); setIsDateOverrideUnlocked(false); }}>
                     <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>
                     {job.receiptNumber} / {job.selectedItem} {job.details && `(${job.details})`}
                     </span>
@@ -605,7 +522,7 @@ return (
                     <TrashIcon />
                 </button>
             </div>
-             <div className="mt-1 text-right cursor-pointer self-start" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); setOverrideDate(null); }}>
+             <div className="mt-1 text-right cursor-pointer self-start" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); setIsDateOverrideUnlocked(false); }}>
                 <StatusIndicator status={job.submissionStatus} message={job.submissionMessage} />
             </div>
           </div>
@@ -613,6 +530,9 @@ return (
       </div>
     </div>
   )}
+
+    {!activeJob && jobs.length > 0 && <p className="text-center text-slate-400 p-4">계속하려면 위 목록에서 작업을 선택하세요.</p>}
+    {!activeJob && jobs.length === 0 && <p className="text-center text-slate-400 p-4">시작하려면 '공통 정보 및 작업 관리' 섹션에서 작업을 추가하세요.</p>}
 
   {activeJob && (
     <div className="space-y-4 pt-4 border-t border-slate-700">
@@ -727,13 +647,43 @@ return (
         ktlApiCallStatus={ocrControlsKtlStatus}
       />
 
-      <div className="data-table-container">
+      <div className="data-table-container space-y-2">
+        <div className="flex justify-between items-center">
+            <h3 className="text-xl font-semibold text-sky-400 flex items-center">
+                <TableIcon className="w-6 h-6 mr-2"/> 데이터 입력
+            </h3>
+            <div className="flex items-center gap-2">
+                {isDateOverrideUnlocked && (
+                    <input
+                        type="datetime-local"
+                        id="datetime-override-input-p3"
+                        value={overrideDateTime}
+                        onChange={handleDateTimeInputChange}
+                        className="p-2 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm text-slate-200"
+                    />
+                )}
+                <button
+                    onClick={() => {
+                        if (isDateOverrideUnlocked) {
+                            setIsDateOverrideUnlocked(false);
+                        } else {
+                            setIsPasswordModalOpen(true);
+                        }
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-sky-400 rounded-full transition-colors"
+                    aria-label="날짜/시간 일괄 변경"
+                >
+                    <CalendarIcon className="w-5 h-5" />
+                </button>
+            </div>
+        </div>
+
         <OcrResultDisplay
           ocrData={activeJob.processedOcrData}
           error={processingError}
           isLoading={false}
           contextProvided={true}
-          hasImage={true} // This page always has a data table, so image isn't strictly necessary to show it
+          hasImage={true}
           selectedItem={activeJob.selectedItem}
           onEntryPrimaryValueChange={(id, val) => handleEntryValueChange(id, 'primary', val)}
           onEntryValueTPChange={(id, val) => handleEntryValueChange(id, 'tp', val)}
@@ -747,24 +697,12 @@ return (
           tnIdentifiers={[]} 
           tpIdentifiers={[]}
           ktlJsonToPreview={ktlJsonPreview}
-          draftJsonToPreview={draftJsonPreview}
           isManualEntryMode={true}
           timeColumnHeader="최종 저장 시간"
           decimalPlaces={activeJob.decimalPlaces}
-          overrideDate={overrideDate}
-          onToggleDateOverride={handleToggleDateOverride}
-          onOverrideDateChange={handleOverrideDateChange}
         />
       </div>
     </div>
-  )}
-
-  {!activeJob && jobs.length > 0 && (
-    <p className="text-center text-slate-400 p-4">계속하려면 위 목록에서 작업을 선택하세요。</p>
-  )}
-
-  {!activeJob && jobs.length === 0 && (
-    <p className="text-center text-slate-400 p-4">시작하려면 '공통 정보 및 작업 관리' 섹션에서 작업을 추가하세요。</p>
   )}
 
   {isKtlPreflightModalOpen && ktlPreflightData && (
@@ -773,6 +711,17 @@ return (
       onClose={() => setIsKtlPreflightModalOpen(false)}
       onConfirm={handleSendToClaydoxConfirmed}
       preflightData={ktlPreflightData}
+    />
+  )}
+  {isPasswordModalOpen && (
+    <PasswordModal
+        isOpen={isPasswordModalOpen}
+        onClose={() => setIsPasswordModalOpen(false)}
+        onSuccess={() => {
+            setIsDateOverrideUnlocked(true);
+            setOverrideDateTime(getCurrentLocalDateTimeString());
+            setIsPasswordModalOpen(false);
+        }}
     />
   )}
 </div>
