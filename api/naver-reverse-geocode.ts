@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { fetchNaverReverseGeocode } from "../services/naverService";
+import { fetchNaverReverseGeocode } from "../services/naverservice";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
