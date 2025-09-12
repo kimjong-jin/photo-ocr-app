@@ -636,90 +636,69 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       return;
     }
 
-    const onSuccess = (position: GeolocationPosition) => {
+    const onSuccess = async (position: GeolocationPosition) => {
       const { latitude, longitude } = position.coords;
-      
-      const NAVER_API_URL = 'https://naveropenapi.apigw.ntruss.com/map-reversegeocode/v2/gc';
-      const NAVER_CLIENT_ID = import.meta.env.VITE_NAVER_CLIENT_ID;
-      const NAVER_CLIENT_SECRET = import.meta.env.VITE_NAVER_CLIENT_SECRET;
 
-      if (!NAVER_CLIENT_ID || !NAVER_CLIENT_SECRET) {
-          setCurrentGpsAddress('Naver API 키가 설정되지 않았습니다.');
-          setIsFetchingAddress(false);
-          console.error("Naver API credentials are not configured in the environment.");
-          return;
-      }
+      try {
+        const res = await fetch(
+          `/api/naver-reverse-geocode?latitude=${latitude}&longitude=${longitude}`
+        );
 
-      const url = `${NAVER_API_URL}?coords=${longitude},${latitude}&output=json&orders=roadaddr,addr`;
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || '주소 탐색 실패');
+        }
 
-      fetch(url, {
-          method: 'GET',
-          headers: {
-              'X-NCP-APIGW-API-KEY-ID': NAVER_CLIENT_ID,
-              'X-NCP-APIGW-API-KEY': NAVER_CLIENT_SECRET,
-          },
-      })
-      .then(async (res) => {
-          if (!res.ok) {
-              let errorJson: any = {};
-              try {
-              errorJson = await res.json();
-              } catch (e) {
-              // Ignore if body is not json
-              }
-              const errorMessage = errorJson?.error?.message || errorJson?.errorMessage || res.statusText;
-              throw new Error(`Naver API 오류: ${errorMessage} (${res.status})`);
-          }
-          return res.json();
-          })
-          .then((data) => {
-          if (data.status?.code === 0 && data.results?.length > 0) {
-              const result = data.results[0]; // orders=roadaddr,addr 덕분에 첫 번째 결과가 가장 선호됨
-              const region = result.region;
-              const land = result.land;
-              
-              let address = '';
-              if (result.name === 'roadaddr') {
-              address = [
-                  region.area1.name,
-                  region.area2.name,
-                  land.name,
-                  land.number1,
-                  land.addition0?.value // 건물명
-              ].filter(Boolean).join(' ');
-              } else { // 'addr' (지번)
-              address = [
-                  region.area1.name,
-                  region.area2.name,
-                  region.area3.name,
-                  land.number1,
-                  land.addition0?.value
-              ].filter(Boolean).join(' ');
-              }
-              
-              setCurrentGpsAddress(address.replace(/\s+/g, ' ').trim() || '주소를 찾을 수 없습니다.');
+        const data = await res.json();
+
+        if (data.status?.code === 0 && data.results?.length > 0) {
+          const result = data.results[0];
+          const region = result.region;
+          const land = result.land;
+
+          let address = '';
+          if (result.name === 'roadaddr') {
+            address = [
+              region.area1.name,
+              region.area2.name,
+              land.name,
+              land.number1,
+              land.addition0?.value,
+            ]
+              .filter(Boolean)
+              .join(' ');
           } else {
-              let errorMessage = '주소 탐색 실패.';
-              if (data?.status?.message) {
-              errorMessage += ` 원인: ${data.status.message}`;
-              } else if (data?.error?.message || data?.errorMessage) {
-              errorMessage += ` 서버 오류: ${data.error?.message || data.errorMessage}`;
-              } else {
-              errorMessage += ` 알 수 없는 응답입니다.`;
-              }
-              setCurrentGpsAddress(errorMessage);
-              console.error("Naver API Response:", data);
+            address = [
+              region.area1.name,
+              region.area2.name,
+              region.area3.name,
+              land.number1,
+              land.addition0?.value,
+            ]
+              .filter(Boolean)
+              .join(' ');
           }
-          })
-          .catch((err) => {
-          console.error('Fetch error:', err);
-          setCurrentGpsAddress(`주소 탐색 중 오류 발생: ${err.message}`);
-          })
-          .finally(() => setIsFetchingAddress(false));
+
+          setCurrentGpsAddress(
+            address.replace(/\s+/g, ' ').trim() || '주소를 찾을 수 없습니다.'
+          );
+        } else {
+          setCurrentGpsAddress('주소 탐색 실패. 응답 데이터 없음');
+          console.error('Naver API Response:', data);
+        }
+      } catch (err: any) {
+        console.error('Fetch error:', err);
+        setCurrentGpsAddress(`주소 탐색 중 오류 발생: ${err.message}`);
+      } finally {
+        setIsFetchingAddress(false);
+      }
     };
 
     const onError = (error: GeolocationPositionError) => {
-      console.error('Geolocation error:', `Code: ${error.code}, Message: ${error.message}`);
+      console.error(
+        'Geolocation error:',
+        `Code: ${error.code}, Message: ${error.message}`
+      );
       setCurrentGpsAddress(
         error.code === error.PERMISSION_DENIED
           ? 'GPS 위치 권한이 거부되었습니다.'
