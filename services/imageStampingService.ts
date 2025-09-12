@@ -468,6 +468,7 @@ export type A4Base64Image = { base64: string; mimeType: string; comment?: string
  */
 export async function generateA4CompositeJPEGPages(
   imgs: A4Base64Image[],
+  stampDetails?: StampDetails,
   opts: A4CompositeOptions = {}
 ): Promise<string[]> {
   assertBrowser('generateA4CompositeJPEGPages');
@@ -573,6 +574,44 @@ export async function generateA4CompositeJPEGPages(
 
       // 라벨(선택): 1~4
       if (drawLabels) drawSlotLabel(ctx, cell.x, cell.y, cell.w, cell.h, i + 1, labelStyle);
+    }
+
+    if (stampDetails) {
+        const { receiptNumber, siteLocation, inspectionStartDate, item } = stampDetails;
+        const canvasBase = Math.min(pageW, pageH);
+        const stampFont = Math.max(16, Math.round(canvasBase * 0.015)); 
+        const stampPad = Math.round(stampFont * 0.5);
+        const lineH = Math.round(stampFont * 1.4);
+
+        const lines: string[] = [];
+        if (receiptNumber?.trim()) lines.push(`접수번호: ${receiptNumber}`);
+        if (siteLocation?.trim()) lines.push(`현장: ${siteLocation}`);
+        if (item?.trim()) lines.push(`항목: ${item}`);
+        if (inspectionStartDate?.trim()) lines.push(`검사시작일: ${inspectionStartDate}`);
+        
+        if (lines.length > 0) {
+            ctx.font = `bold ${stampFont}px Arial, sans-serif`;
+            let maxTextWidth = 0;
+            for (const l of lines) {
+                const w = ctx.measureText(l).width;
+                if (w > maxTextWidth) maxTextWidth = w;
+            }
+            
+            const blockW = maxTextWidth + stampPad * 2;
+            const blockH = lines.length * lineH + stampPad;
+            
+            const rectX = pageW - margin - blockW;
+            const rectY = pageH - margin - blockH;
+
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(rectX, rectY, blockW, blockH);
+
+            ctx.fillStyle = '#fff';
+            lines.forEach((l, i) => {
+                const y = rectY + i * lineH + stampFont + (stampPad / 2);
+                ctx.fillText(l, rectX + stampPad, y);
+            });
+        }
     }
 
     pages.push(safeToDataURL(canvas, 'image/jpeg', quality));
