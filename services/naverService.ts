@@ -1,6 +1,3 @@
-// 꼭 맨 위에 추가
-import fetch from "node-fetch";
-
 export async function fetchNaverReverseGeocode(
   lat: string,
   lon: string,
@@ -11,14 +8,13 @@ export async function fetchNaverReverseGeocode(
     "https://naveropenapi.apigw.ntruss.com/map-reversegeocode/v2/gc";
 
   const params = new URLSearchParams({
-    coords: `${lon},${lat}`, // x=경도(lon), y=위도(lat)
+    coords: `${lon},${lat}`,
     output: "json",
     orders: "roadaddr,addr",
-    sourcecrs: "epsg:4326", // WGS84
+    sourcecrs: "epsg:4326",
   });
 
   const response = await fetch(`${NAVER_API_URL}?${params.toString()}`, {
-    method: "GET",
     headers: {
       "X-NCP-APIGW-API-KEY-ID": id,
       "X-NCP-APIGW-API-KEY": secret,
@@ -33,10 +29,7 @@ export async function fetchNaverReverseGeocode(
 
   if (!response.ok) {
     throw new Error(
-      data?.error?.message ||
-        data?.errorMessage ||
-        raw ||
-        `HTTP ${response.status}`
+      data?.error?.message || data?.errorMessage || raw || `HTTP ${response.status}`
     );
   }
 
