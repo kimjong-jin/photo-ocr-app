@@ -18,6 +18,8 @@ interface OcrControlsProps {
   ktlApiCallStatus?: KtlApiCallStatus;
   onAutoAssignIdentifiers?: (startRow?: string, endRow?: string) => void;
   isAutoAssignDisabled?: boolean;
+  onExtractLogFile?: () => void;
+  isExtractLogFileDisabled?: boolean;
 }
 
 const SparklesIcon: React.FC = () => (
@@ -26,9 +28,15 @@ const SparklesIcon: React.FC = () => (
   </svg>
 );
 
+const LogFileIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+);
+
 const ClearIcon: React.FC = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.73a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
   </svg>
 );
 
@@ -64,6 +72,8 @@ export const OcrControls: React.FC<OcrControlsProps> = ({
   ktlApiCallStatus = 'idle',
   onAutoAssignIdentifiers,
   isAutoAssignDisabled,
+  onExtractLogFile,
+  isExtractLogFileDisabled
 }) => {
   const [startRow, setStartRow] = useState('');
   const [endRow, setEndRow] = useState('');
@@ -71,17 +81,32 @@ export const OcrControls: React.FC<OcrControlsProps> = ({
 
   return (
     <div className="space-y-4 pt-2">
-      {onExtract && (
+      {(onExtract || onExtractLogFile) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <ActionButton
-            onClick={onExtract}
-            disabled={isExtractDisabled}
-            icon={<SparklesIcon />}
-            fullWidth
-            aria-label="입력된 정보를 바탕으로 선택된 모든 이미지에서 데이터 추출"
-          >
-            텍스트 추출
-          </ActionButton>
+          {onExtract && (
+            <ActionButton
+              onClick={onExtract}
+              disabled={isExtractDisabled}
+              icon={<SparklesIcon />}
+              fullWidth
+              variant="primary"
+              aria-label="실시간 계측기 화면 이미지에서 시간과 값 데이터를 추출합니다."
+            >
+              화면 분석
+            </ActionButton>
+          )}
+          {onExtractLogFile && (
+            <ActionButton
+              onClick={onExtractLogFile}
+              disabled={isExtractLogFileDisabled}
+              icon={<LogFileIcon />}
+              fullWidth
+              variant="secondary"
+              aria-label="표 형식의 로그 파일 이미지에서 전체 데이터를 추출합니다."
+            >
+              표 분석
+            </ActionButton>
+          )}
           {onDownloadStampedImages && (
             <ActionButton
               onClick={onDownloadStampedImages}
