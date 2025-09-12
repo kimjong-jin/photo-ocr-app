@@ -628,10 +628,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const handleFetchGpsAddress = useCallback(() => {
     setIsFetchingAddress(true);
-    setCurrentGpsAddress('주소 찾는 중...');
+    setCurrentGpsAddress("주소 찾는 중...");
 
     if (!navigator.geolocation) {
-      setCurrentGpsAddress('이 브라우저에서는 GPS를 지원하지 않습니다.');
+      setCurrentGpsAddress("이 브라우저에서는 GPS를 지원하지 않습니다.");
       setIsFetchingAddress(false);
       return;
     }
@@ -643,51 +643,17 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         const res = await fetch(
           `/api/naver-reverse-geocode?latitude=${latitude}&longitude=${longitude}`
         );
-
-        if (!res.ok) {
-          const error = await res.json();
-          throw new Error(error.error || '주소 탐색 실패');
-        }
-
         const data = await res.json();
 
-        if (data.status?.code === 0 && data.results?.length > 0) {
-          const result = data.results[0];
-          const region = result.region;
-          const land = result.land;
+        if (!res.ok) throw new Error(data.error || "주소 탐색 실패");
 
-          let address = '';
-          if (result.name === 'roadaddr') {
-            address = [
-              region.area1.name,
-              region.area2.name,
-              land.name,
-              land.number1,
-              land.addition0?.value,
-            ]
-              .filter(Boolean)
-              .join(' ');
-          } else {
-            address = [
-              region.area1.name,
-              region.area2.name,
-              region.area3.name,
-              land.number1,
-              land.addition0?.value,
-            ]
-              .filter(Boolean)
-              .join(' ');
-          }
-
-          setCurrentGpsAddress(
-            address.replace(/\s+/g, ' ').trim() || '주소를 찾을 수 없습니다.'
-          );
+        if (data.address) {
+          setCurrentGpsAddress(data.address); // ← 주소 문자열만 세팅
         } else {
-          setCurrentGpsAddress('주소 탐색 실패. 응답 데이터 없음');
-          console.error('Naver API Response:', data);
+          setCurrentGpsAddress("주소를 찾을 수 없습니다.");
         }
       } catch (err: any) {
-        console.error('Fetch error:', err);
+        console.error("Fetch error:", err);
         setCurrentGpsAddress(`주소 탐색 중 오류 발생: ${err.message}`);
       } finally {
         setIsFetchingAddress(false);
@@ -696,13 +662,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
     const onError = (error: GeolocationPositionError) => {
       console.error(
-        'Geolocation error:',
+        "Geolocation error:",
         `Code: ${error.code}, Message: ${error.message}`
       );
       setCurrentGpsAddress(
         error.code === error.PERMISSION_DENIED
-          ? 'GPS 위치 권한이 거부되었습니다.'
-          : 'GPS 위치를 가져올 수 없습니다.'
+          ? "GPS 위치 권한이 거부되었습니다."
+          : "GPS 위치를 가져올 수 없습니다."
       );
       setIsFetchingAddress(false);
     };
