@@ -1,6 +1,6 @@
 import React from 'react';
 import { ImageInfo } from './ImageInput';
-import type { AnalysisType } from '../StructuralCheckPage'; // Use type import
+import type { AnalysisType } from '../structuralCheckPage'; // Use type import
 
 interface GalleryImage extends ImageInfo {
   uid?: string;
