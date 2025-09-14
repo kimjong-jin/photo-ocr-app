@@ -97,7 +97,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [currentGpsAddress, setCurrentGpsAddress] = useState('');
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
 
-  // ✅ 지도 표시용 좌표 상태 추가 (여기에!)
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const [openSections, setOpenSections] = useState<string[]>(['addTask']);
@@ -146,33 +145,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     if (!detail) return common;
     return `${common}-${detail}`;
   }, [receiptNumberCommon, receiptNumberDetail]);
-
-  const activeJobForReceiptSync = useMemo(() => {
-    switch (activePage) {
-      case 'photoLog': return photoLogJobs.find(j => j.id === activePhotoLogJobId);
-      case 'fieldCount': return fieldCountJobs.find(j => j.id === activeFieldCountJobId);
-      case 'drinkingWater': return drinkingWaterJobs.find(j => j.id === activeDrinkingWaterJobId);
-      case 'structuralCheck': return structuralCheckJobs.find(j => j.id === activeStructuralCheckJobId);
-      case 'csvGraph': return csvGraphJobs.find(j => j.id === activeCsvGraphJobId);
-      default: return null;
-    }
-  }, [activePage, activePhotoLogJobId, photoLogJobs, activeFieldCountJobId, fieldCountJobs, activeDrinkingWaterJobId, drinkingWaterJobs, activeStructuralCheckJobId, structuralCheckJobs, activeCsvGraphJobId, csvGraphJobs]);
-
-  useEffect(() => {
-    if (activeJobForReceiptSync?.receiptNumber) {
-      const fullReceipt = activeJobForReceiptSync.receiptNumber;
-      const lastDashIndex = fullReceipt.lastIndexOf('-');
-      if (lastDashIndex !== -1 && lastDashIndex < fullReceipt.length - 1) {
-        const common = fullReceipt.substring(0, lastDashIndex);
-        const detail = fullReceipt.substring(lastDashIndex + 1);
-        setReceiptNumberCommon(common);
-        setReceiptNumberDetail(detail);
-      } else {
-        setReceiptNumberCommon(fullReceipt);
-        setReceiptNumberDetail('');
-      }
-    }
-  }, [activeJobForReceiptSync]);
 
   const clearDraftMessage = () => {
     if (draftMessage) {
@@ -323,7 +295,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       await callSaveTempApi({
         receipt_no: receiptToSave,
         site: siteLocation,
-        gps_address: currentGpsAddress.trim() !== "" ? currentGpsAddress : null,
+        gps_address: currentGpsAddress.trim() || undefined,
         item: Array.from(allItems),
         user_name: userName,
         values: apiPayload,
@@ -337,7 +309,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     } finally {
       setIsSaving(false);
     }
-  }, [getReceiptNumberForSaveLoad, userName, photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs, siteLocation]);
+  }, [getReceiptNumberForSaveLoad, userName, photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs, siteLocation, currentGpsAddress]);
 
   const handleLoadDraft = useCallback(async () => {
     const receiptToLoad = receiptNumber;
@@ -352,7 +324,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
     try {
         const loadedData = await callLoadTempApi(receiptToLoad);
-        const { receipt_no, site, item: loadedItems, values } = loadedData;
+        const { receipt_no, site, item: loadedItems, values, gps_address } = loadedData;
 
         // Set common info
         const receiptParts = receipt_no.split('-');
@@ -361,7 +333,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         setReceiptNumberCommon(common);
         setReceiptNumberDetail(detail);
         setSiteLocation(site);
-        setCurrentGpsAddress(loadedData.gps_address ?? "");
+        setCurrentGpsAddress(gps_address || "");
 
         // Categorize all available items from the loaded data
         const p1Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
@@ -652,8 +624,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
     const onSuccess = async (position: GeolocationPosition) => {
       const { latitude, longitude } = position.coords;
-
-      // ✅ 지도 표시용 좌표 저장
       setCoords({ lat: latitude, lng: longitude });
 
       try {
@@ -695,6 +665,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     return [];
   }, [activePage]);
 
+  const finalSiteLocation = useMemo(() => {
+    const site = siteLocation.trim();
+    const gps = currentGpsAddress.trim();
+    if (site && gps && !gps.includes("오류") && !gps.includes("찾는 중")) {
+      return `${site} (${gps})`;
+    }
+    return site;
+  }, [siteLocation, currentGpsAddress]);
+
   const navButtonBaseStyle = "px-3 py-2 rounded-md font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs sm:text-sm flex-grow sm:flex-grow-0";
   const activeNavButtonStyle = "bg-sky-500 text-white";
   const inactiveNavButtonStyle = "bg-slate-700 hover:bg-slate-600 text-slate-300";
@@ -702,17 +681,17 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const renderActivePage = () => {
     switch(activePage) {
       case 'photoLog':
-        return <PhotoLogPage userName={userName} jobs={photoLogJobs} setJobs={setPhotoLogJobs} activeJobId={activePhotoLogJobId} setActiveJobId={setActivePhotoLogJobId} siteLocation={siteLocation} onDeleteJob={handleDeletePhotoLogJob} />;
+        return <PhotoLogPage userName={userName} jobs={photoLogJobs} setJobs={setPhotoLogJobs} activeJobId={activePhotoLogJobId} setActiveJobId={setActivePhotoLogJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeletePhotoLogJob} />;
       case 'fieldCount':
-        return <FieldCountPage userName={userName} jobs={fieldCountJobs} setJobs={setFieldCountJobs} activeJobId={activeFieldCountJobId} setActiveJobId={setActiveFieldCountJobId} siteLocation={siteLocation} onDeleteJob={handleDeleteFieldCountJob} />;
+        return <FieldCountPage userName={userName} jobs={fieldCountJobs} setJobs={setFieldCountJobs} activeJobId={activeFieldCountJobId} setActiveJobId={setActiveFieldCountJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteFieldCountJob} />;
       case 'drinkingWater':
-        return <DrinkingWaterPage userName={userName} jobs={drinkingWaterJobs} setJobs={setDrinkingWaterJobs} activeJobId={activeDrinkingWaterJobId} setActiveJobId={setActiveDrinkingWaterJobId} siteLocation={siteLocation} onDeleteJob={handleDeleteDrinkingWaterJob} />;
+        return <DrinkingWaterPage userName={userName} jobs={drinkingWaterJobs} setJobs={setDrinkingWaterJobs} activeJobId={activeDrinkingWaterJobId} setActiveJobId={setActiveDrinkingWaterJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteDrinkingWaterJob} />;
       case 'structuralCheck':
-        return <StructuralCheckPage userName={userName} jobs={structuralCheckJobs} setJobs={setStructuralCheckJobs} activeJobId={activeStructuralCheckJobId} setActiveJobId={setActiveStructuralCheckJobId} siteLocation={siteLocation} onDeleteJob={handleDeleteStructuralCheckJob} />;
+        return <StructuralCheckPage userName={userName} jobs={structuralCheckJobs} setJobs={setStructuralCheckJobs} activeJobId={activeStructuralCheckJobId} setActiveJobId={setActiveStructuralCheckJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteStructuralCheckJob} />;
       case 'kakaoTalk':
         return <KakaoTalkPage userName={userName} userContact={userContact} />;
       case 'csvGraph':
-        return <CsvGraphPage userName={userName} jobs={csvGraphJobs} setJobs={setCsvGraphJobs} activeJobId={activeCsvGraphJobId} setActiveJobId={setActiveCsvGraphJobId} siteLocation={siteLocation} onDeleteJob={handleDeleteCsvGraphJob} />;
+        return <CsvGraphPage userName={userName} jobs={csvGraphJobs} setJobs={setCsvGraphJobs} activeJobId={activeCsvGraphJobId} setActiveJobId={setActiveCsvGraphJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteCsvGraphJob} />;
       default:
         return null;
     }
@@ -917,15 +896,14 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     </ActionButton>
                   </div>
                 </div>
-                {/* ✅ 여기 추가 */}
                 {coords && (
                   <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
                   <MapView
                      latitude={coords.lat}
                      longitude={coords.lng}
                      onAddressSelect={(addr, lat, lng) => {
-                       setCurrentGpsAddress(addr);   // 클릭 시 주소 갱신
-                       setCoords({ lat, lng });      // 클릭한 좌표 갱신
+                       setCurrentGpsAddress(addr);
+                       setCoords({ lat, lng });
                       }}
                     />
                    </div>
