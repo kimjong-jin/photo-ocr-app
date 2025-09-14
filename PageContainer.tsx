@@ -323,7 +323,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       await callSaveTempApi({
         receipt_no: receiptToSave,
         site: siteLocation,
-        gps_address: currentGpsAddress,
+        gps_address: currentGpsAddress.trim() !== "" ? currentGpsAddress : null,
         item: Array.from(allItems),
         user_name: userName,
         values: apiPayload,
