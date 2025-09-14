@@ -9,6 +9,7 @@ export interface SavedValueEntry {
 export interface SaveDataPayload {
   receipt_no: string;        // 서버 스펙: snake_case 유지
   site: string;
+  gps_address?: string;   // 주소 GPS
   item: string[];            // 서버가 배열 기대
   user_name: string;
   values: Record<string, Record<string, SavedValueEntry>>;
@@ -17,6 +18,7 @@ export interface SaveDataPayload {
 export interface LoadedData {
   receipt_no: string;
   site: string;
+  gps_address?: string;   // 주소 GPS
   item: string[];
   user_name: string;
   values: {
