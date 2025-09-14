@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { getKakaoAddress } from "../services/kakaoService"; // ✅ REST API 기반 주소 변환 사용
 
 interface MapViewProps {
   latitude: number;
@@ -30,21 +31,18 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
           map: mapInstance,
         });
 
-        const geocoder = new window.kakao.maps.services.Geocoder();
-
-        // ✅ 지도 클릭 이벤트
-        window.kakao.maps.event.addListener(mapInstance, "click", (mouseEvent: any) => {
+        // ✅ 지도 클릭 이벤트 (REST API 사용)
+        window.kakao.maps.event.addListener(mapInstance, "click", async (mouseEvent: any) => {
           const latlng = mouseEvent.latLng;
           markerInstance.setPosition(latlng);
 
-          geocoder.coord2Address(latlng.getLng(), latlng.getLat(), (result: any, status: any) => {
-            if (status === window.kakao.maps.services.Status.OK) {
-              const address = result[0].road_address
-                ? result[0].road_address.address_name
-                : result[0].address.address_name;
-              if (onAddressSelect) onAddressSelect(address, latlng.getLat(), latlng.getLng());
-            }
-          });
+          try {
+            const address = await getKakaoAddress(latlng.getLat(), latlng.getLng());
+            if (onAddressSelect) onAddressSelect(address, latlng.getLat(), latlng.getLng());
+          } catch (e) {
+            console.error("주소 변환 실패:", e);
+            if (onAddressSelect) onAddressSelect("주소 변환 실패", latlng.getLat(), latlng.getLng());
+          }
         });
 
         setMap(mapInstance);
@@ -77,12 +75,12 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     }
   }, [latitude, longitude, map, marker]);
 
-  // ✅ 주소 검색 기능
+  // ✅ 주소 검색 기능 (REST API 사용 X, SDK 기본 기능만)
   const handleSearch = () => {
     if (!map || !marker || !searchInput.trim()) return;
 
     const geocoder = new window.kakao.maps.services.Geocoder();
-    geocoder.addressSearch(searchInput, (result: any, status: any) => {
+    geocoder.addressSearch(searchInput, async (result: any, status: any) => {
       if (status === window.kakao.maps.services.Status.OK) {
         const { x, y } = result[0];
         const coords = new window.kakao.maps.LatLng(y, x);
@@ -90,7 +88,13 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
         map.setCenter(coords);
         marker.setPosition(coords);
 
-        if (onAddressSelect) onAddressSelect(result[0].address.address_name, y, x);
+        try {
+          // ✅ 검색 결과도 REST API로 정규화
+          const address = await getKakaoAddress(Number(y), Number(x));
+          if (onAddressSelect) onAddressSelect(address, Number(y), Number(x));
+        } catch {
+          if (onAddressSelect) onAddressSelect(result[0].address.address_name, Number(y), Number(x));
+        }
       } else {
         alert("주소를 찾을 수 없습니다.");
       }
@@ -131,8 +135,8 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
             border: "1px solid #ccc",
             borderRadius: "4px",
             fontSize: "14px",
-            color: "black", 
-            backgroundColor: "white"
+            color: "black",
+            backgroundColor: "white",
           }}
         />
         <button
