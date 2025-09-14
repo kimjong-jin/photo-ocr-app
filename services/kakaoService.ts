@@ -85,18 +85,20 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 
   // 1️⃣ 도로명 주소가 있으면
   if (roadAddr) {
-    // `region1`을 도로명 주소에서 제거하고, 없으면 지역명 추가
-    const cleanedAddress = roadAddr.replace(region1, "").trim();
-    return cleanedAddress ? `${region1} ${cleanedAddress}` : roadAddr;
+    // `region1`이 이미 존재하면 이를 제거하고, 없으면 `부산광역시`를 추가
+    let cleanedAddress = roadAddr.replace(region1, "").trim();
+    if (!cleanedAddress) cleanedAddress = `${region1} ${roadAddr}`;
+    return cleanedAddress;
   }
 
   // 2️⃣ 도로명 주소가 없으면 지번 주소로 재검색
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
     if (searchedRoad) {
-      // `region1`을 지번 주소에서 제거하고, 없으면 지역명 추가
-      const cleanedAddress = searchedRoad.replace(region1, "").trim();
-      return cleanedAddress ? `${region1} ${cleanedAddress}` : searchedRoad;
+      // `region1`을 지번 주소에서 제거하고, 없으면 `부산광역시`를 추가
+      let cleanedAddress = searchedRoad.replace(region1, "").trim();
+      if (!cleanedAddress) cleanedAddress = `${region1} ${searchedRoad}`;
+      return cleanedAddress;
     }
     // 3️⃣ 실패 시 풀네임 조합
     return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
