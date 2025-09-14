@@ -15,6 +15,10 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [currentGpsAddress, setCurrentGpsAddress] = useState<string>("");
 
+  // 서울시청 기본 위도/경도 설정
+  const defaultLatitude = 37.5665;
+  const defaultLongitude = 126.9780;
+
   // ✅ 지도 초기화
   useEffect(() => {
     const kakaoKey = import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY;
@@ -24,12 +28,12 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
 
       window.kakao.maps.load(() => {
         const mapInstance = new window.kakao.maps.Map(mapContainerRef.current, {
-          center: new window.kakao.maps.LatLng(latitude, longitude),
+          center: new window.kakao.maps.LatLng(latitude || defaultLatitude, longitude || defaultLongitude),
           level: 3,
         });
 
         const markerInstance = new window.kakao.maps.Marker({
-          position: new window.kakao.maps.LatLng(latitude, longitude),
+          position: new window.kakao.maps.LatLng(latitude || defaultLatitude, longitude || defaultLongitude),
           map: mapInstance,
         });
 
@@ -72,7 +76,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
   // ✅ 마커 위치 갱신
   useEffect(() => {
     if (map && marker) {
-      const coords = new window.kakao.maps.LatLng(latitude, longitude);
+      const coords = new window.kakao.maps.LatLng(latitude || defaultLatitude, longitude || defaultLongitude);
       map.setCenter(coords);
       marker.setPosition(coords);
     }
