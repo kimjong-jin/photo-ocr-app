@@ -1,15 +1,16 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
   try {
-    const { latitude, longitude } = req.query;
+    const { latitude, longitude } = req.query as {
+      latitude?: string | number;
+      longitude?: string | number;
+    };
 
     if (!latitude || !longitude) {
       res.status(400).json({ error: 'latitude, longitude가 필요합니다.' });
       return;
     }
 
-    const apiKey = process.env.KAKAO_REST_API_KEY;
+    const apiKey = process.env.KAKAO_REST_API_KEY as string | undefined;
     if (!apiKey) {
       res.status(500).json({ error: 'API 키 없음' });
       return;
