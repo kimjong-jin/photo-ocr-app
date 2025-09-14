@@ -1079,7 +1079,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
                                         className="text-xs !py-1.5 !px-2"
                                         title="마지막으로 추가된 분석 결과를 되돌립니다."
                                     >
-                                        이전 되돌리기
+                                        마지막 결과 되돌리기
                                     </ActionButton>
                                     <ActionButton
                                         onClick={() => handleResetAnalysis(selectedChannel.id)}
