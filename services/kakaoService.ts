@@ -23,6 +23,11 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
   }
 }
 
+// 🔹 region_1depth_name 정규화 ("부산광역시" → "부산", "서울특별시" → "서울")
+function normalizeRegion1(name: string): string {
+  return name.replace(/(광역시|특별시|특별자치시|특별자치도)$/, "");
+}
+
 export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY; // ✅ Vite 방식
   if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
@@ -58,7 +63,8 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
     // 3️⃣ 재검색 실패 → region_* 기반 풀 주소 조립
     const addr = doc.address;
     if (addr) {
-      const full = `${addr.region_1depth_name} ${addr.region_2depth_name} ${addr.region_3depth_name} ${addr.main_address_no}${
+      const region1 = normalizeRegion1(addr.region_1depth_name);
+      const full = `${region1} ${addr.region_2depth_name} ${addr.region_3depth_name} ${addr.main_address_no}${
         addr.sub_address_no ? "-" + addr.sub_address_no : ""
       }`;
       return full.trim();
