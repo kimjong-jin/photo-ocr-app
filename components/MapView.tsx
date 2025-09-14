@@ -12,6 +12,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
   const [marker, setMarker] = useState<any>(null);
   const [searchInput, setSearchInput] = useState("");
 
+  // ✅ 지도 초기화
   useEffect(() => {
     const kakaoKey = import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY;
 
@@ -31,19 +32,23 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
 
         const geocoder = new window.kakao.maps.services.Geocoder();
 
-        // 지도 클릭 시 이벤트
+        // 지도 클릭 이벤트
         window.kakao.maps.event.addListener(mapInstance, "click", (mouseEvent: any) => {
           const latlng = mouseEvent.latLng;
           markerInstance.setPosition(latlng);
 
-          geocoder.coord2Address(latlng.getLng(), latlng.getLat(), (result: any, status: any) => {
-            if (status === window.kakao.maps.services.Status.OK) {
-              const address = result[0].road_address
-                ? result[0].road_address.address_name
-                : result[0].address.address_name;
-              if (onAddressSelect) onAddressSelect(address, latlng.getLat(), latlng.getLng());
+          geocoder.coord2Address(
+            latlng.getLng(),
+            latlng.getLat(),
+            (result: any, status: any) => {
+              if (status === window.kakao.maps.services.Status.OK) {
+                const address = result[0].road_address
+                  ? result[0].road_address.address_name
+                  : result[0].address.address_name;
+                if (onAddressSelect) onAddressSelect(address, latlng.getLat(), latlng.getLng());
+              }
             }
-          });
+          );
         });
 
         setMap(mapInstance);
@@ -51,16 +56,30 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
       });
     };
 
+    // ✅ Kakao Map 스크립트 중복 로드 방지
     if (window.kakao && window.kakao.maps) {
       initMap();
-      return;
+    } else {
+      if (!document.getElementById("kakao-map-script")) {
+        const script = document.createElement("script");
+        script.id = "kakao-map-script";
+        script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoKey}&autoload=false&libraries=services`;
+        script.onload = initMap;
+        document.head.appendChild(script);
+      } else {
+        initMap();
+      }
     }
-
-    const script = document.createElement("script");
-    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoKey}&autoload=false&libraries=services`;
-    script.onload = initMap;
-    document.head.appendChild(script);
   }, [latitude, longitude, onAddressSelect]);
+
+  // ✅ latitude/longitude 변경 시 마커 위치 갱신
+  useEffect(() => {
+    if (map && marker) {
+      const coords = new window.kakao.maps.LatLng(latitude, longitude);
+      map.setCenter(coords);
+      marker.setPosition(coords);
+    }
+  }, [latitude, longitude, map, marker]);
 
   // ✅ 주소 검색 기능
   const handleSearch = () => {
@@ -83,21 +102,56 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
   };
 
   return (
-    <div style={{ width: "100%", height: "100%" }}>
-      {/* ✅ 검색창 */}
-      <div style={{ marginBottom: "8px", display: "flex", gap: "8px" }}>
+    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+      {/* 지도 */}
+      <div ref={mapContainerRef} style={{ width: "100%", height: "400px" }} />
+
+      {/* 검색창 (지도 위 오버레이) */}
+      <div
+        style={{
+          position: "absolute",
+          top: "10px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: "rgba(255, 255, 255, 0.9)",
+          borderRadius: "8px",
+          padding: "4px 8px",
+          display: "flex",
+          gap: "6px",
+          width: "80%",
+          maxWidth: "400px",
+          boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+          zIndex: 10,
+        }}
+      >
         <input
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder="주소 검색"
-          className="p-2 border rounded w-full text-black"
+          style={{
+            flex: 1,
+            padding: "6px 8px",
+            border: "1px solid #ccc",
+            borderRadius: "4px",
+            fontSize: "14px",
+          }}
         />
-        <button onClick={handleSearch} className="px-4 py-2 bg-blue-500 text-white rounded">
+        <button
+          onClick={handleSearch}
+          style={{
+            padding: "6px 12px",
+            backgroundColor: "#3B82F6",
+            color: "white",
+            border: "none",
+            borderRadius: "4px",
+            cursor: "pointer",
+            fontSize: "14px",
+          }}
+        >
           검색
         </button>
       </div>
-      <div ref={mapContainerRef} style={{ width: "100%", height: "400px" }} />
     </div>
   );
 };
