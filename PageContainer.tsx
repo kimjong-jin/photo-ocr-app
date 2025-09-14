@@ -917,10 +917,17 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 </div>
                 {/* ✅ 여기 추가 */}
                 {coords && (
-                <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
-                  <MapView latitude={coords.lat} longitude={coords.lng} />
-                </div>
-               )}
+                  <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
+                  <MapView
+                     latitude={coords.lat}
+                     longitude={coords.lng}
+                     onAddressSelect={(addr, lat, lng) => {
+                       setCurrentGpsAddress(addr);   // 클릭 시 주소 갱신
+                       setCoords({ lat, lng });      // 클릭한 좌표 갱신
+                      }}
+                    />
+                   </div>
+                  )}
               </div>
             </div>
           </div>
