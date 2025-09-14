@@ -177,26 +177,25 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
 
     const formattedDateTime = newDateTime.replace('T', ' ');
 
-    // FIX: Refactored to use an immutable update pattern, which resolves a TypeScript type inference error. The original implementation mutated an intermediate object, causing the type of `submissionStatus` to be inferred incorrectly as `string` instead of the specific union type required by the `StructuralJob` interface.
     updateActiveJob(job => {
-        const updatedChecklistData = { ...job.checklistData };
-        for (const itemName in updatedChecklistData) {
-            const item = updatedChecklistData[itemName];
-            if (item.confirmedAt) { // Only update items that have been confirmed
-                updatedChecklistData[itemName] = {
-                    ...item,
-                    confirmedAt: formattedDateTime,
-                };
-            }
+      const updatedChecklistData = { ...job.checklistData };
+      for (const itemName in updatedChecklistData) {
+        const item = updatedChecklistData[itemName];
+        if (item.confirmedAt) {
+          updatedChecklistData[itemName] = {
+            ...item,
+            confirmedAt: formattedDateTime,
+          };
         }
-        
-        return {
-          ...job,
-          checklistData: updatedChecklistData,
-          submissionStatus: 'idle',
-          submissionMessage: undefined,
-          postInspectionDateConfirmedAt: job.postInspectionDateConfirmedAt ? formattedDateTime : job.postInspectionDateConfirmedAt,
-        };
+      }
+      
+      return {
+        ...job,
+        checklistData: updatedChecklistData,
+        submissionStatus: 'idle',
+        submissionMessage: undefined,
+        postInspectionDateConfirmedAt: job.postInspectionDateConfirmedAt ? formattedDateTime : job.postInspectionDateConfirmedAt,
+      };
     });
   }, [activeJob, updateActiveJob]);
 
