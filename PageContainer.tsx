@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import PhotoLogPage from './PhotoLogPage';
 import type { PhotoLogJob } from './shared/types';
@@ -14,8 +13,17 @@ import { UserRole } from './components/UserNameInput';
 import AdminPanel from './components/admin/AdminPanel';
 import { callSaveTempApi, callLoadTempApi, SaveDataPayload, LoadedData, SavedValueEntry } from './services/apiService';
 import { Spinner } from './components/Spinner';
-import { MAIN_STRUCTURAL_ITEMS, MainStructuralItemKey, STRUCTURAL_ITEM_GROUPS, CHECKLIST_DEFINITIONS, CertificateDetails, StructuralCheckSubItemData, PREFERRED_MEASUREMENT_METHODS } from './shared/StructuralChecklists';
+import {
+  MAIN_STRUCTURAL_ITEMS,
+  MainStructuralItemKey,
+  STRUCTURAL_ITEM_GROUPS,
+  CHECKLIST_DEFINITIONS,
+  CertificateDetails,
+  StructuralCheckSubItemData,
+  PREFERRED_MEASUREMENT_METHODS
+} from './shared/StructuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
+import { getKakaoAddress } from './services/kakaoService';
 
 
 type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
@@ -640,25 +648,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       const { latitude, longitude } = position.coords;
 
       try {
-        const res = await fetch(
-          `/api/kakao-reverse-geocode?latitude=${latitude}&longitude=${longitude}`
-        );
-
-        const raw = await res.text();   // ⚠️ 먼저 text로 받기
-        let data: any = null;
-        try { data = JSON.parse(raw); } catch (_) {}
-
-        if (!res.ok) {
-          throw new Error(data?.error || raw || `HTTP ${res.status}`);
-        }
-
-        if (data?.address) {
-          setCurrentGpsAddress(data.address);
-        } else {
-          setCurrentGpsAddress("주소를 찾을 수 없습니다.");
-        }
+        const addr = await getKakaoAddress(latitude, longitude); // ✅ 직접 호출
+        setCurrentGpsAddress(addr);
       } catch (err: any) {
-        console.error("Fetch error:", err);
+        console.error("GPS 주소 오류:", err);
         setCurrentGpsAddress(`주소 탐색 중 오류 발생: ${err.message}`);
       } finally {
         setIsFetchingAddress(false);
