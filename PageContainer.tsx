@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import MapView from './components/MapView';
 import PhotoLogPage from './PhotoLogPage';
 import type { PhotoLogJob } from './shared/types';
 import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
@@ -95,6 +96,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [currentGpsAddress, setCurrentGpsAddress] = useState('');
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
+
+  // ✅ 지도 표시용 좌표 상태 추가 (여기에!)
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const [openSections, setOpenSections] = useState<string[]>(['addTask']);
 
@@ -647,11 +651,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     const onSuccess = async (position: GeolocationPosition) => {
       const { latitude, longitude } = position.coords;
 
-      try {
-        // ✅ 환경변수 확인용 로그
-        console.log("ENV KEY:", import.meta.env.VITE_KAKAO_REST_API_KEY);
+      // ✅ 지도 표시용 좌표 저장
+      setCoords({ lat: latitude, lng: longitude });
 
-        const addr = await getKakaoAddress(latitude, longitude); // ✅ 직접 호출
+      try {
+        const addr = await getKakaoAddress(latitude, longitude);
         setCurrentGpsAddress(addr);
       } catch (err: any) {
         console.error("GPS 주소 오류:", err);
@@ -680,7 +684,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       maximumAge: 0,
     });
   }, []);
-
 
   const itemOptionsForNewTask = useMemo(() => {
     if (activePage === 'photoLog') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
@@ -912,6 +915,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     </ActionButton>
                   </div>
                 </div>
+                {/* ✅ 여기 추가 */}
+                {coords && (
+                <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
+                  <MapView latitude={coords.lat} longitude={coords.lng} />
+                </div>
+               )}
               </div>
             </div>
           </div>
