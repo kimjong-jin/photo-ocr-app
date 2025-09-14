@@ -183,6 +183,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
             width: "80%",
             maxWidth: "400px",
             zIndex: 20,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
           }}
         >
           {searchResults.map((place, idx) => (
@@ -194,10 +195,18 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
                 borderBottom: "1px solid #eee",
               }}
               onClick={() =>
-                moveToLocation(place.y, place.x, place.place_name || place.address_name)
+                moveToLocation(
+                  place.y,
+                  place.x,
+                  place.place_name || place.address_name
+                )
               }
             >
-              <strong>{place.place_name || place.road_address?.address_name || place.address_name}</strong>
+              <strong>
+                {place.place_name ||
+                  place.road_address?.address_name ||
+                  place.address_name}
+              </strong>
               <div style={{ fontSize: "12px", color: "#555" }}>
                 {place.address_name || place.road_address?.address_name}
               </div>
