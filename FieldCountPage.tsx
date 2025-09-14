@@ -8,7 +8,6 @@ interface FieldCountPageProps {
   setJobs: React.Dispatch<React.SetStateAction<PhotoLogJob[]>>;
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
-  siteLocation: string;
   onDeleteJob: (jobId: string) => void;
 }
 
