@@ -337,6 +337,8 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   if (payload.updateUser)   labviewItemObject['시험자'] = payload.updateUser;
   if (payload.siteLocation) labviewItemObject['현장']   = payload.siteLocation;
 
+  if (payload.gpsAddress)   labviewItemObject['주소']   = payload.gpsAddress;
+
   // === (E) GUBN/ DESC 구성 — FIX(P3): 항목 포함 형식으로 복구 ===
   let gubnPrefix = '수질';
   const drinkingWaterItems = ANALYSIS_ITEM_GROUPS.find((g) => g.label === '먹는물')?.items || [];
