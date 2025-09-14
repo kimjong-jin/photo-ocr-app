@@ -116,7 +116,6 @@ interface StructuralCheckPageProps {
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
   siteName: string;
-  siteLocation: string;
   onDeleteJob: (jobId: string) => void;
   currentGpsAddress: string;
   setCurrentGpsAddress: React.Dispatch<React.SetStateAction<string>>;
@@ -127,7 +126,7 @@ interface StructuralCheckPageProps {
 }
 
 const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ 
-  userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob,
+  userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, onDeleteJob,
   currentGpsAddress, setCurrentGpsAddress, isFetchingAddress, coords, setCoords, handleFetchGpsAddress
 }) => {
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
@@ -747,9 +746,8 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                     postInspectionDateValue: activeJob.postInspectionDate 
                 }],
                 siteName,
-              currentGpsAddress,
                 userName,
-                
+                currentGpsAddress,
                 compositeImageName,
                 zipFileName
             );
@@ -1069,7 +1067,8 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                         fileName={activeJob.photos[currentPhotoIndexOfActiveJob].file.name}
                         mimeType={activeJob.photos[currentPhotoIndexOfActiveJob].mimeType}
                         receiptNumber={activeJob.receiptNumber}
-                        siteLocation={siteLocation}
+                        siteName={siteName}
+                        gpsAddress={currentGpsAddress}  
                         item={MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name}
                         comment={activeJob.photoComments[activeJob.photos[currentPhotoIndexOfActiveJob].uid]}
                         showOverlay={true}
