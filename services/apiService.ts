@@ -87,7 +87,7 @@ export const callSaveTempApi = async (
     body: JSON.stringify({
       ...payload,
       receipt_no: receipt,
-      gps_address: payload.gps_address ?? null, // ✅ 항상 포함
+      gps_address: payload.gps_address ?? null,
     }),
   });
 
