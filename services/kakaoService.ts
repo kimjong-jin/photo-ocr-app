@@ -49,6 +49,35 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
   }
 }
 
+// ✅ 키워드(기관/건물명 등) → 주소 검색
+export async function searchAddressByKeyword(keyword: string): Promise<string | null> {
+  const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
+  if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
+
+  const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
+  url.searchParams.set("query", keyword);
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `KakaoAK ${apiKey}` },
+    });
+
+    if (!res.ok) {
+      console.warn(`[kakaoService] Keyword search failed (${res.status}): ${keyword}`);
+      return null;
+    }
+
+    const data = await res.json();
+    const doc = data?.documents?.[0];
+    if (!doc) return null;
+
+    return doc.road_address_name || doc.address_name || null;
+  } catch (err) {
+    console.error(`[kakaoService] Keyword search error (${keyword}):`, err);
+    return null;
+  }
+}
+
 // ✅ 위도/경도 → 카카오 주소 변환
 export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
@@ -81,7 +110,6 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 
   // 1️⃣ 도로명 주소 있으면
   if (roadAddr) {
-    // 이미 region1으로 시작하면 중복 방지
     if (roadAddr.startsWith(region1)) return roadAddr.trim();
     return `${region1} ${roadAddr}`.trim();
   }
@@ -93,7 +121,6 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
       if (searchedRoad.startsWith(region1)) return searchedRoad.trim();
       return `${region1} ${searchedRoad}`.trim();
     }
-    // 3️⃣ 실패 시 풀네임 조립
     return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
   }
 
