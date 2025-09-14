@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getKakaoAddress, searchAddressByKeyword } from "../services/kakaoService"; // ✅ REST API 기반 주소 변환 + 키워드 검색
+import { getKakaoAddress, searchAddressByKeyword } from "../services/kakaoService";
 
 interface MapViewProps {
   latitude: number;
@@ -12,6 +12,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
   const [map, setMap] = useState<any>(null);
   const [marker, setMarker] = useState<any>(null);
   const [searchInput, setSearchInput] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   // ✅ 지도 초기화
   useEffect(() => {
@@ -31,7 +32,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
           map: mapInstance,
         });
 
-        // ✅ 지도 클릭 이벤트 (REST API 사용 → 풀네임 주소 보장)
+        // ✅ 지도 클릭 이벤트
         window.kakao.maps.event.addListener(mapInstance, "click", async (mouseEvent: any) => {
           const latlng = mouseEvent.latLng;
           markerInstance.setPosition(latlng);
@@ -50,7 +51,6 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
       });
     };
 
-    // ✅ Kakao Map 스크립트 중복 로드 방지
     if (window.kakao && window.kakao.maps) {
       initMap();
     } else {
@@ -66,7 +66,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     }
   }, [latitude, longitude, onAddressSelect]);
 
-  // ✅ latitude/longitude 변경 시 마커 위치 갱신
+  // ✅ 마커 위치 갱신
   useEffect(() => {
     if (map && marker) {
       const coords = new window.kakao.maps.LatLng(latitude, longitude);
@@ -75,44 +75,27 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     }
   }, [latitude, longitude, map, marker]);
 
-  // ✅ 주소 + 명칭 검색 기능
+  // ✅ 검색 실행
   const handleSearch = async () => {
     if (!map || !marker || !searchInput.trim()) return;
 
     const geocoder = new window.kakao.maps.services.Geocoder();
 
-    // 1️⃣ 먼저 주소 검색 시도
     geocoder.addressSearch(searchInput, async (result: any, status: any) => {
-      if (status === window.kakao.maps.services.Status.OK) {
-        const { x, y } = result[0];
-        const coords = new window.kakao.maps.LatLng(y, x);
-
-        map.setCenter(coords);
-        marker.setPosition(coords);
-
-        try {
-          // ✅ 검색 결과도 REST API로 풀네임 보정
-          const address = await getKakaoAddress(Number(y), Number(x));
-          if (onAddressSelect) onAddressSelect(address, Number(y), Number(x));
-        } catch {
-          if (onAddressSelect) onAddressSelect(result[0].address.address_name, Number(y), Number(x));
+      if (status === window.kakao.maps.services.Status.OK && result.length > 0) {
+        if (result.length === 1) {
+          moveToLocation(result[0].y, result[0].x, result[0].address.address_name);
+        } else {
+          // 여러 결과면 목록 표시
+          setSearchResults(result);
         }
       } else {
-        // 2️⃣ 주소 검색 실패 시 → 명칭 검색
-        const keywordAddr = await searchAddressByKeyword(searchInput);
-        if (keywordAddr) {
-          // 명칭 검색 성공 시, 해당 주소를 다시 좌표 변환
-          geocoder.addressSearch(keywordAddr, (res: any, status2: any) => {
-            if (status2 === window.kakao.maps.services.Status.OK) {
-              const { x, y } = res[0];
-              const coords = new window.kakao.maps.LatLng(y, x);
-
-              map.setCenter(coords);
-              marker.setPosition(coords);
-
-              if (onAddressSelect) onAddressSelect(keywordAddr, Number(y), Number(x));
-            }
-          });
+        // 명칭 검색
+        const keywordResults = await searchAddressByKeyword(searchInput);
+        if (keywordResults.length === 1) {
+          moveToLocation(keywordResults[0].y, keywordResults[0].x, keywordResults[0].place_name);
+        } else if (keywordResults.length > 1) {
+          setSearchResults(keywordResults);
         } else {
           alert("주소/명칭을 찾을 수 없습니다.");
         }
@@ -120,12 +103,21 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     });
   };
 
+  // ✅ 특정 위치로 이동
+  const moveToLocation = (y: number, x: number, addr: string) => {
+    const coords = new window.kakao.maps.LatLng(Number(y), Number(x));
+    map.setCenter(coords);
+    marker.setPosition(coords);
+    if (onAddressSelect) onAddressSelect(addr, Number(y), Number(x));
+    setSearchResults([]); // 팝업 닫기
+  };
+
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       {/* ✅ 지도 */}
       <div ref={mapContainerRef} style={{ width: "100%", height: "400px" }} />
 
-      {/* ✅ 검색창 (지도 위 오버레이) */}
+      {/* ✅ 검색창 */}
       <div
         style={{
           position: "absolute",
@@ -173,6 +165,46 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
           검색
         </button>
       </div>
+
+      {/* ✅ 검색 결과 팝업 */}
+      {searchResults.length > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: "60px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "white",
+            border: "1px solid #ccc",
+            borderRadius: "8px",
+            padding: "8px",
+            maxHeight: "200px",
+            overflowY: "auto",
+            width: "80%",
+            maxWidth: "400px",
+            zIndex: 20,
+          }}
+        >
+          {searchResults.map((place, idx) => (
+            <div
+              key={idx}
+              style={{
+                padding: "6px 8px",
+                cursor: "pointer",
+                borderBottom: "1px solid #eee",
+              }}
+              onClick={() =>
+                moveToLocation(place.y, place.x, place.place_name || place.address_name)
+              }
+            >
+              <strong>{place.place_name || place.road_address?.address_name || place.address_name}</strong>
+              <div style={{ fontSize: "12px", color: "#555" }}>
+                {place.address_name || place.road_address?.address_name}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
