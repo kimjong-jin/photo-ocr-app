@@ -1,4 +1,3 @@
-
 import React, { useCallback, forwardRef } from 'react';
 import { ActionButton } from './ActionButton';
 
@@ -28,98 +27,98 @@ const CameraIcon: React.FC = () => (
   </svg>
 );
 
+export const ImageInput = forwardRef<HTMLInputElement, ImageInputProps>(
+  ({ onImagesSet, onOpenCamera, isLoading, selectedImageCount }, ref) => {
+    const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = event.target.files;
+      if (files && files.length > 0) {
+        const imageInfos: ImageInfo[] = [];
+        const fileList = Array.from(files);
 
-export const ImageInput = forwardRef<HTMLInputElement, ImageInputProps>(({ onImagesSet, onOpenCamera, isLoading, selectedImageCount }, ref) => {
-  const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (files && files.length > 0) {
-      const imageInfos: ImageInfo[] = [];
-      const fileList = Array.from(files);
+        const processFile = (file: File): Promise<ImageInfo> => {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const resultString = reader.result as string;
+              const parts = resultString.split(',');
+              if (parts.length < 2) {
+                console.error(`Invalid file format for base64 conversion: ${file.name}`);
+                reject(new Error(`Invalid file format for ${file.name}`));
+                return;
+              }
+              const base64Data = parts[1];
+              resolve({
+                file: file,
+                base64: base64Data,
+                mimeType: file.type || 'application/octet-stream'
+              });
+            };
+            reader.onerror = (error) => {
+              console.error(`Error reading file ${file.name}:`, error);
+              reject(new Error(`Failed to read file ${file.name}`));
+            };
+            reader.readAsDataURL(file);
+          });
+        };
 
-      // Helper function to process one file at a time
-      const processFile = (file: File): Promise<ImageInfo> => {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const resultString = reader.result as string;
-            const parts = resultString.split(',');
-            if (parts.length < 2) {
-              console.error(`Invalid file format for base64 conversion: ${file.name}`);
-              reject(new Error(`Invalid file format for ${file.name}`));
-              return;
-            }
-            const base64Data = parts[1];
-            resolve({
-              file: file, // Keep original file object
-              base64: base64Data,
-              mimeType: file.type || 'application/octet-stream'
-            });
-          };
-          reader.onerror = (error) => {
-            console.error(`Error reading file ${file.name}:`, error);
-            reject(new Error(`Failed to read file ${file.name}`));
-          };
-          reader.readAsDataURL(file);
-        });
-      };
-
-      try {
-        // Process files sequentially to avoid memory overload from Promise.all
-        for (const file of fileList) {
-          const info = await processFile(file);
-          imageInfos.push(info);
+        try {
+          for (const file of fileList) {
+            const info = await processFile(file);
+            imageInfos.push(info);
+          }
+          onImagesSet(imageInfos);
+        } catch (error) {
+          console.error("Error processing one or more files:", error);
+          alert("일부 파일 처리 중 오류가 발생했습니다. 다시 시도해주세요.");
+          onImagesSet([]); 
         }
-        onImagesSet(imageInfos);
-      } catch (error) {
-        console.error("Error processing one or more files:", error);
-        alert("일부 파일 처리 중 오류가 발생했습니다. 다시 시도해주세요."); // User-friendly alert
+      } else {
         onImagesSet([]); 
       }
-    } else {
-      onImagesSet([]); 
-    }
-     // Reset file input value to allow re-selection of the same file(s) if needed
-    if (event.target) {
+
+      if (event.target) {
         event.target.value = '';
-    }
-  }, [onImagesSet]);
+      }
+    }, [onImagesSet]);
 
-  const isAdding = selectedImageCount && selectedImageCount > 0;
+    const isAdding = selectedImageCount && selectedImageCount > 0;
 
-  return (
-    <div className="space-y-4">
-      <div>
-        <label htmlFor="file-upload" className="block text-sm font-medium text-slate-300 mb-1">
-          {isAdding ? "사진 파일로 추가" : "이미지 업로드"}
-        </label>
-        <input
-          id="file-upload"
-          name="file-upload"
-          type="file"
-          ref={ref}
-          multiple 
-          className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600 disabled:opacity-50"
-          accept="image/png, image/jpeg, image/webp, image/gif"
-          onChange={handleFileChange}
-          disabled={isLoading}
-        />
-        <p className="mt-1 text-xs text-slate-500">PNG, JPG, GIF, WEBP (파일당 최대 10MB).</p>
-        {selectedImageCount && selectedImageCount > 0 && (
-          <p className="mt-1 text-xs text-sky-400">{selectedImageCount}개 이미지 선택됨.</p>
-        )}
-      </div>
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center" aria-hidden="true">
-          <div className="w-full border-t border-slate-600" />
+    return (
+      <div className="space-y-4">
+        <div>
+          <label htmlFor="file-upload" className="block text-sm font-medium text-slate-300 mb-1">
+            {isAdding ? "사진 파일로 추가" : "이미지 업로드"}
+          </label>
+          <input
+            id="file-upload"
+            name="file-upload"
+            type="file"
+            ref={ref}
+            multiple 
+            className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600 disabled:opacity-50"
+            accept="image/png, image/jpeg, image/webp, image/gif"
+            onChange={handleFileChange}
+            disabled={isLoading}
+          />
+          <p className="mt-1 text-xs text-slate-500">PNG, JPG, GIF, WEBP (파일당 최대 10MB).</p>
+          {selectedImageCount && selectedImageCount > 0 && (
+            <p className="mt-1 text-xs text-sky-400">{selectedImageCount}개 이미지 선택됨.</p>
+          )}
         </div>
-        <div className="relative flex justify-center">
-          <span className="bg-slate-800 px-2 text-sm text-slate-400">또는</span>
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center" aria-hidden="true">
+            <div className="w-full border-t border-slate-600" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-slate-800 px-2 text-sm text-slate-400">또는</span>
+          </div>
         </div>
+        <ActionButton onClick={onOpenCamera} disabled={isLoading} icon={<CameraIcon />} fullWidth>
+          {isAdding ? "카메라로 추가" : "카메라 사용"}
+        </ActionButton>
       </div>
-      <ActionButton onClick={onOpenCamera} disabled={isLoading} icon={<CameraIcon />} fullWidth>
-        {isAdding ? "카메라로 추가" : "카메라 사용"}
-      </ActionButton>
-    </div>
-  );
-});
+    );
+  }
+);
+
 ImageInput.displayName = 'ImageInput';
