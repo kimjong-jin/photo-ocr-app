@@ -40,9 +40,9 @@ function hasDetailSegment(no: string) { return /-\d+$/.test(trim(no)); } // 끝�
 
 // ===== 엔드포인트 (env → 폴백) =====
 const RAW_SAVE_URL =
-  import.meta.env.VITE_SAVE_TEMP_API_URL ?? "https://api-2rhr2hjjjq-uc.a.run.app/save-temp";
+  process.env.SAVE_TEMP_API_URL ?? "https://api-2rhr2hjjjq-uc.a.run.app/save-temp";
 const RAW_LOAD_URL =
-  import.meta.env.VITE_LOAD_TEMP_API_URL ?? "https://api-2rhr2hjjjq-uc.a.run.app/load-temp";
+  process.env.LOAD_TEMP_API_URL ?? "https://api-2rhr2hjjjq-uc.a.run.app/load-temp";
 
 // 잘못 설정된 경로 자동 교정 (예: load에서 /save-temp로 나가려 할 때)
 function ensurePath(urlStr: string, desiredPath: "/save-temp" | "/load-temp") {
