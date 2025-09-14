@@ -63,47 +63,46 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   });
 
   if (!res.ok) {
-    // 실패 시 서울시청으로 이동
-    return "서울특별시 중구 세종대로 110 서울시청"; // 서울시청 위치 주소 반환
+    return "서울특별시 중구 세종대로 110 서울시청"; // 실패 시 서울시청 주소 반환
   }
 
   const data = await res.json();
   const doc = data?.documents?.[0];
   if (!doc) {
-    // 주소를 찾을 수 없으면 서울시청으로 이동
-    return "서울특별시 중구 세종대로 110 서울시청"; // 서울시청 위치 주소 반환
+    return "서울특별시 중구 세종대로 110 서울시청"; // 주소를 못 찾으면 서울시청
   }
 
   const roadAddr = doc.road_address?.address_name ?? "";
   const lotAddr = doc.address?.address_name ?? "";
 
   const addr = doc.address;
-  const region1 = normalizeRegion(addr?.region_1depth_name ?? "");
-  const region2 = addr?.region_2depth_name ?? "";
-  const region3 = addr?.region_3depth_name ?? "";
+  const region1 = normalizeRegion(addr?.region_1depth_name ?? ""); // 첫 번째 행정구역 (부산광역시 등)
+  const region2 = addr?.region_2depth_name ?? ""; // 두 번째 행정구역
+  const region3 = addr?.region_3depth_name ?? ""; // 세 번째 행정구역
   const lotNumber =
     addr?.main_address_no +
     (addr?.sub_address_no ? "-" + addr.sub_address_no : "");
 
-  // 1️⃣ 도로명 주소 있으면
+  // 1️⃣ 도로명 주소가 있으면
   if (roadAddr) {
-    if (roadAddr.startsWith(region1)) return roadAddr.trim();
-    return `${region1} ${roadAddr}`.trim();
+    // `region1`을 도로명 주소에서 제거하고, 없으면 지역명 추가
+    const cleanedAddress = roadAddr.replace(region1, "").trim();
+    return cleanedAddress ? `${region1} ${cleanedAddress}` : roadAddr;
   }
 
-  // 2️⃣ 도로명 없으면 지번 주소로 재검색
+  // 2️⃣ 도로명 주소가 없으면 지번 주소로 재검색
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
     if (searchedRoad) {
-      if (searchedRoad.startsWith(region1)) return searchedRoad.trim();
-      return `${region1} ${searchedRoad}`.trim();
+      // `region1`을 지번 주소에서 제거하고, 없으면 지역명 추가
+      const cleanedAddress = searchedRoad.replace(region1, "").trim();
+      return cleanedAddress ? `${region1} ${cleanedAddress}` : searchedRoad;
     }
     // 3️⃣ 실패 시 풀네임 조합
     return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
   }
 
-  // 최종적으로 주소를 찾을 수 없으면 서울시청으로 이동
-  return "서울특별시 중구 세종대로 110 서울시청"; // 서울시청 위치 주소 반환
+  return "주소를 찾을 수 없습니다."; // 주소를 찾을 수 없으면 기본 반환 값
 }
 
 // ✅ 명칭 검색 (여러 개 반환)
