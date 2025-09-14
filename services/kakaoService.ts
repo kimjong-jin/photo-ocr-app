@@ -63,7 +63,8 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   });
 
   if (!res.ok) {
-    return "서울특별시 중구 세종대로 110 서울시청"; // 실패 시 서울시청 주소 반환
+    // 실패 시 서울시청으로 이동
+    return "서울특별시 중구 세종대로 110 서울시청"; // 서울시청 위치 주소 반환
   }
 
   const data = await res.json();
@@ -85,9 +86,9 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 
   // 1️⃣ 도로명 주소가 있으면
   if (roadAddr) {
-    // `region1`이 이미 존재하면 이를 제거하고, 없으면 `부산광역시`를 추가
-    let cleanedAddress = roadAddr.replace(region1, "").trim();
-    if (!cleanedAddress) cleanedAddress = `${region1} ${roadAddr}`;
+    // 중복된 '부산'을 제거하고, `region1`(부산광역시)만 남깁니다.
+    let cleanedAddress = roadAddr.replace(`부산`, "").trim(); // '부산'을 제거하고
+    if (!cleanedAddress) cleanedAddress = `${region1} ${roadAddr}`; // 만약 빈값이라면 부산광역시를 추가
     return cleanedAddress;
   }
 
@@ -95,9 +96,9 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
     if (searchedRoad) {
-      // `region1`을 지번 주소에서 제거하고, 없으면 `부산광역시`를 추가
-      let cleanedAddress = searchedRoad.replace(region1, "").trim();
-      if (!cleanedAddress) cleanedAddress = `${region1} ${searchedRoad}`;
+      // 지번 주소에서 '부산' 제거
+      let cleanedAddress = searchedRoad.replace(`부산`, "").trim();
+      if (!cleanedAddress) cleanedAddress = `${region1} ${searchedRoad}`; // 빈값이라면 부산광역시를 추가
       return cleanedAddress;
     }
     // 3️⃣ 실패 시 풀네임 조합
