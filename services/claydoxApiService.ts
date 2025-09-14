@@ -138,6 +138,7 @@ async function retryKtlApiCall<TResponseData>(
 export interface ClaydoxPayload {
   receiptNumber: string;
   siteLocation: string;
+  siteNameOnly: string;
   item: string;
   inspectionStartDate?: string;
   ocrData: ExtractedEntry[];
@@ -147,7 +148,6 @@ export interface ClaydoxPayload {
   maxDecimalPlaces?: number;
   maxDecimalPlacesCl?: number;
   pageType?: 'PhotoLog' | 'FieldCount' | 'DrinkingWater';
-  gpsAddress?: string;
 }
 
 const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: string, actualKtlFileNames: string[]): any => {
@@ -338,22 +338,13 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   if (payload.updateUser)   labviewItemObject['시험자'] = payload.updateUser;
   if (payload.siteLocation) labviewItemObject['현장']   = payload.siteLocation;
 
-  if (payload.gpsAddress)   labviewItemObject['주소']   = payload.gpsAddress;
-
   // === (E) GUBN/ DESC 구성 — FIX(P3): 항목 포함 형식으로 복구 ===
   let gubnPrefix = '수질';
   const drinkingWaterItems = ANALYSIS_ITEM_GROUPS.find((g) => g.label === '먹는물')?.items || [];
   if (payload.pageType === 'FieldCount') gubnPrefix = '현장계수';
   else if (payload.pageType === 'DrinkingWater' || drinkingWaterItems.includes(payload.item)) gubnPrefix = '먹는물';
 
-  let siteLocationForDesc = payload.siteLocation;
-  if (gubnPrefix === '먹는물' && payload.siteLocation.includes(' / ')) {
-    const parts = payload.siteLocation.split(' / ').map((p) => p.trim()).filter(Boolean);
-    const mainSite = parts[0]; const details = parts.slice(1).join(' / ');
-    if (mainSite && details) siteLocationForDesc = `${mainSite}_(${details})`;
-  }
-
-  const labviewDescComment = `${gubnPrefix} (항목: ${payload.item}, 현장: ${siteLocationForDesc})`;
+  const labviewDescComment = `${gubnPrefix} (항목: ${payload.item}, 현장: ${payload.siteNameOnly})`;
   const labviewDescObject = { comment: labviewDescComment };
 
   // ✅ 최종: '먹는물' 고정 제거, 항목 포함하여 전송
@@ -464,9 +455,8 @@ export const sendToClaydoxApi = async (
 
 interface StructuralCheckPayloadForKtl {
   receiptNumber: string;
-  siteLocation: string;
+  siteName: string;
   mainItemKey: MainStructuralItemKey;
-  inspectionStartDate?: string;
   checklistData: Record<string, StructuralCheckSubItemData>;
   updateUser: string;
   photos?: ImageInfo[];
@@ -491,10 +481,17 @@ export interface ClaydoxJobPhoto extends ImageInfo {
 const constructMergedLabviewItemForStructural = (
   jobsInGroup: StructuralCheckPayloadForKtl[],
   userNameGlobal: string,
+  siteNameGlobal: string,
+  gpsAddressGlobal: string,
   masterCompositeImageNameOnServer?: string,
   masterZipFileNameOnServer?: string
 ): any => {
   const mergedItems: any = {};
+
+  if (userNameGlobal) mergedItems['시험자'] = userNameGlobal;
+  if (siteNameGlobal) mergedItems['현장'] = siteNameGlobal;
+  if (gpsAddressGlobal) mergedItems['주소'] = gpsAddressGlobal;
+
   jobsInGroup.forEach((payload) => {
     if (payload.postInspectionDateValue) {
       let periodValue = payload.postInspectionDateValue;
@@ -678,17 +675,14 @@ const constructMergedLabviewItemForStructural = (
     }
   });
 
-  if (userNameGlobal) {
-    mergedItems['시험자'] = userNameGlobal;
-  }
   return mergedItems;
 };
 
 export const generateStructuralKtlJsonForPreview = (
   jobPayloadsForReceipt: StructuralCheckPayloadForKtl[],
-  siteLocationGlobal: string,
-  inspectionStartDateFromUi: string | undefined,
+  siteNameGlobal: string,
   userNameGlobal: string,
+  gpsAddressGlobal: string,
   hypotheticalCompositeImageName?: string,
   hypotheticalMasterZipName?: string
 ): string => {
@@ -701,6 +695,7 @@ export const generateStructuralKtlJsonForPreview = (
     const receiptSanitized = sanitizeFilename(p.receiptNumber);
     let itemPartForFilename = '';
     if (p.mainItemKey === 'TN') {
+      // 그대로 사용
     } else if (p.mainItemKey === 'TP') {
       itemPartForFilename = 'P';
     } else if (p.mainItemKey === 'Cl') {
@@ -708,33 +703,44 @@ export const generateStructuralKtlJsonForPreview = (
     } else {
       itemPartForFilename = sanitizeFilename(p.mainItemKey);
     }
-    const finalChecklistImageName = `${receiptSanitized}${itemPartForFilename ? `_${itemPartForFilename}` : ''}_checklist.png`;
+    const finalChecklistImageName = `${receiptSanitized}${
+      itemPartForFilename ? `_${itemPartForFilename}` : ''
+    }_checklist.png`;
 
     return {
       ...p,
       photoFileNames: {},
-      checklistImageFileName: finalChecklistImageName
+      checklistImageFileName: finalChecklistImageName,
     };
   });
 
   const mergedLabviewItem = constructMergedLabviewItemForStructural(
     payloadsWithHypotheticalFileNames,
     userNameGlobal,
+    siteNameGlobal,
+    gpsAddressGlobal,
     hypotheticalCompositeImageName,
     hypotheticalMasterZipName
   );
 
   const mainItemNamesForDesc = Array.from(
-    new Set(jobPayloadsForReceipt.map((p) => MAIN_STRUCTURAL_ITEMS.find((it) => it.key === p.mainItemKey)?.name || p.mainItemKey))
+    new Set(
+      jobPayloadsForReceipt.map(
+        (p) =>
+          MAIN_STRUCTURAL_ITEMS.find((it) => it.key === p.mainItemKey)?.name ||
+          p.mainItemKey
+      )
+    )
   );
 
-  let labviewDescComment = `구조 (항목: ${mainItemNamesForDesc.join(', ')}, 현장: ${siteLocationGlobal}`;
-  if (inspectionStartDateFromUi) {
-    labviewDescComment += `, 검사시작일: ${inspectionStartDateFromUi}`;
-  }
+  const labviewDescComment = `구조 (항목: ${mainItemNamesForDesc.join(
+    ', '
+  )}, 현장: ${siteNameGlobal})`;
   const labviewDescObject = { comment: labviewDescComment };
 
-  const uniqueMainItemKeys = Array.from(new Set(jobPayloadsForReceipt.map((job) => job.mainItemKey))).sort();
+  const uniqueMainItemKeys = Array.from(
+    new Set(jobPayloadsForReceipt.map((job) => job.mainItemKey))
+  ).sort();
   const dynamicLabviewGubn = `구조_${uniqueMainItemKeys.join(',')}`;
 
   const objectToFormat = {
@@ -742,7 +748,7 @@ export const generateStructuralKtlJsonForPreview = (
     LABVIEW_DESC: JSON.stringify(labviewDescObject),
     LABVIEW_RECEIPTNO: firstPayload.receiptNumber,
     UPDATE_USER: userNameGlobal,
-    LABVIEW_ITEM: JSON.stringify(mergedLabviewItem)
+    LABVIEW_ITEM: JSON.stringify(mergedLabviewItem),
   };
 
   return JSON.stringify(objectToFormat, KTL_KEY_ORDER, 2);
@@ -769,9 +775,9 @@ function pickZipBase64(photo: ClaydoxJobPhoto): string {
 export const sendBatchStructuralChecksToKtlApi = async (
   jobs: StructuralJob[],
   generatedChecklistImages: ImageInfo[],
-  siteLocationGlobal: string,
-  inspectionStartDateFromUi: string | undefined,
-  userNameGlobal: string
+  siteNameGlobal: string,
+  userNameGlobal: string,
+  gpsAddressGlobal: string,
 ): Promise<{ receiptNo: string; mainItem: string; success: boolean; message: string }[]> => {
   const results: { receiptNo: string; mainItem: string; success: boolean; message: string }[] = [];
   const filesToUploadDirectly: File[] = [];
@@ -793,7 +799,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
     });
     payloadsForKtlService.push({
       receiptNumber: job.receiptNumber,
-      siteLocation: siteLocationGlobal,
+      siteName: siteNameGlobal,
       mainItemKey: job.mainItemKey,
       checklistData: job.checklistData,
       updateUser: userNameGlobal,
@@ -826,9 +832,8 @@ export const sendBatchStructuralChecksToKtlApi = async (
 
       const stampDetailsComposite = {
         receiptNumber: receiptNo,
-        siteLocation: siteLocationGlobal,
-        item: itemSummaryForStamp,
-        inspectionStartDate: inspectionStartDateFromUi
+        siteLocation: siteNameGlobal,
+        item: itemSummaryForStamp
       };
 
       try {
@@ -965,7 +970,6 @@ export const sendBatchStructuralChecksToKtlApi = async (
 
   const jobsByReceiptNumber: Record<string, StructuralCheckPayloadForKtl[]> = {};
   payloadsForKtlService.forEach((payload) => {
-    payload.inspectionStartDate = inspectionStartDateFromUi;
     if (!jobsByReceiptNumber[payload.receiptNumber]) {
       jobsByReceiptNumber[payload.receiptNumber] = [];
     }
@@ -977,7 +981,14 @@ export const sendBatchStructuralChecksToKtlApi = async (
     const compositeFileNameForThisReceipt = receiptToCompositeFileNameMap.get(receiptNo);
     const zipFileNameForThisReceipt = receiptToZipFileNameMap.get(receiptNo);
 
-    const mergedLabviewItem = constructMergedLabviewItemForStructural(currentGroupOfJobs, userNameGlobal, compositeFileNameForThisReceipt, zipFileNameForThisReceipt);
+    const mergedLabviewItem = constructMergedLabviewItemForStructural(
+      currentGroupOfJobs, 
+      userNameGlobal,
+      siteNameGlobal,
+      gpsAddressGlobal,
+      compositeFileNameForThisReceipt, 
+      zipFileNameForThisReceipt
+    );
 
     const today = new Date();
     const year = today.getFullYear();
@@ -989,10 +1000,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       new Set(currentGroupOfJobs.map((p) => MAIN_STRUCTURAL_ITEMS.find((it) => it.key === p.mainItemKey)?.name || p.mainItemKey))
     );
 
-    let labviewDescComment = `구조 (항목: ${mainItemNamesForDesc.join(', ')}, 현장: ${siteLocationGlobal}`;
-    if (inspectionStartDateFromUi) {
-      labviewDescComment += `, 검사시작일: ${inspectionStartDateFromUi}`;
-    }
+    const labviewDescComment = `구조 (항목: ${mainItemNamesForDesc.join(', ')}, 현장: ${siteNameGlobal})`;
     const labviewDescObject = { comment: labviewDescComment };
 
     const uniqueMainItemKeys = Array.from(new Set(currentGroupOfJobs.map((job) => job.mainItemKey))).sort();
