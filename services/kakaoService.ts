@@ -64,14 +64,14 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 
   if (!res.ok) {
     // 실패 시 서울시청으로 이동
-    return "주소 변환 실패"; // 서울시청 위치로 이동하려면 MapView.tsx에서 처리
+    return "서울특별시 중구 세종대로 110 서울시청"; // 서울시청 위치 주소 반환
   }
 
   const data = await res.json();
   const doc = data?.documents?.[0];
   if (!doc) {
     // 주소를 찾을 수 없으면 서울시청으로 이동
-    return "주소를 찾을 수 없습니다."; // 서울시청 위치로 이동하려면 MapView.tsx에서 처리
+    return "서울특별시 중구 세종대로 110 서울시청"; // 서울시청 위치 주소 반환
   }
 
   const roadAddr = doc.road_address?.address_name ?? "";
@@ -102,7 +102,8 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
     return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
   }
 
-  return "주소를 찾을 수 없습니다."; // 주소를 찾을 수 없으면 기본 반환 값
+  // 최종적으로 주소를 찾을 수 없으면 서울시청으로 이동
+  return "서울특별시 중구 세종대로 110 서울시청"; // 서울시청 위치 주소 반환
 }
 
 // ✅ 명칭 검색 (여러 개 반환)
