@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -33,6 +31,7 @@ import { Type } from '@google/genai';
 import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { ChecklistSnapshot } from './components/structural/ChecklistSnapshot';
 import PasswordModal from './components/PasswordModal';
+import MapView from './components/MapView';
 
 
 export interface JobPhoto extends ImageInfo {
@@ -74,6 +73,20 @@ const CalendarIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
+const GpsIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 01-9-9 9 9 0 019-9 9 9 0 019 9 9 9 0 01-9 9z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m8-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707" />
+  </svg>
+);
+
+const ChevronDownIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+  </svg>
+);
+
+
 const sanitizeFilenameComponent = (component: string): string => {
   if (!component) return '';
   return component.replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_').replace(/__+/g, '_');
@@ -102,11 +115,21 @@ interface StructuralCheckPageProps {
   setJobs: React.Dispatch<React.SetStateAction<StructuralJob[]>>;
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
+  siteName: string;
   siteLocation: string;
   onDeleteJob: (jobId: string) => void;
+  currentGpsAddress: string;
+  setCurrentGpsAddress: React.Dispatch<React.SetStateAction<string>>;
+  isFetchingAddress: boolean;
+  coords: { lat: number; lng: number } | null;
+  setCoords: React.Dispatch<React.SetStateAction<{ lat: number; lng: number } | null>>;
+  handleFetchGpsAddress: () => void;
 }
 
-const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob }) => {
+const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ 
+  userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob,
+  currentGpsAddress, setCurrentGpsAddress, isFetchingAddress, coords, setCoords, handleFetchGpsAddress
+}) => {
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const activeJobFileInputRef = useRef<HTMLInputElement>(null);
   const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
@@ -126,8 +149,20 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ userName, job
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [isDateOverrideUnlocked, setIsDateOverrideUnlocked] = useState(false);
   const [overrideDateTime, setOverrideDateTime] = useState('');
+  const [openSections, setOpenSections] = useState<string[]>([]);
 
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
+
+  const toggleSection = (sectionName: string) => {
+    setOpenSections(prevOpenSections => {
+      const isOpen = prevOpenSections.includes(sectionName);
+      if (isOpen) {
+        return prevOpenSections.filter(s => s !== sectionName);
+      } else {
+        return [...prevOpenSections, sectionName];
+      }
+    });
+  };
 
   const updateActiveJob = useCallback((updater: (job: StructuralJob) => StructuralJob) => {
     if (!activeJobId) return;
@@ -651,7 +686,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
   }, [activeJob, activeJobId, currentPhotoIndexOfActiveJob, handleChecklistItemChange, handlePhotoCommentChange, setJobs, getAnalysisTypeDisplayString]);
 
   const handleInitiateSendToKtl = async () => {
-    if (!activeJob || !siteLocation.trim()) {
+    if (!activeJob || !siteName.trim()) {
       alert("활성 작업이 없거나 현장 위치가 입력되지 않았습니다.");
       return;
     }
@@ -659,15 +694,12 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
     setIsRenderingChecklist(true);
     resetActiveJobSubmissionStatus();
     
-    // Use the snapshot component for rendering
     if (snapshotHostRef.current) {
         const snapshotRoot = createRoot(snapshotHostRef.current);
-        // Use a promise to ensure rendering completes before capturing
         const renderPromise = new Promise<void>(resolve => {
             snapshotRoot.render(
                 <ChecklistSnapshot job={activeJob} />
             );
-            // A short timeout allows React to render to the DOM
             setTimeout(resolve, 100); 
         });
         await renderPromise;
@@ -708,23 +740,29 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
             const jsonForPreview = generateStructuralKtlJsonForPreview(
                 [{ 
                     ...activeJob, 
-                    siteLocation: siteLocation,
+// FIX: The property 'siteLocation' does not exist on type 'StructuralCheckPayloadForKtl'. Changed to 'siteName' to match the type definition.
+                    siteName: siteName,
                     updateUser: userName,
                     photoFileNames: {}, 
                     postInspectionDateValue: activeJob.postInspectionDate 
                 }],
-                siteLocation, undefined, userName, compositeImageName, zipFileName
+                siteName,
+              currentGpsAddress,
+                userName,
+                
+                compositeImageName,
+                zipFileName
             );
 
             setKtlPreflightData({
                 jsonPayload: jsonForPreview,
                 fileNames: fileNamesForPreflight,
                 context: {
-                    receiptNumber: activeJob.receiptNumber,
-                    siteLocation,
-                    selectedItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey,
-                    userName,
-                },
+                      receiptNumber: activeJob.receiptNumber,
+                      siteName: siteName,
+                      selectedItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey,
+                      userName,
+                      },
                 generatedChecklistImage: checklistImageInfo
             });
             setKtlPreflightModalOpen(true);
@@ -733,7 +771,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
             updateActiveJob(job => ({ ...job, submissionStatus: 'error', submissionMessage: '체크리스트 이미지 생성 실패.' }));
         } finally {
             setIsRenderingChecklist(false);
-            snapshotRoot.unmount(); // Clean up the temporary React root
+            snapshotRoot.unmount();
         }
     } else {
         setIsRenderingChecklist(false);
@@ -753,9 +791,9 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
       const results = await sendBatchStructuralChecksToKtlApi(
         [activeJob],
         [ktlPreflightData.generatedChecklistImage],
-        siteLocation,
-        undefined,
-        userName
+        siteName,
+        userName,
+        currentGpsAddress,
       );
 
       const result = results[0];
@@ -773,7 +811,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
   };
   
     const handleBatchSendToKtl = async () => {
-        if (!siteLocation.trim()) {
+        if (!siteName.trim()) {
             alert("현장 위치를 입력해야 합니다.");
             return;
         }
@@ -844,7 +882,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
         setBatchSendProgress(`모든 체크리스트 이미지 생성 완료. KTL 서버로 전송합니다...`);
 
         try {
-            const results = await sendBatchStructuralChecksToKtlApi(jobs, generatedChecklistImages, siteLocation, undefined, userName);
+            const results = await sendBatchStructuralChecksToKtlApi(jobs, generatedChecklistImages, siteName, userName, currentGpsAddress);
             results.forEach(result => {
                 setJobs(prev => prev.map(j => (j.receiptNumber === result.receiptNo && (MAIN_STRUCTURAL_ITEMS.find(it => it.key === j.mainItemKey)?.name || j.mainItemKey) === result.mainItem)
                     ? { ...j, submissionStatus: result.success ? 'success' : 'error', submissionMessage: result.message }
@@ -895,7 +933,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                             : 'bg-purple-600 hover:bg-purple-500 focus:ring-purple-500 text-white'
                     }`}
                     disabled={isControlsDisabled || isThisButtonAnalyzing || isNotApplicable}
-                    title={isNotApplicable ? '이 항목은 AI 분석이 필요하지 않습니다.' : undefined}
+                    title={isNotApplicable ? "이 항목은 AI 분석이 필요하지 않습니다." : undefined}
                 >
                     {isThisButtonAnalyzing ? <Spinner size="sm" /> : getAnalysisTypeDisplayString(analysisType)}
                 </ActionButton>
@@ -913,6 +951,68 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
       <div ref={snapshotHostRef} style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}></div>
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">구조 확인 (P4)</h2>
       
+      {/* 위치 도우미 (GPS) */}
+      <div className="bg-slate-800/60 rounded-lg border border-slate-700">
+        <button
+          onClick={() => toggleSection('location')}
+          className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
+          aria-expanded={openSections.includes('location')}
+        >
+          <h3 className="text-lg font-semibold text-slate-100">위치 도우미 (GPS 주소)</h3>
+          <ChevronDownIcon
+            className={`w-5 h-5 text-slate-400 transition-transform ${
+              openSections.includes('location') ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+
+        <div
+          className={`overflow-hidden transition-all duration-300 ease-in-out ${
+            openSections.includes('location') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+          }`}
+        >
+          <div className="pt-4 px-4 pb-4 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-2 items-center">
+              <div className="sm:col-span-8">
+                <label htmlFor="current-gps-address" className="sr-only">
+                  현재 주소 (GPS)
+                </label>
+                <input
+                  type="text"
+                  id="current-gps-address"
+                  value={currentGpsAddress}
+                  onChange={(e) => setCurrentGpsAddress(e.target.value)}
+                  className="block w-full p-2.5 bg-slate-800 border border-slate-600 rounded-md shadow-sm text-slate-300 text-sm placeholder-slate-400"
+                  placeholder="GPS 주소 또는 직접 입력"
+                />
+              </div>
+              <div className="sm:col-span-4">
+                <ActionButton
+                  onClick={handleFetchGpsAddress}
+                  disabled={isFetchingAddress}
+                  fullWidth
+                  icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />}
+                >
+                  GPS로 주소 찾기
+                </ActionButton>
+              </div>
+            </div>
+            {coords && (
+              <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
+              <MapView
+                  latitude={coords.lat}
+                  longitude={coords.lng}
+                  onAddressSelect={(addr, lat, lng) => {
+                    setCurrentGpsAddress(addr);
+                    setCoords({ lat, lng });
+                  }}
+                />
+                </div>
+              )}
+          </div>
+        </div>
+      </div>
+
       {jobs.length > 0 && (
         <div className="space-y-2 mt-4">
           <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
@@ -1117,7 +1217,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
               <div className="mt-6 pt-4 border-t border-slate-700">
                     <ActionButton 
                         onClick={handleInitiateSendToKtl}
-                        disabled={!siteLocation.trim() || isLoading || isAnalyzingDetail || activeJob.submissionStatus === 'sending' || isRenderingChecklist}
+                        disabled={!siteName.trim() || isLoading || isAnalyzingDetail || activeJob.submissionStatus === 'sending' || isRenderingChecklist}
                         fullWidth
                         icon={isRenderingChecklist || activeJob.submissionStatus === 'sending' ? <Spinner size="sm"/> : undefined}
                     >
