@@ -95,7 +95,14 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     }
   };
 
-  // ✅ 클릭한 주소로 이동
+  // ✅ 클릭한 명칭에 대해 주소 가져오기
+  const handleSearchResultClick = async (place: any) => {
+    const address = await fetchAddressFromPlace(place);
+    setCurrentGpsAddress(address); // 현재 주소 업데이트
+    if (onAddressSelect) onAddressSelect(address, place.y, place.x);
+    setSearchResults([]); // 팝업 닫기
+  };
+
   const moveToLocation = (y: number, x: number, addr: string) => {
     const coords = new window.kakao.maps.LatLng(Number(y), Number(x));
     map.setCenter(coords);
@@ -193,9 +200,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
                 cursor: "pointer",
                 borderBottom: "1px solid #eee",
               }}
-              onClick={() =>
-                moveToLocation(place.y, place.x, place.place_name || place.address_name)
-              }
+              onClick={() => handleSearchResultClick(place)}
             >
               <strong style={{ color: "#000" }}>
                 {place.place_name || place.road_address?.address_name || place.address_name}
