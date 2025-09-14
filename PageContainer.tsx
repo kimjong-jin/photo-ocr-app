@@ -272,13 +272,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             allItems.add(job.mainItemKey);
             const timestamp = new Date().toISOString();
             
-            if (!apiPayload[job.mainItemKey]) {
-                apiPayload[job.mainItemKey] = {};
-            }
-            
-            // FIX: Replaced Object.assign with direct property assignment to resolve a TypeScript type inference issue where it incorrectly inferred a string was being assigned to a SavedValueEntry.
-            apiPayload[job.mainItemKey]['_checklistData'] = { val: JSON.stringify(job.checklistData), time: timestamp };
-            apiPayload[job.mainItemKey]['_postInspectionDate'] = { val: job.postInspectionDate, time: timestamp };
+            // FIX: Use an immutable update pattern. Directly mutating nested objects can lead to incorrect type inference by TypeScript. This creates a new object instead.
+            const currentItemData = apiPayload[job.mainItemKey] || {};
+            apiPayload[job.mainItemKey] = {
+                ...currentItemData,
+                '_checklistData': { val: JSON.stringify(job.checklistData), time: timestamp },
+                '_postInspectionDate': { val: job.postInspectionDate, time: timestamp }
+            };
         });
 
         jobsToSaveP6.forEach(job => {
@@ -435,16 +435,16 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     });
                 });
             } else {
-                const itemData = (values as any)[itemName] || {};
-                // FIX: Added explicit type casting within the sort callback to ensure type safety and prevent potential inference errors where an argument was incorrectly typed.
+                // FIX: Explicitly type `itemData` to resolve type inference issues in the following `sort` and `forEach` methods. This avoids incorrect types and the need for further casting.
+                const itemData: Record<string, SavedValueEntry> = (values as any)[itemName] || {};
                 Object.entries(itemData).sort(([,a],[,b]) => {
-                    const timeA = (a as SavedValueEntry)?.time || '';
-                    const timeB = (b as SavedValueEntry)?.time || '';
+                    const timeA = a?.time || '';
+                    const timeB = b?.time || '';
                     return timeA.localeCompare(timeB);
                 }).forEach(([id, entryData]) => {
                     if (id === '_checklistData' || id === '_postInspectionDate') return;
                     if (entryData) {
-                        reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: (entryData as any).time, value: (entryData as any).val, identifier: id });
+                        reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: entryData.time, value: entryData.val, identifier: id });
                     }
                 });
             }
@@ -916,9 +916,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       type="text"
                       id="current-gps-address"
                       value={currentGpsAddress}
-                      readOnly
+                      onChange={(e) => setCurrentGpsAddress(e.target.value)}
                       className="block w-full p-2.5 bg-slate-800 border border-slate-600 rounded-md shadow-sm text-slate-300 text-sm placeholder-slate-400"
-                      placeholder="버튼을 눌러 주소를 가져오세요"
+                      placeholder="GPS 주소 또는 직접 입력"
                     />
                   </div>
                   <div className="sm:col-span-4">
@@ -931,17 +931,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       GPS로 주소 찾기
                     </ActionButton>
                   </div>
-                  {currentGpsAddress && !currentGpsAddress.includes("오류") && !currentGpsAddress.includes("찾는 중") && (
-                    <div className="sm:col-span-12">
-                        <ActionButton
-                            onClick={() => setSiteLocation(prev => prev ? `${prev} (${currentGpsAddress})` : currentGpsAddress)}
-                            variant="secondary"
-                            fullWidth
-                        >
-                            '현장 위치'로 설정
-                        </ActionButton>
-                    </div>
-                  )}
                 </div>
                 {coords && (
                   <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
