@@ -648,6 +648,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       const { latitude, longitude } = position.coords;
 
       try {
+        // ✅ 환경변수 확인용 로그
+        console.log("ENV KEY:", import.meta.env.VITE_KAKAO_REST_API_KEY);
+
         const addr = await getKakaoAddress(latitude, longitude); // ✅ 직접 호출
         setCurrentGpsAddress(addr);
       } catch (err: any) {
@@ -677,6 +680,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       maximumAge: 0,
     });
   }, []);
+
 
   const itemOptionsForNewTask = useMemo(() => {
     if (activePage === 'photoLog') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
