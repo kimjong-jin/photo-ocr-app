@@ -10,7 +10,7 @@ import { RangeDifferenceDisplay, RangeResults as DisplayRangeResults, RangeStat 
 import { extractTextFromImage } from '../../services/geminiService';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview } from '../../services/claydoxApiService';
 import JSZip from 'jszip';
-import { TN_IDENTIFIERS, TP_IDENTIFIERS } from '../../shared/constants';
+import { P1_TN_BASE_IDENTIFIERS, P2_TN_IDENTIFIERS, P1_TP_BASE_IDENTIFIERS, P2_TP_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
 import { Type } from '@google/genai';
@@ -279,6 +279,9 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
   const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const availableTnIdentifiers = pageType === 'FieldCount' ? P2_TN_IDENTIFIERS : P1_TN_BASE_IDENTIFIERS;
+  const availableTpIdentifiers = pageType === 'FieldCount' ? P2_TP_IDENTIFIERS : P1_TP_BASE_IDENTIFIERS;
 
   const ocrControlsKtlStatus = useMemo<KtlApiCallStatus>(() => {
     if (!activeJob) return 'idle';
@@ -1156,9 +1159,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             onEntryValueTPChange={(id, val) => handleEntryChange(id, 'valueTP', val)} 
             onAddEntry={handleAddEntry} 
             onReorderRows={handleReorderRows} 
-            availableIdentifiers={TN_IDENTIFIERS} 
-            tnIdentifiers={TN_IDENTIFIERS} 
-            tpIdentifiers={TP_IDENTIFIERS} 
+            availableIdentifiers={availableTnIdentifiers} 
+            tnIdentifiers={availableTnIdentifiers} 
+            tpIdentifiers={availableTpIdentifiers} 
             rawJsonForCopy={JSON.stringify(activeJob.processedOcrData, null, 2)} 
             ktlJsonToPreview={ktlJsonPreview}
           />
