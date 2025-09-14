@@ -1,5 +1,3 @@
-// services/kakaoService.ts
-
 // ✅ 축약형 → 풀네임 매핑
 const REGION_FULLNAME_MAP: Record<string, string> = {
   "서울": "서울특별시",
@@ -24,6 +22,23 @@ const REGION_FULLNAME_MAP: Record<string, string> = {
 // ✅ 행정구역 보정 함수
 function normalizeRegion(name: string): string {
   return REGION_FULLNAME_MAP[name] || name;
+}
+
+// ✅ 주소에서 지역명 중복 제거
+function cleanAddress(address: string, region: string): string {
+  // 지역명 축약형을 풀네임으로 변환한 후, 중복된 지역명을 제거
+  let cleanedAddress = address;
+
+  // 지역명을 먼저 풀네임으로 변환
+  const regionFullName = normalizeRegion(region);
+
+  // 풀네임이 주소에 포함되어 있으면, 뒤에 지역명이 중복되므로 그 부분을 제거
+  if (cleanedAddress.startsWith(regionFullName)) {
+    cleanedAddress = cleanedAddress.replace(regionFullName, "").trim();
+  }
+
+  // 최종적으로 변환된 주소가 비어있으면, 지역명을 붙여서 반환
+  return cleanedAddress ? `${regionFullName} ${cleanedAddress}` : regionFullName;
 }
 
 // ✅ 지번 주소 기반으로 도로명 주소 재검색
@@ -86,14 +101,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 
   // 1️⃣ 도로명 주소가 있으면
   if (roadAddr) {
-    let cleanedAddress = roadAddr;
-
-    // 중복된 지역명을 제거
-    Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
-      const regionName = REGION_FULLNAME_MAP[key];
-      // 지역명이 포함되어 있으면 해당 지역명을 제거
-      cleanedAddress = cleanedAddress.replace(regionName, "").trim();
-    });
+    let cleanedAddress = cleanAddress(roadAddr, region1);
 
     // 중복된 지역을 제거하고, 지역이 남지 않으면 `region1`(광역시)만 추가
     if (!cleanedAddress) cleanedAddress = `${region1} ${roadAddr}`;
@@ -104,14 +112,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
     if (searchedRoad) {
-      let cleanedAddress = searchedRoad;
-
-      // 지번 주소에서 지역명을 제거
-      Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
-        const regionName = REGION_FULLNAME_MAP[key];
-        // 지역명이 포함되어 있으면 해당 지역명을 제거
-        cleanedAddress = cleanedAddress.replace(regionName, "").trim();
-      });
+      let cleanedAddress = cleanAddress(searchedRoad, region1);
 
       // 중복된 지역을 제거하고, 지역이 남지 않으면 `region1`(광역시)만 추가
       if (!cleanedAddress) cleanedAddress = `${region1} ${searchedRoad}`;
