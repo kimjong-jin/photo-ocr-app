@@ -202,7 +202,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
                 )
               }
             >
-              <strong>
+              <strong style={{ color: "#000" }}>
                 {place.place_name ||
                   place.road_address?.address_name ||
                   place.address_name}
