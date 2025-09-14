@@ -89,10 +89,10 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
     // 중복된 행정구역 이름을 제거하고, `region1`(광역시 등)만 남깁니다.
     let cleanedAddress = roadAddr;
 
-    // 전체 지역명을 제거
+    // 전체 지역명을 제거 (부산광역시가 중복될 경우 삭제)
     Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
       const regionName = REGION_FULLNAME_MAP[key];
-      if (cleanedAddress.includes(regionName)) {
+      if (cleanedAddress.startsWith(regionName)) {
         cleanedAddress = cleanedAddress.replace(regionName, "").trim();
       }
     });
@@ -112,7 +112,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
       // 전체 지역명을 제거
       Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
         const regionName = REGION_FULLNAME_MAP[key];
-        if (cleanedAddress.includes(regionName)) {
+        if (cleanedAddress.startsWith(regionName)) {
           cleanedAddress = cleanedAddress.replace(regionName, "").trim();
         }
       });
