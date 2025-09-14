@@ -18,7 +18,7 @@ import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
 import { generateA4CompositeJPEGPages, dataURLtoBlob, generateStampedImage, CompositeImageInput } from '../../services/imageStampingService';
 import { autoAssignIdentifiersByConcentration } from '../../services/identifierAutomationService';
-import type { PhotoLogJob, JobPhoto, ExtractedEntry, ConcentrationBoundaries } from '../../Shared/types';
+import type { PhotoLogJob, JobPhoto, ExtractedEntry, ConcentrationBoundaries } from '../../shared/types';
 
 type AppRangeResults = DisplayRangeResults;
 type KtlApiCallStatus = 'idle' | 'success' | 'error';
