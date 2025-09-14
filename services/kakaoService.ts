@@ -86,9 +86,19 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 
   // 1️⃣ 도로명 주소가 있으면
   if (roadAddr) {
-    // 중복된 '부산'을 제거하고, `region1`(부산광역시)만 남깁니다.
-    let cleanedAddress = roadAddr.replace(`부산`, "").trim(); // '부산'을 제거하고
-    if (!cleanedAddress) cleanedAddress = `${region1} ${roadAddr}`; // 만약 빈값이라면 부산광역시를 추가
+    // 중복된 행정구역 이름을 제거하고, `region1`(광역시 등)만 남깁니다.
+    let cleanedAddress = roadAddr;
+
+    // 전체 지역명을 제거
+    Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
+      const regionName = REGION_FULLNAME_MAP[key];
+      if (cleanedAddress.includes(regionName)) {
+        cleanedAddress = cleanedAddress.replace(regionName, "").trim();
+      }
+    });
+
+    // 중복된 지역을 제거하고, 지역이 남지 않으면 `region1`(광역시)만 추가
+    if (!cleanedAddress) cleanedAddress = `${region1} ${roadAddr}`;
     return cleanedAddress;
   }
 
@@ -96,9 +106,19 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
     if (searchedRoad) {
-      // 지번 주소에서 '부산' 제거
-      let cleanedAddress = searchedRoad.replace(`부산`, "").trim();
-      if (!cleanedAddress) cleanedAddress = `${region1} ${searchedRoad}`; // 빈값이라면 부산광역시를 추가
+      // 지번 주소에서 지역명을 제거
+      let cleanedAddress = searchedRoad;
+
+      // 전체 지역명을 제거
+      Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
+        const regionName = REGION_FULLNAME_MAP[key];
+        if (cleanedAddress.includes(regionName)) {
+          cleanedAddress = cleanedAddress.replace(regionName, "").trim();
+        }
+      });
+
+      // 중복된 지역을 제거하고, 지역이 남지 않으면 `region1`(광역시)만 추가
+      if (!cleanedAddress) cleanedAddress = `${region1} ${searchedRoad}`;
       return cleanedAddress;
     }
     // 3️⃣ 실패 시 풀네임 조합
