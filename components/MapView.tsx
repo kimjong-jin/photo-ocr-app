@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getKakaoAddress } from "../services/kakaoService"; // ✅ REST API 기반 주소 변환 사용
+import { getKakaoAddress, searchAddressByKeyword } from "../services/kakaoService"; // ✅ REST API 기반 주소 변환 + 키워드 검색
 
 interface MapViewProps {
   latitude: number;
@@ -75,11 +75,13 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     }
   }, [latitude, longitude, map, marker]);
 
-  // ✅ 주소 검색 기능 (SDK + REST 정규화)
-  const handleSearch = () => {
+  // ✅ 주소 + 명칭 검색 기능
+  const handleSearch = async () => {
     if (!map || !marker || !searchInput.trim()) return;
 
     const geocoder = new window.kakao.maps.services.Geocoder();
+
+    // 1️⃣ 먼저 주소 검색 시도
     geocoder.addressSearch(searchInput, async (result: any, status: any) => {
       if (status === window.kakao.maps.services.Status.OK) {
         const { x, y } = result[0];
@@ -96,7 +98,24 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
           if (onAddressSelect) onAddressSelect(result[0].address.address_name, Number(y), Number(x));
         }
       } else {
-        alert("주소를 찾을 수 없습니다.");
+        // 2️⃣ 주소 검색 실패 시 → 명칭 검색
+        const keywordAddr = await searchAddressByKeyword(searchInput);
+        if (keywordAddr) {
+          // 명칭 검색 성공 시, 해당 주소를 다시 좌표 변환
+          geocoder.addressSearch(keywordAddr, (res: any, status2: any) => {
+            if (status2 === window.kakao.maps.services.Status.OK) {
+              const { x, y } = res[0];
+              const coords = new window.kakao.maps.LatLng(y, x);
+
+              map.setCenter(coords);
+              marker.setPosition(coords);
+
+              if (onAddressSelect) onAddressSelect(keywordAddr, Number(y), Number(x));
+            }
+          });
+        } else {
+          alert("주소/명칭을 찾을 수 없습니다.");
+        }
       }
     });
   };
@@ -128,7 +147,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="주소 검색"
+          placeholder="주소 또는 명칭 검색"
           style={{
             flex: 1,
             padding: "6px 8px",
