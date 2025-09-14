@@ -13,6 +13,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
   const [marker, setMarker] = useState<any>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [currentGpsAddress, setCurrentGpsAddress] = useState<string>("");
 
   // ✅ 지도 초기화
   useEffect(() => {
@@ -39,9 +40,11 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
 
           try {
             const address = await getKakaoAddress(latlng.getLat(), latlng.getLng());
+            setCurrentGpsAddress(address); // GPS 주소 업데이트
             if (onAddressSelect) onAddressSelect(address, latlng.getLat(), latlng.getLng());
           } catch (e) {
             console.error("주소 변환 실패:", e);
+            setCurrentGpsAddress("주소 변환 실패");
             if (onAddressSelect) onAddressSelect("주소 변환 실패", latlng.getLat(), latlng.getLng());
           }
         });
@@ -97,6 +100,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     const coords = new window.kakao.maps.LatLng(Number(y), Number(x));
     map.setCenter(coords);
     marker.setPosition(coords);
+    setCurrentGpsAddress(addr); // 검색된 주소를 현재 주소로 설정
     if (onAddressSelect) onAddressSelect(addr, Number(y), Number(x));
     setSearchResults([]); // 팝업 닫기
   };
@@ -153,6 +157,12 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
         >
           검색
         </button>
+      </div>
+
+      {/* ✅ 현재 주소 */}
+      <div style={{ position: "absolute", top: "420px", left: "50%", transform: "translateX(-50%)" }}>
+        <strong>현재 주소 (GPS):</strong>
+        <div>{currentGpsAddress || "주소를 찾을 수 없습니다."}</div>
       </div>
 
       {/* ✅ 검색 결과 팝업 */}
