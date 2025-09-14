@@ -1,3 +1,4 @@
+
 export default async function handler(req: any, res: any) {
   try {
     const { latitude, longitude } = req.query as {
