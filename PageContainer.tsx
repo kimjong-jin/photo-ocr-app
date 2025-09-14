@@ -323,6 +323,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       await callSaveTempApi({
         receipt_no: receiptToSave,
         site: siteLocation,
+        gps_address: currentGpsAddress,
         item: Array.from(allItems),
         user_name: userName,
         values: apiPayload,
@@ -360,6 +361,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         setReceiptNumberCommon(common);
         setReceiptNumberDetail(detail);
         setSiteLocation(site);
+        setCurrentGpsAddress(loadedData.gps_address ?? "");
 
         // Categorize all available items from the loaded data
         const p1Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
