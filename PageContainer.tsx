@@ -71,7 +71,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [activePage, setActivePage] = useState<Page>('photoLog');
   const [receiptNumberCommon, setReceiptNumberCommon] = useState('');
   const [receiptNumberDetail, setReceiptNumberDetail] = useState('');
-  const [siteLocation, setSiteLocation] = useState('');
+  const [siteName, setSiteName] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -100,6 +100,20 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const [openSections, setOpenSections] = useState<string[]>(['addTask']);
+
+  const finalSiteLocation = useMemo(() => {
+    const site = siteName.trim();
+    const gps = currentGpsAddress.trim();
+    const isValidGps = gps && !gps.includes("오류") && !gps.includes("찾는 중") && !gps.includes("지원하지 않습니다");
+
+    if (site && isValidGps) {
+      return `${site} (${gps})`;
+    }
+    if (isValidGps) {
+      return gps;
+    }
+    return site;
+  }, [siteName, currentGpsAddress]);
 
   const toggleSection = (sectionName: string) => {
     setOpenSections(prevOpenSections => {
@@ -189,15 +203,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         const allItems = new Set<string>();
         const apiPayload: SaveDataPayload['values'] = {};
         
-        // Global metadata (site, gps_address) is saved inside the 'values' object
-        // for better persistence with the generic API.
         const globalMetadata = {
-            site: siteLocation,
+            site: siteName,
             gps_address: currentGpsAddress.trim() || undefined,
         };
         apiPayload['_global_metadata'] = {
-            val: JSON.stringify(globalMetadata),
-            time: new Date().toISOString(),
+            data: {
+                val: JSON.stringify(globalMetadata),
+                time: new Date().toISOString(),
+            }
         };
         allItems.add('_global_metadata');
         
@@ -230,10 +244,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
         jobsToSaveP3.forEach(job => {
             const itemsToProcess = job.selectedItem === 'TU/CL' ? ['TU', 'Cl'] : [job.selectedItem];
-            allItems.add(job.selectedItem); // Ensure main item key is saved for metadata
+            allItems.add(job.selectedItem);
             itemsToProcess.forEach(item => allItems.add(item));
             
-            // Store P3-specific metadata under the main item key
             const p3Metadata = {
                 details: job.details,
                 decimalPlaces: job.decimalPlaces,
@@ -253,13 +266,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     let valueSource;
                     if (job.selectedItem === 'TU/CL') {
                         valueSource = (subItem === 'TU') ? entry.value : entry.valueTP;
-                    } else { // Single item mode
+                    } else {
                         valueSource = entry.value;
                     }
 
                     if (entry.identifier && valueSource && valueSource.trim()) {
                         let key = entry.identifier;
-                        // Handle response time special case which has a different identifier for Cl in the UI
                         if(subItem === 'Cl' && key === '응답시간_Cl') key = '응답시간';
 
                         apiPayload[subItem]![key] = { val: valueSource.trim(), time: entry.time };
@@ -272,7 +284,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             allItems.add(job.mainItemKey);
             const timestamp = new Date().toISOString();
             
-            // FIX: Use an immutable update pattern. Directly mutating nested objects can lead to incorrect type inference by TypeScript. This creates a new object instead.
             const currentItemData = apiPayload[job.mainItemKey] || {};
             apiPayload[job.mainItemKey] = {
                 ...currentItemData,
@@ -305,8 +316,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       
       await callSaveTempApi({
         receipt_no: receiptToSave,
-        site: siteLocation,
-        gps_address: currentGpsAddress.trim() || undefined, // Kept for potential compatibility
+        site: siteName,
+        gps_address: currentGpsAddress.trim() || undefined,
         item: Array.from(allItems),
         user_name: userName,
         values: apiPayload,
@@ -320,7 +331,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     } finally {
       setIsSaving(false);
     }
-  }, [getReceiptNumberForSaveLoad, userName, photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs, siteLocation, currentGpsAddress]);
+  }, [getReceiptNumberForSaveLoad, userName, photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs, siteName, currentGpsAddress]);
 
   const handleLoadDraft = useCallback(async () => {
     const receiptToLoad = receiptNumber;
@@ -337,19 +348,17 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         const loadedData = await callLoadTempApi(receiptToLoad);
         const { receipt_no, site, item: loadedItems, values, gps_address } = loadedData;
 
-        // Set common info
         const receiptParts = receipt_no.split('-');
         const detail = receiptParts.pop() || '';
         const common = receiptParts.join('-');
         setReceiptNumberCommon(common);
         setReceiptNumberDetail(detail);
 
-        // Load global metadata: prioritize the new `_global_metadata` field within 'values',
-        // but fall back to the old top-level fields for backward compatibility.
         let loadedSite = site;
         let loadedGpsAddress = gps_address || "";
 
-        const globalMetadataEntry = values?._global_metadata;
+        const globalMetadataRecord = values?._global_metadata;
+        const globalMetadataEntry = globalMetadataRecord?.['data'];
         if (globalMetadataEntry?.val) {
             try {
                 const parsedMeta = JSON.parse(globalMetadataEntry.val);
@@ -363,10 +372,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 console.warn("[LOAD] Global metadata parsing failed:", e);
             }
         }
-        setSiteLocation(loadedSite);
+        setSiteName(loadedSite);
         setCurrentGpsAddress(loadedGpsAddress);
 
-        // Categorize all available items from the loaded data
         const p1Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
         const p2Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '현장 계수')?.items || [];
         const p3Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '먹는물')?.items || [];
@@ -403,10 +411,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             drinkingWater: Array.from(available.drinkingWater),
             structuralCheck: Array.from(available.structuralCheck),
         };
-
-        // --- Create jobs for all categorized items ---
         
-        // P1 & P2 Job Creator
         const createP1P2Job = (itemName: string): PhotoLogJob => {
             const reconstructedOcrData: PhotoLogJob['processedOcrData'] = [];
             if (itemName === "TN/TP") {
@@ -435,7 +440,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     });
                 });
             } else {
-                // FIX: Explicitly type `itemData` to resolve type inference issues in the following `sort` and `forEach` methods. This avoids incorrect types and the need for further casting.
                 const itemData: Record<string, SavedValueEntry> = (values as any)[itemName] || {};
                 Object.entries(itemData).sort(([,a],[,b]) => {
                     const timeA = a?.time || '';
@@ -444,14 +448,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 }).forEach(([id, entryData]) => {
                     if (id === '_checklistData' || id === '_postInspectionDate') return;
                     if (entryData) {
-                        reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: entryData.time, value: entryData.val, identifier: id });
+                        reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: String(entryData.time), value: String(entryData.val), identifier: id });
                     }
                 });
             }
             return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, siteLocation: site, selectedItem: itemName, photos: [], photoComments: {}, processedOcrData: reconstructedOcrData, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', decimalPlacesCl: undefined, ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined };
         };
 
-        // P3 Job Creator
         const createDrinkingWaterJob = (itemName: string, data: LoadedData): DrinkingWaterJob => {
             const { receipt_no: local_receipt_no, site: local_site, values: local_values } = data;
             
@@ -500,28 +503,24 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             };
         };
 
-        // P1 Jobs
         const newP1Jobs = allSelections.photoLog.map(createP1P2Job);
         if (newP1Jobs.length > 0) {
             setPhotoLogJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP1Jobs]);
             if (activePage === 'photoLog') setActivePhotoLogJobId(newP1Jobs[0]?.id || null);
         }
         
-        // P2 Jobs
         const newP2Jobs = allSelections.fieldCount.map(createP1P2Job);
         if (newP2Jobs.length > 0) {
             setFieldCountJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP2Jobs]);
             if (activePage === 'fieldCount') setActiveFieldCountJobId(newP2Jobs[0]?.id || null);
         }
     
-        // P3 Jobs
         const newP3Jobs: DrinkingWaterJob[] = allSelections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
         if (newP3Jobs.length > 0) {
             setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
             if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
         }
     
-        // P4 Jobs
         const newP4Jobs = allSelections.structuralCheck.map(itemName => {
             const itemData = (values as any)[itemName as MainStructuralItemKey];
             if (!itemData || !itemData['_checklistData']) return null;
@@ -566,7 +565,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
 
     if (activePage === 'photoLog' || activePage === 'fieldCount') {
-        const newJob: PhotoLogJob = { id: self.crypto.randomUUID(), receiptNumber, siteLocation, selectedItem: newItemKey, photos: [], photoComments: {}, processedOcrData: null, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined };
+        const newJob: PhotoLogJob = { id: self.crypto.randomUUID(), receiptNumber, siteLocation: finalSiteLocation, selectedItem: newItemKey, photos: [], photoComments: {}, processedOcrData: null, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined };
         if (activePage === 'photoLog') {
             setPhotoLogJobs(prev => [...prev, newJob]);
             setActivePhotoLogJobId(newJob.id);
@@ -646,7 +645,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       setReceiptNumberDetail(String(currentDetailNum + 1).padStart(receiptNumberDetail.length, '0'));
     }
     setNewItemKey('');
-  }, [newItemKey, receiptNumber, receiptNumberDetail, activePage, siteLocation]);
+  }, [newItemKey, receiptNumber, receiptNumberDetail, activePage, finalSiteLocation]);
 
   const handleFetchGpsAddress = useCallback(() => {
     setIsFetchingAddress(true);
@@ -701,29 +700,31 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     return [];
   }, [activePage]);
 
-  const finalSiteLocation = useMemo(() => {
-    const site = siteLocation.trim();
-    const gps = currentGpsAddress.trim();
-    if (site && gps && !gps.includes("오류") && !gps.includes("찾는 중")) {
-      return `${site} (${gps})`;
-    }
-    return site;
-  }, [siteLocation, currentGpsAddress]);
-
   const navButtonBaseStyle = "px-3 py-2 rounded-md font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs sm:text-sm flex-grow sm:flex-grow-0";
   const activeNavButtonStyle = "bg-sky-500 text-white";
   const inactiveNavButtonStyle = "bg-slate-700 hover:bg-slate-600 text-slate-300";
 
+  const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
+
   const renderActivePage = () => {
     switch(activePage) {
       case 'photoLog':
-        return <PhotoLogPage userName={userName} jobs={photoLogJobs} setJobs={setPhotoLogJobs} activeJobId={activePhotoLogJobId} setActiveJobId={setActivePhotoLogJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeletePhotoLogJob} />;
+        return <PhotoLogPage userName={userName} jobs={photoLogJobs} setJobs={setPhotoLogJobs} activeJobId={activePhotoLogJobId} setActiveJobId={setActivePhotoLogJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeletePhotoLogJob} />;
       case 'fieldCount':
-        return <FieldCountPage userName={userName} jobs={fieldCountJobs} setJobs={setFieldCountJobs} activeJobId={activeFieldCountJobId} setActiveJobId={setActiveFieldCountJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteFieldCountJob} />;
+        return <FieldCountPage userName={userName} jobs={fieldCountJobs} setJobs={setFieldCountJobs} activeJobId={activeFieldCountJobId} setActiveJobId={setActiveFieldCountJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteFieldCountJob} />;
       case 'drinkingWater':
-        return <DrinkingWaterPage userName={userName} jobs={drinkingWaterJobs} setJobs={setDrinkingWaterJobs} activeJobId={activeDrinkingWaterJobId} setActiveJobId={setActiveDrinkingWaterJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteDrinkingWaterJob} />;
+        return <DrinkingWaterPage userName={userName} jobs={drinkingWaterJobs} setJobs={setDrinkingWaterJobs} activeJobId={activeDrinkingWaterJobId} setActiveJobId={setActiveDrinkingWaterJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteDrinkingWaterJob} />;
       case 'structuralCheck':
-        return <StructuralCheckPage userName={userName} jobs={structuralCheckJobs} setJobs={setStructuralCheckJobs} activeJobId={activeStructuralCheckJobId} setActiveJobId={setActiveStructuralCheckJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteStructuralCheckJob} />;
+        return <StructuralCheckPage 
+                  userName={userName} 
+                  jobs={structuralCheckJobs} 
+                  setJobs={setStructuralCheckJobs} 
+                  activeJobId={activeStructuralCheckJobId} 
+                  setActiveJobId={setActiveStructuralCheckJobId} 
+                  siteName={siteNameOnly} 
+                  onDeleteJob={handleDeleteStructuralCheckJob}
+                  currentGpsAddress={currentGpsAddress}
+                />;
       case 'kakaoTalk':
         return <KakaoTalkPage userName={userName} userContact={userContact} />;
       case 'csvGraph':
@@ -822,12 +823,55 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     <input
                       type="text"
                       id="global-site-location"
-                      value={siteLocation}
-                      onChange={(e) => setSiteLocation(e.target.value)}
+                      value={siteName}
+                      onChange={(e) => setSiteName(e.target.value)}
                       className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm"
                       placeholder="예: OO처리장"
                     />
                   </div>
+
+                  {activePage === 'structuralCheck' && (
+                    <div className="sm:col-span-12 pt-4 border-t border-slate-700/50">
+                      <h4 className="text-md font-semibold text-slate-200 mb-2">위치 도우미 (GPS 주소)</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-2 items-center">
+                        <div className="sm:col-span-8">
+                          <label htmlFor="current-gps-address" className="sr-only">
+                            현재 주소 (GPS)
+                          </label>
+                          <input
+                            type="text"
+                            id="current-gps-address"
+                            value={currentGpsAddress}
+                            onChange={(e) => setCurrentGpsAddress(e.target.value)}
+                            className="block w-full p-2.5 bg-slate-800 border border-slate-600 rounded-md shadow-sm text-slate-300 text-sm placeholder-slate-400"
+                            placeholder="GPS 주소 또는 직접 입력"
+                          />
+                        </div>
+                        <div className="sm:col-span-4">
+                          <ActionButton
+                            onClick={handleFetchGpsAddress}
+                            disabled={isFetchingAddress}
+                            fullWidth
+                            icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />}
+                          >
+                            GPS로 주소 찾기
+                          </ActionButton>
+                        </div>
+                      </div>
+                      {coords && (
+                        <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
+                        <MapView
+                            latitude={coords.lat}
+                            longitude={coords.lng}
+                            onAddressSelect={(addr, lat, lng) => {
+                              setCurrentGpsAddress(addr);
+                              setCoords({ lat, lng });
+                            }}
+                          />
+                          </div>
+                        )}
+                    </div>
+                  )}
 
                   {!isCsvPage && showTaskManagement && (
                     <div className="sm:col-span-12">
