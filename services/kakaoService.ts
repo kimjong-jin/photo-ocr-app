@@ -49,35 +49,6 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
   }
 }
 
-// ✅ 키워드(기관/건물명 등) → 주소 검색
-export async function searchAddressByKeyword(keyword: string): Promise<string | null> {
-  const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-  if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
-
-  const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
-  url.searchParams.set("query", keyword);
-
-  try {
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `KakaoAK ${apiKey}` },
-    });
-
-    if (!res.ok) {
-      console.warn(`[kakaoService] Keyword search failed (${res.status}): ${keyword}`);
-      return null;
-    }
-
-    const data = await res.json();
-    const doc = data?.documents?.[0];
-    if (!doc) return null;
-
-    return doc.road_address_name || doc.address_name || null;
-  } catch (err) {
-    console.error(`[kakaoService] Keyword search error (${keyword}):`, err);
-    return null;
-  }
-}
-
 // ✅ 위도/경도 → 카카오 주소 변환
 export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
@@ -121,10 +92,39 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
       if (searchedRoad.startsWith(region1)) return searchedRoad.trim();
       return `${region1} ${searchedRoad}`.trim();
     }
+    // 3️⃣ 실패 시 풀네임 조립
     return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
   }
 
   return "주소를 찾을 수 없습니다.";
+}
+
+// ✅ 명칭 검색 (여러 개 반환)
+export async function searchAddressByKeyword(
+  keyword: string
+): Promise<any[]> {
+  const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
+  if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
+
+  const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
+  url.searchParams.set("query", keyword);
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `KakaoAK ${apiKey}` },
+    });
+
+    if (!res.ok) {
+      console.warn(`[kakaoService] Keyword search failed (${res.status}): ${keyword}`);
+      return [];
+    }
+
+    const data = await res.json();
+    return data?.documents || [];
+  } catch (err) {
+    console.error(`[kakaoService] Keyword search error (${keyword}):`, err);
+    return [];
+  }
 }
 
 // ✅ 추가: StructuralCheckPage 등에서 사용
