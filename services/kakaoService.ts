@@ -92,9 +92,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
     Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
       const regionName = REGION_FULLNAME_MAP[key];
       // 지역명이 포함되어 있으면 해당 지역명을 제거
-      if (cleanedAddress.startsWith(regionName)) {
-        cleanedAddress = cleanedAddress.replace(regionName, "").trim();
-      }
+      cleanedAddress = cleanedAddress.replace(regionName, "").trim();
     });
 
     // 중복된 지역을 제거하고, 지역이 남지 않으면 `region1`(광역시)만 추가
@@ -112,9 +110,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
       Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
         const regionName = REGION_FULLNAME_MAP[key];
         // 지역명이 포함되어 있으면 해당 지역명을 제거
-        if (cleanedAddress.startsWith(regionName)) {
-          cleanedAddress = cleanedAddress.replace(regionName, "").trim();
-        }
+        cleanedAddress = cleanedAddress.replace(regionName, "").trim();
       });
 
       // 중복된 지역을 제거하고, 지역이 남지 않으면 `region1`(광역시)만 추가
