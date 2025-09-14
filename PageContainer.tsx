@@ -555,13 +555,16 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   }, [receiptNumber, activePage]);
 
   const handleAddTask = useCallback(() => {
-    if (!receiptNumber) {
-        alert("접수번호를 입력해주세요.");
-        return;
-    }
-    if (activePage !== 'csvGraph' && !newItemKey) {
-        alert("항목을 선택해주세요.");
-        return;
+    // CSV 페이지는 접수번호 없이 추가 가능하도록 예외 처리
+    if (activePage !== 'csvGraph') {
+        if (!receiptNumberCommon.trim() || !receiptNumberDetail.trim()) {
+            alert("접수번호 (공통)와 (세부)를 모두 입력해주세요.");
+            return;
+        }
+        if (!newItemKey) {
+            alert("항목을 선택해주세요.");
+            return;
+        }
     }
 
     if (activePage === 'photoLog' || activePage === 'fieldCount') {
@@ -645,7 +648,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       setReceiptNumberDetail(String(currentDetailNum + 1).padStart(receiptNumberDetail.length, '0'));
     }
     setNewItemKey('');
-  }, [newItemKey, receiptNumber, receiptNumberDetail, activePage, finalSiteLocation]);
+  }, [newItemKey, receiptNumber, receiptNumberCommon, receiptNumberDetail, activePage, finalSiteLocation]);
 
   const handleFetchGpsAddress = useCallback(() => {
     setIsFetchingAddress(true);
@@ -764,7 +767,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
               className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
               aria-expanded={openSections.includes('addTask')}
             >
-              <h3 className="text-lg font-semibold text-slate-100">공통 정보 및 작업 추가</h3>
+              <h3 className="text-lg font-semibold text-slate-100">공통 정보 및 작업 관리</h3>
               <ChevronDownIcon
                 className={`w-5 h-5 text-slate-400 transition-transform ${
                   openSections.includes('addTask') ? 'rotate-180' : ''
@@ -878,7 +881,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                   {showTaskManagement && (
                     <div className="sm:col-span-12">
                       <ActionButton onClick={handleAddTask} fullWidth>
-                        {isCsvPage ? '새 분석 작업 추가' : '추가'}
+                        추가
                       </ActionButton>
                     </div>
                   )}
