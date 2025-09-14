@@ -86,12 +86,12 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 
   // 1️⃣ 도로명 주소가 있으면
   if (roadAddr) {
-    // 중복된 행정구역 이름을 제거하고, `region1`(광역시 등)만 남깁니다.
     let cleanedAddress = roadAddr;
 
-    // 전체 지역명을 제거 (부산광역시가 중복될 경우 삭제)
+    // 중복된 지역명을 제거
     Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
       const regionName = REGION_FULLNAME_MAP[key];
+      // 지역명이 포함되어 있으면 해당 지역명을 제거
       if (cleanedAddress.startsWith(regionName)) {
         cleanedAddress = cleanedAddress.replace(regionName, "").trim();
       }
@@ -106,12 +106,12 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
     if (searchedRoad) {
-      // 지번 주소에서 지역명을 제거
       let cleanedAddress = searchedRoad;
 
-      // 전체 지역명을 제거
+      // 지번 주소에서 지역명을 제거
       Object.keys(REGION_FULLNAME_MAP).forEach((key) => {
         const regionName = REGION_FULLNAME_MAP[key];
+        // 지역명이 포함되어 있으면 해당 지역명을 제거
         if (cleanedAddress.startsWith(regionName)) {
           cleanedAddress = cleanedAddress.replace(regionName, "").trim();
         }
@@ -121,6 +121,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
       if (!cleanedAddress) cleanedAddress = `${region1} ${searchedRoad}`;
       return cleanedAddress;
     }
+
     // 3️⃣ 실패 시 풀네임 조합
     return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
   }
