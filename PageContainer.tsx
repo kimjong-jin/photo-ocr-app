@@ -641,7 +641,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
       try {
         const res = await fetch(
-          `/api/naver-reverse-geocode?latitude=${latitude}&longitude=${longitude}`
+          `/api/kakao-reverse-geocode?latitude=${latitude}&longitude=${longitude}`
         );
 
         const raw = await res.text();   // ⚠️ 먼저 text로 받기
