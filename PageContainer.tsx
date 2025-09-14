@@ -189,6 +189,18 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         const allItems = new Set<string>();
         const apiPayload: SaveDataPayload['values'] = {};
         
+        // Global metadata (site, gps_address) is saved inside the 'values' object
+        // for better persistence with the generic API.
+        const globalMetadata = {
+            site: siteLocation,
+            gps_address: currentGpsAddress.trim() || undefined,
+        };
+        apiPayload['_global_metadata'] = {
+            val: JSON.stringify(globalMetadata),
+            time: new Date().toISOString(),
+        };
+        allItems.add('_global_metadata');
+        
         const p1p2Jobs = [...jobsToSaveP1, ...jobsToSaveP2];
         p1p2Jobs.forEach(job => {
             if (job.selectedItem === 'TN/TP') {
@@ -264,10 +276,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 apiPayload[job.mainItemKey] = {};
             }
             
-            Object.assign(apiPayload[job.mainItemKey], {
-                '_checklistData': { val: JSON.stringify(job.checklistData), time: timestamp },
-                '_postInspectionDate': { val: job.postInspectionDate, time: timestamp },
-            });
+            // FIX: Replaced Object.assign with direct property assignment to resolve a TypeScript type inference issue where it incorrectly inferred a string was being assigned to a SavedValueEntry.
+            apiPayload[job.mainItemKey]['_checklistData'] = { val: JSON.stringify(job.checklistData), time: timestamp };
+            apiPayload[job.mainItemKey]['_postInspectionDate'] = { val: job.postInspectionDate, time: timestamp };
         });
 
         jobsToSaveP6.forEach(job => {
@@ -295,7 +306,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       await callSaveTempApi({
         receipt_no: receiptToSave,
         site: siteLocation,
-        gps_address: currentGpsAddress.trim() || undefined,
+        gps_address: currentGpsAddress.trim() || undefined, // Kept for potential compatibility
         item: Array.from(allItems),
         user_name: userName,
         values: apiPayload,
@@ -332,8 +343,28 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         const common = receiptParts.join('-');
         setReceiptNumberCommon(common);
         setReceiptNumberDetail(detail);
-        setSiteLocation(site);
-        setCurrentGpsAddress(gps_address || "");
+
+        // Load global metadata: prioritize the new `_global_metadata` field within 'values',
+        // but fall back to the old top-level fields for backward compatibility.
+        let loadedSite = site;
+        let loadedGpsAddress = gps_address || "";
+
+        const globalMetadataEntry = values?._global_metadata;
+        if (globalMetadataEntry?.val) {
+            try {
+                const parsedMeta = JSON.parse(globalMetadataEntry.val);
+                if (typeof parsedMeta.site === 'string') {
+                    loadedSite = parsedMeta.site;
+                }
+                if (typeof parsedMeta.gps_address === 'string') {
+                    loadedGpsAddress = parsedMeta.gps_address;
+                }
+            } catch (e) {
+                console.warn("[LOAD] Global metadata parsing failed:", e);
+            }
+        }
+        setSiteLocation(loadedSite);
+        setCurrentGpsAddress(loadedGpsAddress);
 
         // Categorize all available items from the loaded data
         const p1Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
@@ -405,7 +436,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 });
             } else {
                 const itemData = (values as any)[itemName] || {};
-                Object.entries(itemData).sort(([,a],[,b]) => ((a as any).time || '').localeCompare((b as any).time || '')).forEach(([id, entryData]) => {
+                // FIX: Added explicit type casting within the sort callback to ensure type safety and prevent potential inference errors where an argument was incorrectly typed.
+                Object.entries(itemData).sort(([,a],[,b]) => {
+                    const timeA = (a as SavedValueEntry)?.time || '';
+                    const timeB = (b as SavedValueEntry)?.time || '';
+                    return timeA.localeCompare(timeB);
+                }).forEach(([id, entryData]) => {
                     if (id === '_checklistData' || id === '_postInspectionDate') return;
                     if (entryData) {
                         reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: (entryData as any).time, value: (entryData as any).val, identifier: id });
@@ -517,7 +553,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     } finally {
         setIsLoading(false);
     }
-  }, [receiptNumber, activePage, siteLocation]);
+  }, [receiptNumber, activePage]);
 
   const handleAddTask = useCallback(() => {
     if (!receiptNumber) {
@@ -895,6 +931,17 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       GPS로 주소 찾기
                     </ActionButton>
                   </div>
+                  {currentGpsAddress && !currentGpsAddress.includes("오류") && !currentGpsAddress.includes("찾는 중") && (
+                    <div className="sm:col-span-12">
+                        <ActionButton
+                            onClick={() => setSiteLocation(prev => prev ? `${prev} (${currentGpsAddress})` : currentGpsAddress)}
+                            variant="secondary"
+                            fullWidth
+                        >
+                            '현장 위치'로 설정
+                        </ActionButton>
+                    </div>
+                  )}
                 </div>
                 {coords && (
                   <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
