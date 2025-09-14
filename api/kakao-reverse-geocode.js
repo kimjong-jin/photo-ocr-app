@@ -14,13 +14,14 @@ export default async function handler(req, res) {
     }
 
     const url = `https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${longitude}&y=${latitude}`;
-    const response = await fetch(url, {
+    const kakaoRes = await fetch(url, {
       headers: { Authorization: `KakaoAK ${apiKey}` },
     });
 
-    const raw = await response.text();
-    res.status(response.status).send(raw);
+    const bodyText = await kakaoRes.text();
+    res.status(kakaoRes.status).send(bodyText);
   } catch (err) {
     res.status(500).json({ error: err.message || "unknown error" });
   }
 }
+
