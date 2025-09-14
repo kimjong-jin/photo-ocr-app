@@ -1,6 +1,32 @@
 // services/kakaoService.ts
 
-// 보조: 지번 주소로 재검색해서 도로명 주소를 찾는 함수
+// ✅ 축약형 → 풀네임 매핑
+const REGION_FULLNAME_MAP: Record<string, string> = {
+  "서울": "서울특별시",
+  "부산": "부산광역시",
+  "대구": "대구광역시",
+  "인천": "인천광역시",
+  "광주": "광주광역시",
+  "대전": "대전광역시",
+  "울산": "울산광역시",
+  "세종": "세종특별자치시",
+  "경기": "경기도",
+  "강원": "강원특별자치도",   // 카카오에서 '강원'으로만 올 수 있음
+  "충북": "충청북도",
+  "충남": "충청남도",
+  "전북": "전북특별자치도",
+  "전남": "전라남도",
+  "경북": "경상북도",
+  "경남": "경상남도",
+  "제주": "제주특별자치도",
+};
+
+// ✅ 행정구역 보정 함수
+function normalizeRegion(name: string): string {
+  return REGION_FULLNAME_MAP[name] || name;
+}
+
+// ✅ 지번 주소 기반으로 도로명 주소 재검색
 async function searchAddressByQuery(query: string, apiKey: string): Promise<string | null> {
   const url = new URL("https://dapi.kakao.com/v2/local/search/address.json");
   url.searchParams.set("query", query);
@@ -23,12 +49,7 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
   }
 }
 
-// 🔹 region_1depth_name 정규화 ("부산광역시" → "부산광역시", "서울특별시" → "서울특별시" 그대로 유지)
-// 필요하다면 여기서 "광역시 → 시" 줄임 가능
-function normalizeRegion1(name: string): string {
-  return name; // 그대로 둠 (원본 "부산광역시" 유지)
-}
-
+// ✅ 좌표 → 주소 변환
 export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
   if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
@@ -53,25 +74,29 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   const roadAddr = doc.road_address?.address_name ?? "";
   const lotAddr = doc.address?.address_name ?? "";
 
-  // 1️⃣ 도로명 주소 있으면 그거만 반환 (괄호 ❌, 지번 ❌)
-  if (roadAddr) return roadAddr;
+  // ✅ region_* 조립 시 풀네임 보정
+  const addr = doc.address;
+  const region1 = normalizeRegion(addr?.region_1depth_name ?? "");
+  const region2 = addr?.region_2depth_name ?? "";
+  const region3 = addr?.region_3depth_name ?? "";
+  const lotNumber =
+    addr?.main_address_no +
+    (addr?.sub_address_no ? "-" + addr.sub_address_no : "");
 
-  // 2️⃣ 도로명 없으면 지번으로 재검색해서 도로명 주소 얻기
+  // 1️⃣ 도로명 주소 있으면 그대로 사용 (풀네임으로 region1 보정)
+  if (roadAddr) {
+    return `${region1} ${roadAddr.replace(region1, "").trim()}`;
+  }
+
+  // 2️⃣ 도로명 없으면 지번 주소로 재검색
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
-    if (searchedRoad) return searchedRoad;
-
-    // 3️⃣ 그래도 없으면 region_* 기반 풀 주소 조립
-    const addr = doc.address;
-    if (addr) {
-      const region1 = normalizeRegion1(addr.region_1depth_name);
-      const full = `${region1} ${addr.region_2depth_name} ${addr.region_3depth_name} ${addr.main_address_no}${
-        addr.sub_address_no ? "-" + addr.sub_address_no : ""
-      }`;
-      return full.trim();
+    if (searchedRoad) {
+      return `${region1} ${searchedRoad.replace(region1, "").trim()}`;
     }
 
-    return lotAddr;
+    // 3️⃣ 재검색 실패 → 풀네임 기준 수동 조립
+    return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
   }
 
   return "주소를 찾을 수 없습니다.";
