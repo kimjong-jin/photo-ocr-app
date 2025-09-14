@@ -77,30 +77,19 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
 
   // ✅ 검색 실행
   const handleSearch = async () => {
-    if (!map || !marker || !searchInput.trim()) return;
+    if (!searchInput.trim()) return;
 
-    const geocoder = new window.kakao.maps.services.Geocoder();
+    // 명칭 검색 (검색어로 명칭을 입력)
+    const keywordResults = await searchAddressByKeyword(searchInput);
 
-    geocoder.addressSearch(searchInput, async (result: any, status: any) => {
-      if (status === window.kakao.maps.services.Status.OK && result.length > 0) {
-        if (result.length === 1) {
-          moveToLocation(result[0].y, result[0].x, result[0].address.address_name);
-        } else {
-          // 여러 결과면 목록 표시
-          setSearchResults(result);
-        }
-      } else {
-        // 명칭 검색
-        const keywordResults = await searchAddressByKeyword(searchInput);
-        if (keywordResults.length === 1) {
-          moveToLocation(keywordResults[0].y, keywordResults[0].x, keywordResults[0].place_name);
-        } else if (keywordResults.length > 1) {
-          setSearchResults(keywordResults);
-        } else {
-          alert("주소/명칭을 찾을 수 없습니다.");
-        }
-      }
-    });
+    if (keywordResults.length === 1) {
+      const result = keywordResults[0];
+      moveToLocation(result.y, result.x, result.place_name);
+    } else if (keywordResults.length > 1) {
+      setSearchResults(keywordResults);
+    } else {
+      alert("주소/명칭을 찾을 수 없습니다.");
+    }
   };
 
   // ✅ 특정 위치로 이동
