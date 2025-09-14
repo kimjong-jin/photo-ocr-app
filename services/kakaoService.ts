@@ -1,3 +1,5 @@
+// services/kakaoService.ts
+
 // ✅ 축약형 → 풀네임 매핑
 const REGION_FULLNAME_MAP: Record<string, string> = {
   "서울": "서울특별시",
@@ -90,7 +92,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
       if (searchedRoad.startsWith(region1)) return searchedRoad.trim();
       return `${region1} ${searchedRoad}`.trim();
     }
-    // 3️⃣ 실패 시 풀네임 조립
+    // 3️⃣ 실패 시 풀네임 조합
     return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
   }
 
