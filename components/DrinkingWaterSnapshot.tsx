@@ -5,7 +5,6 @@ import { DRINKING_WATER_IDENTIFIERS } from '../shared/constants';
 
 interface DrinkingWaterSnapshotProps {
   job: DrinkingWaterJob;
-  siteLocation: string;
 }
 
 const formatSite = (site: string, details?: string) =>
