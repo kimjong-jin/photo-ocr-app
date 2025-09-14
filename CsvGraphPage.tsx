@@ -927,8 +927,8 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
       if (!state.selection.start) {
         return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...state, selection: { start: point, end: null } } }};
       } else {
-        if (state.results.length >= 15) {
-          alert("채널당 최대 15개의 분석만 추가할 수 있습니다.");
+        if (state.results.length >= 25) {
+          alert("채널당 최대 25개의 분석만 추가할 수 있습니다.");
           return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...state, selection: { start: null, end: null } } }};
         }
 
@@ -1134,7 +1134,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
                 </div>
                 
                 <div>
-                    <h4 className="text-lg font-semibold text-slate-100 mb-2">분석 결과 ({activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0} / 15)</h4>
+                    <h4 className="text-lg font-semibold text-slate-100 mb-2">분석 결과 ({activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0} / 25)</h4>
                     <div className="overflow-x-auto bg-slate-900/50 rounded-lg border border-slate-700 max-h-96">
                         <table className="min-w-full text-sm text-left">
                             <thead className="bg-slate-700/50 sticky top-0">
