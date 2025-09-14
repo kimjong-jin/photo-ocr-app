@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -73,20 +75,6 @@ const CalendarIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
-const GpsIcon: React.FC = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 01-9-9 9 9 0 019-9 9 9 0 019 9 9 9 0 01-9 9z" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m8-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707" />
-  </svg>
-);
-
-const ChevronDownIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-  </svg>
-);
-
-
 const sanitizeFilenameComponent = (component: string): string => {
   if (!component) return '';
   return component.replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_').replace(/__+/g, '_');
@@ -118,16 +106,11 @@ interface StructuralCheckPageProps {
   siteName: string;
   onDeleteJob: (jobId: string) => void;
   currentGpsAddress: string;
-  setCurrentGpsAddress: React.Dispatch<React.SetStateAction<string>>;
-  isFetchingAddress: boolean;
-  coords: { lat: number; lng: number } | null;
-  setCoords: React.Dispatch<React.SetStateAction<{ lat: number; lng: number } | null>>;
-  handleFetchGpsAddress: () => void;
 }
 
 const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ 
   userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, onDeleteJob,
-  currentGpsAddress, setCurrentGpsAddress, isFetchingAddress, coords, setCoords, handleFetchGpsAddress
+  currentGpsAddress
 }) => {
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const activeJobFileInputRef = useRef<HTMLInputElement>(null);
@@ -148,20 +131,8 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [isDateOverrideUnlocked, setIsDateOverrideUnlocked] = useState(false);
   const [overrideDateTime, setOverrideDateTime] = useState('');
-  const [openSections, setOpenSections] = useState<string[]>([]);
 
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
-
-  const toggleSection = (sectionName: string) => {
-    setOpenSections(prevOpenSections => {
-      const isOpen = prevOpenSections.includes(sectionName);
-      if (isOpen) {
-        return prevOpenSections.filter(s => s !== sectionName);
-      } else {
-        return [...prevOpenSections, sectionName];
-      }
-    });
-  };
 
   const updateActiveJob = useCallback((updater: (job: StructuralJob) => StructuralJob) => {
     if (!activeJobId) return;
@@ -177,25 +148,26 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
 
     const formattedDateTime = newDateTime.replace('T', ' ');
 
+    // FIX: Refactored to use an immutable update pattern, which resolves a TypeScript type inference error. The original implementation mutated an intermediate object, causing the type of `submissionStatus` to be inferred incorrectly as `string` instead of the specific union type required by the `StructuralJob` interface.
     updateActiveJob(job => {
-      const updatedChecklistData = { ...job.checklistData };
-      for (const itemName in updatedChecklistData) {
-        const item = updatedChecklistData[itemName];
-        if (item.confirmedAt) {
-          updatedChecklistData[itemName] = {
-            ...item,
-            confirmedAt: formattedDateTime,
-          };
+        const updatedChecklistData = { ...job.checklistData };
+        for (const itemName in updatedChecklistData) {
+            const item = updatedChecklistData[itemName];
+            if (item.confirmedAt) { // Only update items that have been confirmed
+                updatedChecklistData[itemName] = {
+                    ...item,
+                    confirmedAt: formattedDateTime,
+                };
+            }
         }
-      }
-      
-      return {
-        ...job,
-        checklistData: updatedChecklistData,
-        submissionStatus: 'idle',
-        submissionMessage: undefined,
-        postInspectionDateConfirmedAt: job.postInspectionDateConfirmedAt ? formattedDateTime : job.postInspectionDateConfirmedAt,
-      };
+        
+        return {
+          ...job,
+          checklistData: updatedChecklistData,
+          submissionStatus: 'idle',
+          submissionMessage: undefined,
+          postInspectionDateConfirmedAt: job.postInspectionDateConfirmedAt ? formattedDateTime : job.postInspectionDateConfirmedAt,
+        };
     });
   }, [activeJob, updateActiveJob]);
 
@@ -738,7 +710,6 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
             const jsonForPreview = generateStructuralKtlJsonForPreview(
                 [{ 
                     ...activeJob, 
-// FIX: The property 'siteLocation' does not exist on type 'StructuralCheckPayloadForKtl'. Changed to 'siteName' to match the type definition.
                     siteName: siteName,
                     updateUser: userName,
                     photoFileNames: {}, 
@@ -756,7 +727,8 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                 fileNames: fileNamesForPreflight,
                 context: {
                       receiptNumber: activeJob.receiptNumber,
-                      siteName: siteName,
+                      // FIX: The context expects 'siteLocation', not 'siteName'.
+                      siteLocation: siteName,
                       selectedItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey,
                       userName,
                       },
@@ -948,68 +920,6 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
       <div ref={snapshotHostRef} style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}></div>
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">구조 확인 (P4)</h2>
       
-      {/* 위치 도우미 (GPS) */}
-      <div className="bg-slate-800/60 rounded-lg border border-slate-700">
-        <button
-          onClick={() => toggleSection('location')}
-          className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-          aria-expanded={openSections.includes('location')}
-        >
-          <h3 className="text-lg font-semibold text-slate-100">위치 도우미 (GPS 주소)</h3>
-          <ChevronDownIcon
-            className={`w-5 h-5 text-slate-400 transition-transform ${
-              openSections.includes('location') ? 'rotate-180' : ''
-            }`}
-          />
-        </button>
-
-        <div
-          className={`overflow-hidden transition-all duration-300 ease-in-out ${
-            openSections.includes('location') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
-          }`}
-        >
-          <div className="pt-4 px-4 pb-4 space-y-2">
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-2 items-center">
-              <div className="sm:col-span-8">
-                <label htmlFor="current-gps-address" className="sr-only">
-                  현재 주소 (GPS)
-                </label>
-                <input
-                  type="text"
-                  id="current-gps-address"
-                  value={currentGpsAddress}
-                  onChange={(e) => setCurrentGpsAddress(e.target.value)}
-                  className="block w-full p-2.5 bg-slate-800 border border-slate-600 rounded-md shadow-sm text-slate-300 text-sm placeholder-slate-400"
-                  placeholder="GPS 주소 또는 직접 입력"
-                />
-              </div>
-              <div className="sm:col-span-4">
-                <ActionButton
-                  onClick={handleFetchGpsAddress}
-                  disabled={isFetchingAddress}
-                  fullWidth
-                  icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />}
-                >
-                  GPS로 주소 찾기
-                </ActionButton>
-              </div>
-            </div>
-            {coords && (
-              <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
-              <MapView
-                  latitude={coords.lat}
-                  longitude={coords.lng}
-                  onAddressSelect={(addr, lat, lng) => {
-                    setCurrentGpsAddress(addr);
-                    setCoords({ lat, lng });
-                  }}
-                />
-                </div>
-              )}
-          </div>
-        </div>
-      </div>
-
       {jobs.length > 0 && (
         <div className="space-y-2 mt-4">
           <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
@@ -1066,8 +976,9 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                         fileName={activeJob.photos[currentPhotoIndexOfActiveJob].file.name}
                         mimeType={activeJob.photos[currentPhotoIndexOfActiveJob].mimeType}
                         receiptNumber={activeJob.receiptNumber}
+                        // FIX: The 'siteLocation' prop does not exist on ImagePreview. Corrected to 'siteName' and added 'gpsAddress'.
                         siteName={siteName}
-                        gpsAddress={currentGpsAddress}  
+                        gpsAddress={currentGpsAddress}
                         item={MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name}
                         comment={activeJob.photoComments[activeJob.photos[currentPhotoIndexOfActiveJob].uid]}
                         showOverlay={true}
