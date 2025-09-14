@@ -32,23 +32,19 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
 
         const geocoder = new window.kakao.maps.services.Geocoder();
 
-        // 지도 클릭 이벤트
+        // ✅ 지도 클릭 이벤트
         window.kakao.maps.event.addListener(mapInstance, "click", (mouseEvent: any) => {
           const latlng = mouseEvent.latLng;
           markerInstance.setPosition(latlng);
 
-          geocoder.coord2Address(
-            latlng.getLng(),
-            latlng.getLat(),
-            (result: any, status: any) => {
-              if (status === window.kakao.maps.services.Status.OK) {
-                const address = result[0].road_address
-                  ? result[0].road_address.address_name
-                  : result[0].address.address_name;
-                if (onAddressSelect) onAddressSelect(address, latlng.getLat(), latlng.getLng());
-              }
+          geocoder.coord2Address(latlng.getLng(), latlng.getLat(), (result: any, status: any) => {
+            if (status === window.kakao.maps.services.Status.OK) {
+              const address = result[0].road_address
+                ? result[0].road_address.address_name
+                : result[0].address.address_name;
+              if (onAddressSelect) onAddressSelect(address, latlng.getLat(), latlng.getLng());
             }
-          );
+          });
         });
 
         setMap(mapInstance);
@@ -103,10 +99,10 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
-      {/* 지도 */}
+      {/* ✅ 지도 */}
       <div ref={mapContainerRef} style={{ width: "100%", height: "400px" }} />
 
-      {/* 검색창 (지도 위 오버레이) */}
+      {/* ✅ 검색창 (지도 위 오버레이) */}
       <div
         style={{
           position: "absolute",
@@ -135,6 +131,8 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
             border: "1px solid #ccc",
             borderRadius: "4px",
             fontSize: "14px",
+            color: "black", 
+            backgroundColor: "white"
           }}
         />
         <button
