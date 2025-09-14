@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ImageInput, ImageInfo as BaseImageInfo } from '../ImageInput';
 import { CameraView } from '../CameraView';
@@ -19,7 +17,7 @@ import {
 } from '../../services/claydoxApiService';
 import JSZip from 'jszip';
 // ✅ constants에서 alias 포함해서 import
-import { TN_IDENTIFIERS, TP_IDENTIFIERS, P2_TN_IDENTIFIERS, P2_TP_IDENTIFIERS } from '../../shared/constants';
+import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, P2_TN_IDENTIFIERS, P2_TP_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
 import { Type } from '@google/genai';
@@ -277,13 +275,14 @@ interface AnalysisPageProps {
   setJobs: React.Dispatch<React.SetStateAction<PhotoLogJob[]>>;
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
+  siteName: string;
   siteLocation: string;
   onDeleteJob: (jobId: string) => void;
 }
 
 const AnalysisPage: React.FC<AnalysisPageProps> = ({
   pageTitle, pageType, showRangeDifferenceDisplay, showAutoAssignIdentifiers,
-  userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob
+  userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob
 }) => {
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
@@ -349,7 +348,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
   const hypotheticalKtlFileNamesForPreview = useMemo(() => {
     if (!activeJob || activeJob.photos.length === 0) return [];
     const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
-    const sanitizedSite = sanitizeFilenameComponent(siteLocation);
+    const sanitizedSite = sanitizeFilenameComponent(siteName);
     const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem === "TN/TP" ? "TN_TP" : activeJob.selectedItem);
     const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
     
@@ -360,7 +359,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     });
 
     return [ ...compositeNames, `${baseName}_Compression.zip` ];
-  }, [activeJob, siteLocation, pageType]);
+  }, [activeJob, siteName, pageType]);
 
   const ktlJsonPreview = useMemo(() => {
     if (!activeJob || !userName) return null;
@@ -368,6 +367,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     const payload: ClaydoxPayload = {
       receiptNumber: activeJob.receiptNumber,
       siteLocation: siteLocation,
+      siteNameOnly: siteName,
       item: activeJob.selectedItem,
       ocrData: activeJob.processedOcrData || [],
       updateUser: userName,
@@ -376,7 +376,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
       maxDecimalPlaces: activeJob.decimalPlaces,
     };
     return generateKtlJsonForPreview(payload, activeJob.selectedItem, hypotheticalKtlFileNamesForPreview);
-  }, [activeJob, userName, siteLocation, pageType, hypotheticalKtlFileNamesForPreview]);
+  }, [activeJob, userName, siteName, siteLocation, pageType, hypotheticalKtlFileNamesForPreview]);
 
 
   useEffect(() => {
@@ -886,12 +886,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         fileNames: hypotheticalKtlFileNamesForPreview,
         context: { receiptNumber: activeJob.receiptNumber, siteLocation: siteLocation, selectedItem: activeJob.selectedItem, userName }
     });
-    // FIX: Corrected state setter function name from setKtlPreflightModalOpen to setIsKtlPreflightModalOpen.
     setIsKtlPreflightModalOpen(true);
   }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
 
   const handleSendToClaydoxConfirmed = useCallback(async () => {
-    // FIX: Corrected state setter function name from setKtlPreflightModalOpen to setIsKtlPreflightModalOpen.
     setIsKtlPreflightModalOpen(false);
     if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
       updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: "KTL 전송을 위한 필수 데이터가 누락되었습니다." }));
@@ -902,7 +900,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     try {
         const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
         const payload: ClaydoxPayload = {
-            receiptNumber: activeJob.receiptNumber, siteLocation, item: activeJob.selectedItem, updateUser: userName,
+            receiptNumber: activeJob.receiptNumber, siteLocation, siteNameOnly: siteName, item: activeJob.selectedItem, updateUser: userName,
             ocrData: activeJob.processedOcrData,
             identifierSequence: identifierSequence,
             maxDecimalPlaces: activeJob.decimalPlaces,
@@ -910,7 +908,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         };
 
         const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
-        const sanitizedSite = sanitizeFilenameComponent(siteLocation);
+        const sanitizedSite = sanitizeFilenameComponent(siteName);
         const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
         const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
         
@@ -961,7 +959,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     } catch (error: any) {
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
     }
-  }, [activeJob, siteLocation, userName, updateActiveJob, pageType]);
+  }, [activeJob, siteName, siteLocation, userName, updateActiveJob, pageType]);
 
 
   const handleBatchSendToKtl = async () => {
@@ -983,11 +981,11 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         try {
             const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
             const payload: ClaydoxPayload = {
-                receiptNumber: job.receiptNumber, siteLocation, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
+                receiptNumber: job.receiptNumber, siteLocation, siteNameOnly: siteName, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
                 identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: pageType,
             };
             const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
-            const sanitizedSite = sanitizeFilenameComponent(siteLocation);
+            const sanitizedSite = sanitizeFilenameComponent(siteName);
             const sanitizedItemName = sanitizeFilenameComponent(job.selectedItem.replace('/', '_'));
             const baseName = `${job.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
             
@@ -1051,7 +1049,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const zip = new JSZip();
         const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
         const sanitizedReceipt = sanitizeFilenameComponent(activeJob.receiptNumber);
-        const sanitizedSite = sanitizeFilenameComponent(siteLocation);
+        const sanitizedSite = sanitizeFilenameComponent(siteName);
         const sanitizedItem = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
         const baseName = `${sanitizedReceipt}_${sanitizedSite}_${pageIdentifier}_${sanitizedItem}`;
 
@@ -1086,7 +1084,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     } finally {
         setIsDownloadingStamped(false);
     }
-  }, [activeJob, siteLocation, pageType]);
+  }, [activeJob, siteName, siteLocation, pageType]);
 
   const isControlsDisabled = isLoading || isDownloadingStamped || isSendingToClaydox || isCameraOpen || !!batchSendProgress;
   const representativeImageData = activeJob && currentImageIndex !== -1 ? activeJob.photos[currentImageIndex] : null;
@@ -1166,54 +1164,61 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           />
           <OcrResultDisplay 
             ocrData={activeJob.processedOcrData} 
-            error={processingError} 
-            isLoading={isLoading} 
-            contextProvided={true} 
-            hasImage={activeJob.photos.length > 0} 
-            selectedItem={activeJob.selectedItem} 
-            onEntryIdentifierChange={(id, val) => handleEntryChange(id, 'identifier', val)} 
-            onEntryIdentifierTPChange={(id, val) => handleEntryChange(id, 'identifierTP', val)} 
-            onEntryTimeChange={(id, val) => handleEntryChange(id, 'time', val)} 
-            onEntryPrimaryValueChange={(id, val) => handleEntryChange(id, 'value', val)} 
-            onEntryValueTPChange={(id, val) => handleEntryChange(id, 'valueTP', val)} 
-            onAddEntry={handleAddEntry} 
-            onReorderRows={handleReorderRows} 
-            availableIdentifiers={availableTnIdentifiers} 
-            tnIdentifiers={availableTnIdentifiers} 
-            tpIdentifiers={availableTpIdentifiers} 
-            rawJsonForCopy={JSON.stringify(activeJob.processedOcrData, null, 2)} 
+            error={processingError}
+            isLoading={isLoading}
+            contextProvided={!!(activeJob.receiptNumber && siteLocation)}
+            hasImage={activeJob.photos.length > 0}
+            selectedItem={activeJob.selectedItem}
+            onEntryIdentifierChange={(id, val) => handleEntryChange(id, 'identifier', val)}
+            onEntryIdentifierTPChange={(id, val) => handleEntryChange(id, 'identifierTP', val)}
+            onEntryTimeChange={(id, val) => handleEntryChange(id, 'time', val)}
+            onEntryPrimaryValueChange={(id, val) => handleEntryChange(id, 'value', val)}
+            onEntryValueTPChange={(id, val) => handleEntryChange(id, 'valueTP', val)}
+            onAddEntry={handleAddEntry}
+            onReorderRows={handleReorderRows}
+            availableIdentifiers={IDENTIFIER_OPTIONS}
+            tnIdentifiers={availableTnIdentifiers}
+            tpIdentifiers={availableTpIdentifiers}
+            rawJsonForCopy={activeJob.processedOcrData ? JSON.stringify(activeJob.processedOcrData, null, 2) : null}
             ktlJsonToPreview={ktlJsonPreview}
+// FIX: The `draftJsonPreview` prop does not exist on the `OcrResultDisplay` component. It has been corrected to `draftJsonToPreview`.
+            draftJsonToPreview={null}
+            decimalPlaces={activeJob.decimalPlaces}
           />
-          {showRangeDifferenceDisplay && <RangeDifferenceDisplay results={activeJob.rangeDifferenceResults} />}
         </div>
       )}
-      
-       {jobs.length > 0 && (
-          <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
-              <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
-              <p className="text-sm text-slate-400">
-                  이 페이지의 모든 유효한 작업(사진 및 데이터가 있는)을 KTL로 전송합니다. 안정적인 Wi-Fi 환경에서 실행하는 것을 권장합니다.
-              </p>
-              {batchSendProgress && (
-                  <div className="p-3 bg-slate-700/50 rounded-md text-sky-300 text-sm flex items-center gap-2">
-                      <Spinner size="sm" />
-                      <span>{batchSendProgress}</span>
-                  </div>
-              )}
-              <ActionButton
-                  onClick={handleBatchSendToKtl}
-                  disabled={isControlsDisabled || jobs.filter(j => j.processedOcrData && j.photos.length > 0).length === 0}
-                  fullWidth
-                  variant="secondary"
-                  className="bg-teal-600 hover:bg-teal-500"
-              >
-                  {isSendingToClaydox ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.filter(j => j.processedOcrData && j.photos.length > 0).length}건)`}
-              </ActionButton>
-          </div>
+      {showRangeDifferenceDisplay && activeJob && <RangeDifferenceDisplay results={activeJob.rangeDifferenceResults} />}
+      {jobs.length > 0 && pageType === 'PhotoLog' && (
+        <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
+            <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
+            <p className="text-sm text-slate-400">
+                이 페이지의 모든 작업을 KTL로 전송합니다. 각 작업에 사진과 추출된 데이터가 모두 있어야 합니다.
+            </p>
+            {batchSendProgress && (
+                <div className="p-3 bg-slate-700/50 rounded-md text-sky-300 text-sm flex items-center gap-2">
+                    <Spinner size="sm" />
+                    <span>{batchSendProgress}</span>
+                </div>
+            )}
+            <ActionButton
+                onClick={handleBatchSendToKtl}
+                disabled={isControlsDisabled}
+                fullWidth
+                variant="secondary"
+                className="bg-teal-600 hover:bg-teal-500"
+            >
+                {batchSendProgress ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.length}건)`}
+            </ActionButton>
+        </div>
       )}
-
-      {/* FIX: Corrected state setter function name from setKtlPreflightModalOpen to setIsKtlPreflightModalOpen. */}
-      {isKtlPreflightModalOpen && ktlPreflightData && ( <KtlPreflightModal isOpen={isKtlPreflightModalOpen} onClose={() => setIsKtlPreflightModalOpen(false)} onConfirm={handleSendToClaydoxConfirmed} preflightData={ktlPreflightData} /> )}
+      {isKtlPreflightModalOpen && ktlPreflightData && (
+        <KtlPreflightModal 
+            isOpen={isKtlPreflightModalOpen} 
+            onClose={() => setIsKtlPreflightModalOpen(false)} 
+            onConfirm={handleSendToClaydoxConfirmed}
+            preflightData={ktlPreflightData}
+        />
+      )}
     </div>
   );
 };
