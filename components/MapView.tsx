@@ -11,10 +11,13 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude }) => {
   useEffect(() => {
     const kakaoKey = import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY;
 
-    const loadKakaoMap = () => {
-      if (!window.kakao || !mapContainerRef.current) return;
+    const loadMap = () => {
+      if (!window.kakao || !window.kakao.maps || !mapContainerRef.current) {
+        console.error("Kakao Maps SDK가 아직 준비되지 않았습니다.");
+        return;
+      }
 
-      const kakao = window.kakao;
+      const { kakao } = window;
       const map = new kakao.maps.Map(mapContainerRef.current, {
         center: new kakao.maps.LatLng(latitude, longitude),
         level: 3,
@@ -26,19 +29,23 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude }) => {
       });
     };
 
-    // 이미 SDK가 로드된 경우
+    // 이미 SDK 로드됨
     if (window.kakao && window.kakao.maps) {
-      loadKakaoMap();
+      window.kakao.maps.load(loadMap);
       return;
     }
 
-    // SDK 스크립트를 동적으로 로드
+    // SDK 동적 로드
     const script = document.createElement("script");
     script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoKey}&autoload=false&libraries=services`;
     script.onload = () => {
-      window.kakao.maps.load(loadKakaoMap);
+      window.kakao.maps.load(loadMap);
     };
     document.head.appendChild(script);
+
+    return () => {
+      // cleanup 필요시
+    };
   }, [latitude, longitude]);
 
   return <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />;
