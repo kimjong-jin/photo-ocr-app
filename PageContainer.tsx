@@ -886,68 +886,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             </div>
           </div>
 
-          {/* 위치 도우미 (GPS) */}
-          <div>
-            <button
-              onClick={() => toggleSection('location')}
-              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-              aria-expanded={openSections.includes('location')}
-            >
-              <h3 className="text-lg font-semibold text-slate-100">위치 도우미</h3>
-              <ChevronDownIcon
-                className={`w-5 h-5 text-slate-400 transition-transform ${
-                  openSections.includes('location') ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-
-            <div
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                openSections.includes('location') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
-              }`}
-            >
-              <div className="pt-4 px-2 space-y-2">
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-2 items-center">
-                  <div className="sm:col-span-8">
-                    <label htmlFor="current-gps-address" className="sr-only">
-                      현재 주소 (GPS)
-                    </label>
-                    <input
-                      type="text"
-                      id="current-gps-address"
-                      value={currentGpsAddress}
-                      onChange={(e) => setCurrentGpsAddress(e.target.value)}
-                      className="block w-full p-2.5 bg-slate-800 border border-slate-600 rounded-md shadow-sm text-slate-300 text-sm placeholder-slate-400"
-                      placeholder="GPS 주소 또는 직접 입력"
-                    />
-                  </div>
-                  <div className="sm:col-span-4">
-                    <ActionButton
-                      onClick={handleFetchGpsAddress}
-                      disabled={isFetchingAddress}
-                      fullWidth
-                      icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />}
-                    >
-                      GPS로 주소 찾기
-                    </ActionButton>
-                  </div>
-                </div>
-                {coords && (
-                  <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
-                    <MapView
-                      latitude={coords.lat}
-                      longitude={coords.lng}
-                      onAddressSelect={(addr, lat, lng) => {
-                        setCurrentGpsAddress(addr);
-                        setCoords({ lat, lng });
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
           {/* 데이터 관리 */}
           <div>
             <button
