@@ -10,7 +10,7 @@ import { RangeDifferenceDisplay, RangeResults as DisplayRangeResults, RangeStat 
 import { extractTextFromImage } from '../../services/geminiService';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview } from '../../services/claydoxApiService';
 import JSZip from 'jszip';
-import { P1_TN_BASE_IDENTIFIERS, P2_TN_IDENTIFIERS, P1_TP_BASE_IDENTIFIERS, P2_TP_IDENTIFIERS } from '../../shared/constants';
+import { P2_TN_IDENTIFIERS, P2_TP_IDENTIFIERS, TN_IDENTIFIERS, TP_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
 import { Type } from '@google/genai';
@@ -280,8 +280,8 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const availableTnIdentifiers = pageType === 'FieldCount' ? P2_TN_IDENTIFIERS : P1_TN_BASE_IDENTIFIERS;
-  const availableTpIdentifiers = pageType === 'FieldCount' ? P2_TP_IDENTIFIERS : P1_TP_BASE_IDENTIFIERS;
+  const availableTnIdentifiers = pageType === 'FieldCount' ? P2_TN_IDENTIFIERS : TN_IDENTIFIERS;
+  const availableTpIdentifiers = pageType === 'FieldCount' ? P2_TP_IDENTIFIERS : TP_IDENTIFIERS;
 
   const ocrControlsKtlStatus = useMemo<KtlApiCallStatus>(() => {
     if (!activeJob) return 'idle';
