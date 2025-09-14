@@ -11,7 +11,7 @@ const REGION_FULLNAME_MAP: Record<string, string> = {
   "울산": "울산광역시",
   "세종": "세종특별자치시",
   "경기": "경기도",
-  "강원": "강원특별자치도",   // 카카오에서 '강원'으로만 올 수 있음
+  "강원": "강원특별자치도",   // 카카오에서 '강원'으로만 오는 경우 있음
   "충북": "충청북도",
   "충남": "충청남도",
   "전북": "전북특별자치도",
@@ -62,12 +62,9 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
     headers: { Authorization: `KakaoAK ${apiKey}` },
   });
 
-  const text = await res.text();
-  console.log("[KAKAO] status:", res.status, "body:", text.slice(0, 200));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-  if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
-
-  const data = JSON.parse(text);
+  const data = await res.json();
   const doc = data?.documents?.[0];
   if (!doc) return "주소를 찾을 수 없습니다.";
 
@@ -82,18 +79,19 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
     addr?.main_address_no +
     (addr?.sub_address_no ? "-" + addr.sub_address_no : "");
 
-  // 1️⃣ 도로명 주소 있으면 (앞의 축약형 제거 후 region1 붙이기)
+  // 1️⃣ 도로명 주소 있으면
   if (roadAddr) {
-    const trimmedRoad = roadAddr.replace(/^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s*/, "");
-    return `${region1} ${trimmedRoad}`.trim();
+    // 이미 region1으로 시작하면 중복 방지
+    if (roadAddr.startsWith(region1)) return roadAddr.trim();
+    return `${region1} ${roadAddr}`.trim();
   }
 
   // 2️⃣ 도로명 없으면 지번 주소로 재검색
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
     if (searchedRoad) {
-      const trimmedRoad = searchedRoad.replace(/^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s*/, "");
-      return `${region1} ${trimmedRoad}`.trim();
+      if (searchedRoad.startsWith(region1)) return searchedRoad.trim();
+      return `${region1} ${searchedRoad}`.trim();
     }
     // 3️⃣ 실패 시 풀네임 조립
     return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
@@ -102,8 +100,12 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   return "주소를 찾을 수 없습니다.";
 }
 
-// ✅ 추가: StructuralCheckPage에서 직접 쓸 수 있는 헬퍼
-export async function fetchAddressFromCoords(lat: number, lng: number, setCurrentGpsAddress: (addr: string) => void) {
+// ✅ 추가: StructuralCheckPage 등에서 사용
+export async function fetchAddressFromCoords(
+  lat: number,
+  lng: number,
+  setCurrentGpsAddress: (addr: string) => void
+) {
   try {
     const addr = await getKakaoAddress(lat, lng);
     setCurrentGpsAddress(addr);
