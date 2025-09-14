@@ -147,6 +147,7 @@ export interface ClaydoxPayload {
   maxDecimalPlaces?: number;
   maxDecimalPlacesCl?: number;
   pageType?: 'PhotoLog' | 'FieldCount' | 'DrinkingWater';
+  gpsAddress?: string;
 }
 
 const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: string, actualKtlFileNames: string[]): any => {
