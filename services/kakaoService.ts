@@ -1,3 +1,5 @@
+// services/kakaoService.ts
+
 // ✅ 축약형 → 풀네임 매핑
 const REGION_FULLNAME_MAP: Record<string, string> = {
   "서울": "서울특별시",
@@ -26,19 +28,22 @@ function normalizeRegion(name: string): string {
 
 // ✅ 주소에서 지역명 중복 제거
 function cleanAddress(address: string, region: string): string {
-  // 지역명 축약형을 풀네임으로 변환한 후, 중복된 지역명을 제거
-  let cleanedAddress = address;
-
-  // 지역명을 먼저 풀네임으로 변환
   const regionFullName = normalizeRegion(region);
 
-  // 풀네임이 주소에 포함되어 있으면, 뒤에 지역명이 중복되므로 그 부분을 제거
-  if (cleanedAddress.startsWith(regionFullName)) {
-    cleanedAddress = cleanedAddress.replace(regionFullName, "").trim();
+  // 지역명이 중복되면 뒤에 부분만 제거하는 로직
+  if (address.startsWith(regionFullName)) {
+    // "부산광역시 부산" -> "부산광역시"
+    let cleanedAddress = address.replace(regionFullName, "").trim();
+
+    // "부산광역시 부산"처럼 주소 뒤에 동일한 지역명이 남을 경우 다시 제거
+    const regionPattern = new RegExp(`^${regionFullName}`);
+    cleanedAddress = cleanedAddress.replace(regionPattern, "").trim();
+
+    // 지역명이 남지 않으면 그대로 지역명만 반환
+    return cleanedAddress ? `${regionFullName} ${cleanedAddress}` : regionFullName;
   }
 
-  // 최종적으로 변환된 주소가 비어있으면, 지역명을 붙여서 반환
-  return cleanedAddress ? `${regionFullName} ${cleanedAddress}` : regionFullName;
+  return address;
 }
 
 // ✅ 지번 주소 기반으로 도로명 주소 재검색
