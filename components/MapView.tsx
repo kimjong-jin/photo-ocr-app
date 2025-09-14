@@ -216,5 +216,6 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
       )}
     </div>
   );
+};
 
 export default MapView;
