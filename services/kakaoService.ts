@@ -23,13 +23,14 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
   }
 }
 
-// 🔹 region_1depth_name 정규화 ("부산광역시" → "부산", "서울특별시" → "서울")
+// 🔹 region_1depth_name 정규화 ("부산광역시" → "부산광역시", "서울특별시" → "서울특별시" 그대로 유지)
+// 필요하다면 여기서 "광역시 → 시" 줄임 가능
 function normalizeRegion1(name: string): string {
-  return name.replace(/(광역시|특별시|특별자치시|특별자치도)$/, "");
+  return name; // 그대로 둠 (원본 "부산광역시" 유지)
 }
 
 export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
-  const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY; // ✅ Vite 방식
+  const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
   if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
 
   const url = new URL("https://dapi.kakao.com/v2/local/geo/coord2address.json");
@@ -52,15 +53,15 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   const roadAddr = doc.road_address?.address_name ?? "";
   const lotAddr = doc.address?.address_name ?? "";
 
-  // 1️⃣ 도로명 주소 있으면 최우선 반환
-  if (roadAddr) return lotAddr ? `${roadAddr} (${lotAddr})` : roadAddr;
+  // 1️⃣ 도로명 주소 있으면 그거만 반환 (괄호 ❌, 지번 ❌)
+  if (roadAddr) return roadAddr;
 
-  // 2️⃣ 도로명 없으면 지번 주소로 재검색
+  // 2️⃣ 도로명 없으면 지번으로 재검색해서 도로명 주소 얻기
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
-    if (searchedRoad) return `${searchedRoad} (${lotAddr})`;
+    if (searchedRoad) return searchedRoad;
 
-    // 3️⃣ 재검색 실패 → region_* 기반 풀 주소 조립
+    // 3️⃣ 그래도 없으면 region_* 기반 풀 주소 조립
     const addr = doc.address;
     if (addr) {
       const region1 = normalizeRegion1(addr.region_1depth_name);
