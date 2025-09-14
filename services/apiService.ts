@@ -9,7 +9,7 @@ export interface SavedValueEntry {
 export interface SaveDataPayload {
   receipt_no: string;        // 서버 스펙: snake_case 유지
   site: string;
-  gps_address?: string;   // 주소 GPS
+  gps_address?: string;      // ✅ GPS 주소
   item: string[];            // 서버가 배열 기대
   user_name: string;
   values: Record<string, Record<string, SavedValueEntry>>;
@@ -18,7 +18,7 @@ export interface SaveDataPayload {
 export interface LoadedData {
   receipt_no: string;
   site: string;
-  gps_address?: string;   // 주소 GPS
+  gps_address?: string;      // ✅ GPS 주소
   item: string[];
   user_name: string;
   values: {
@@ -67,39 +67,59 @@ async function fetchJson(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 // ===== 임시 저장 =====
-export const callSaveTempApi = async (payload: SaveDataPayload): Promise<{ message: string }> => {
+export const callSaveTempApi = async (
+  payload: SaveDataPayload
+): Promise<{ message: string }> => {
   const receipt = trim(payload.receipt_no);
   if (!receipt) throw new Error("receipt_no 누락");
-  if (!hasDetailSegment(receipt)) throw new Error(`세부번호가 포함된 접수번호가 필요합니다 (받은 값: "${receipt}")`);
+  if (!hasDetailSegment(receipt))
+    throw new Error(`세부번호가 포함된 접수번호가 필요합니다 (받은 값: "${receipt}")`);
 
   const SAVE_TEMP_API_URL = ensurePath(RAW_SAVE_URL, "/save-temp");
-  console.log("[SAVE] 호출:", SAVE_TEMP_API_URL, { ...payload, receipt_no: receipt });
+  console.log("[SAVE] 호출:", SAVE_TEMP_API_URL, {
+    ...payload,
+    receipt_no: receipt,
+  });
 
   const response = await fetchJson(SAVE_TEMP_API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, receipt_no: receipt,    gps_address: payload.gps_address }),
+    body: JSON.stringify({
+      ...payload,
+      receipt_no: receipt,
+      gps_address: payload.gps_address ?? null, // ✅ 항상 포함
+    }),
   });
 
   if (!response.ok) {
     let msg = `API 오류: ${response.status} ${response.statusText}`;
-    try { const err = await response.json(); if (err?.message) msg = err.message; } catch {}
+    try {
+      const err = await response.json();
+      if (err?.message) msg = err.message;
+    } catch {}
     throw new Error(msg);
   }
   const json = await response.json();
-  return { message: json.message || "Firestore에 성공적으로 저장되었습니다." };
+  return {
+    message: json.message || "Firestore에 성공적으로 저장되었습니다.",
+  };
 };
 
 // ===== 임시 불러오기 =====
-export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData> => {
+export const callLoadTempApi = async (
+  receiptNumber: string
+): Promise<LoadedData> => {
   const receipt = trim(receiptNumber);
   if (!receipt) throw new Error("불러오기용 접수번호 누락");
-  if (!hasDetailSegment(receipt)) throw new Error(`세부번호가 포함된 접수번호가 필요합니다 (받은 값: "${receipt}")`);
+  if (!hasDetailSegment(receipt))
+    throw new Error(`세부번호가 포함된 접수번호가 필요합니다 (받은 값: "${receipt}")`);
 
   const LOAD_TEMP_API_URL = ensurePath(RAW_LOAD_URL, "/load-temp");
   console.log("[LOAD] 호출:", LOAD_TEMP_API_URL, receipt);
 
-  const notFoundError = new Error(`저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receipt}).`);
+  const notFoundError = new Error(
+    `저장된 임시 데이터를 찾을 수 없습니다 (접수번호: ${receipt}).`
+  );
 
   // 1) GET + snake_case
   const url1 = new URL(LOAD_TEMP_API_URL);
@@ -107,7 +127,11 @@ export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData
   url1.searchParams.append("_", Date.now().toString()); // 캐시무효
   let res = await fetchJson(url1.toString(), {
     method: "GET",
-    headers: { Accept: "application/json", "Cache-Control": "no-cache", Pragma: "no-cache" },
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
   });
 
   // 2) 실패 시 GET + camelCase
@@ -118,11 +142,15 @@ export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData
     url2.searchParams.append("_", Date.now().toString());
     res = await fetchJson(url2.toString(), {
       method: "GET",
-      headers: { Accept: "application/json", "Cache-Control": "no-cache", Pragma: "no-cache" },
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
     });
   }
 
-  // 3) 그래도 실패면 POST 바디로 조회 (서버 구현 차이 대응)
+  // 3) 그래도 실패면 POST 바디로 조회
   if (!res.ok) {
     console.warn("[LOAD] GET 실패 → POST로 재시도");
     res = await fetchJson(LOAD_TEMP_API_URL, {
@@ -135,11 +163,19 @@ export const callLoadTempApi = async (receiptNumber: string): Promise<LoadedData
   if (!res.ok) {
     if (res.status === 404) throw notFoundError;
     let msg = `API 오류: ${res.status} ${res.statusText}`;
-    try { const err = await res.json(); if (err?.message?.toLowerCase?.().includes("not found")) throw notFoundError; if (err?.message) msg = err.message; } catch {}
+    try {
+      const err = await res.json();
+      if (err?.message?.toLowerCase?.().includes("not found"))
+        throw notFoundError;
+      if (err?.message) msg = err.message;
+    } catch {}
     throw new Error(msg);
   }
 
   const data = await res.json();
-  if (!data?.values || Object.keys(data.values).length === 0) throw notFoundError;
+
+  // ✅ values가 없어도 gps_address만 있으면 데이터 있다고 판단
+  if (!data) throw notFoundError;
+
   return data as LoadedData;
 };
