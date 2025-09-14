@@ -78,7 +78,7 @@ export const callSaveTempApi = async (payload: SaveDataPayload): Promise<{ messa
   const response = await fetchJson(SAVE_TEMP_API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, receipt_no: receipt }),
+    body: JSON.stringify({ ...payload, receipt_no: receipt,    gps_address: payload.gps_address }),
   });
 
   if (!response.ok) {
