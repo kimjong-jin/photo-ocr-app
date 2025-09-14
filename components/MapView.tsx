@@ -14,7 +14,6 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
   const [searchInput, setSearchInput] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [currentGpsAddress, setCurrentGpsAddress] = useState<string>("");
-  const [savedData, setSavedData] = useState<string>("");
 
   // ✅ 지도 초기화
   useEffect(() => {
@@ -96,7 +95,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     }
   };
 
-  // ✅ 특정 위치로 이동
+  // ✅ 클릭한 주소로 이동
   const moveToLocation = (y: number, x: number, addr: string) => {
     const coords = new window.kakao.maps.LatLng(Number(y), Number(x));
     map.setCenter(coords);
@@ -104,17 +103,6 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     setCurrentGpsAddress(addr); // 검색된 주소를 현재 주소로 설정
     if (onAddressSelect) onAddressSelect(addr, Number(y), Number(x));
     setSearchResults([]); // 팝업 닫기
-  };
-
-  // ✅ GPS로 Kakao 맵으로 이동 (새 창 열기)
-  const handleKakaoMapRedirect = () => {
-    const url = `https://map.kakao.com/link/map/${currentGpsAddress}`;
-    window.open(url, "_blank");
-  };
-
-  // ✅ 데이터 저장 (주소 또는 명칭 관리)
-  const handleSaveData = () => {
-    setSavedData(currentGpsAddress);
   };
 
   return (
@@ -177,25 +165,6 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
         <div>{currentGpsAddress || "주소를 찾을 수 없습니다."}</div>
       </div>
 
-      {/* ✅ 위치 도우미 */}
-      <div style={{ position: "absolute", top: "460px", left: "50%", transform: "translateX(-50%)" }}>
-        <button
-          onClick={handleKakaoMapRedirect}
-          style={{
-            padding: "6px 12px",
-            backgroundColor: "#FFB6C1",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "14px",
-            marginBottom: "8px",
-          }}
-        >
-          GPS로 주소 찾기
-        </button>
-      </div>
-
       {/* ✅ 검색 결과 팝업 */}
       {searchResults.length > 0 && (
         <div
@@ -225,11 +194,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
                 borderBottom: "1px solid #eee",
               }}
               onClick={() =>
-                moveToLocation(
-                  place.y,
-                  place.x,
-                  place.place_name || place.address_name
-                )
+                moveToLocation(place.y, place.x, place.place_name || place.address_name)
               }
             >
               <strong style={{ color: "#000" }}>
@@ -242,25 +207,6 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
           ))}
         </div>
       )}
-
-      {/* ✅ 데이터 관리 */}
-      <div style={{ position: "absolute", top: "500px", left: "50%", transform: "translateX(-50%)" }}>
-        <button
-          onClick={handleSaveData}
-          style={{
-            padding: "6px 12px",
-            backgroundColor: "#90EE90",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "14px",
-          }}
-        >
-          데이터 관리
-        </button>
-        {savedData && <div>저장된 데이터: {savedData}</div>}
-      </div>
     </div>
   );
 };
