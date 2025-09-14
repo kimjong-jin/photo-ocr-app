@@ -49,6 +49,7 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
   }
 }
 
+// ✅ 위도/경도 → 카카오 주소 변환
 export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
   if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
@@ -99,4 +100,15 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   }
 
   return "주소를 찾을 수 없습니다.";
+}
+
+// ✅ 추가: StructuralCheckPage에서 직접 쓸 수 있는 헬퍼
+export async function fetchAddressFromCoords(lat: number, lng: number, setCurrentGpsAddress: (addr: string) => void) {
+  try {
+    const addr = await getKakaoAddress(lat, lng);
+    setCurrentGpsAddress(addr);
+  } catch (err) {
+    console.error("[fetchAddressFromCoords] 변환 실패:", err);
+    setCurrentGpsAddress("주소 변환 실패");
+  }
 }
