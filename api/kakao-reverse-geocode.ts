@@ -1,4 +1,6 @@
-export default async function handler(req, res) {
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { latitude, longitude } = req.query;
     const KAKAO_REST_API_KEY = process.env.KAKAO_REST_API_KEY;
@@ -31,7 +33,7 @@ export default async function handler(req, res) {
     }
 
     return res.status(200).json(data);
-  } catch (err) {
+  } catch (err: any) {
     console.error("Handler error:", err);
     return res.status(500).json({ error: err.message });
   }
