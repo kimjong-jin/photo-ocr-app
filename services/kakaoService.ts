@@ -35,7 +35,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
     headers: { Authorization: `KakaoAK ${apiKey}` },
   });
 
-  const text = await res.text(); // ✅ 안전하게 문자열로 먼저 받음
+  const text = await res.text();
   console.log("[KAKAO] status:", res.status, "body:", text.slice(0, 200));
 
   if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
@@ -47,13 +47,24 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   const roadAddr = doc.road_address?.address_name ?? "";
   const lotAddr = doc.address?.address_name ?? "";
 
-  // 1️⃣ 도로명 주소가 있으면 최우선 반환
+  // 1️⃣ 도로명 주소 있으면 최우선 반환
   if (roadAddr) return lotAddr ? `${roadAddr} (${lotAddr})` : roadAddr;
 
-  // 2️⃣ 도로명 없으면 지번 주소로 재검색 시도
+  // 2️⃣ 도로명 없으면 지번 주소로 재검색
   if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
-    return searchedRoad ?? lotAddr; // 실패 시 지번 주소 반환
+    if (searchedRoad) return `${searchedRoad} (${lotAddr})`;
+
+    // 3️⃣ 재검색 실패 → region_* 기반 풀 주소 조립
+    const addr = doc.address;
+    if (addr) {
+      const full = `${addr.region_1depth_name} ${addr.region_2depth_name} ${addr.region_3depth_name} ${addr.main_address_no}${
+        addr.sub_address_no ? "-" + addr.sub_address_no : ""
+      }`;
+      return full.trim();
+    }
+
+    return lotAddr;
   }
 
   return "주소를 찾을 수 없습니다.";
