@@ -1,5 +1,30 @@
-export async function getKakaoAddress(latitude: number, longitude: number) {
-  const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
+// services/kakaoService.ts
+
+// 보조: 지번 주소로 재검색해서 도로명 주소를 찾는 함수
+async function searchAddressByQuery(query: string, apiKey: string): Promise<string | null> {
+  const url = new URL("https://dapi.kakao.com/v2/local/search/address.json");
+  url.searchParams.set("query", query);
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `KakaoAK ${apiKey}` },
+    });
+
+    if (!res.ok) {
+      console.warn(`[kakaoService] Address search failed (${res.status}): ${query}`);
+      return null;
+    }
+
+    const data = await res.json();
+    return data?.documents?.[0]?.road_address?.address_name || null;
+  } catch (err) {
+    console.error(`[kakaoService] Query search error (${query}):`, err);
+    return null;
+  }
+}
+
+export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
+  const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY; // ✅ Vite 방식
   if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
 
   const url = new URL("https://dapi.kakao.com/v2/local/geo/coord2address.json");
@@ -10,21 +35,26 @@ export async function getKakaoAddress(latitude: number, longitude: number) {
     headers: { Authorization: `KakaoAK ${apiKey}` },
   });
 
-  const text = await res.text();
-  // 진단 로그 (필요 없으면 지워도 됨)
+  const text = await res.text(); // ✅ 안전하게 문자열로 먼저 받음
   console.log("[KAKAO] status:", res.status, "body:", text.slice(0, 200));
 
   if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
+
   const data = JSON.parse(text);
+  const doc = data?.documents?.[0];
+  if (!doc) return "주소를 찾을 수 없습니다.";
 
-  const road = data?.documents?.[0]?.road_address?.address_name ?? "";
-  const jibun = data?.documents?.[0]?.address?.address_name ?? "";
+  const roadAddr = doc.road_address?.address_name ?? "";
+  const lotAddr = doc.address?.address_name ?? "";
 
-  if (road) {
-    // 신주소 우선, 지번도 보조로 붙여 표시
-    return jibun ? `${road} (${jibun})` : road;
+  // 1️⃣ 도로명 주소가 있으면 최우선 반환
+  if (roadAddr) return lotAddr ? `${roadAddr} (${lotAddr})` : roadAddr;
+
+  // 2️⃣ 도로명 없으면 지번 주소로 재검색 시도
+  if (lotAddr) {
+    const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
+    return searchedRoad ?? lotAddr; // 실패 시 지번 주소 반환
   }
-  if (jibun) return jibun;
 
   return "주소를 찾을 수 없습니다.";
 }
