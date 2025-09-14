@@ -31,7 +31,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
           map: mapInstance,
         });
 
-        // ✅ 지도 클릭 이벤트 (REST API 사용)
+        // ✅ 지도 클릭 이벤트 (REST API 사용 → 풀네임 주소 보장)
         window.kakao.maps.event.addListener(mapInstance, "click", async (mouseEvent: any) => {
           const latlng = mouseEvent.latLng;
           markerInstance.setPosition(latlng);
@@ -75,7 +75,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     }
   }, [latitude, longitude, map, marker]);
 
-  // ✅ 주소 검색 기능 (REST API 사용 X, SDK 기본 기능만)
+  // ✅ 주소 검색 기능 (SDK + REST 정규화)
   const handleSearch = () => {
     if (!map || !marker || !searchInput.trim()) return;
 
@@ -89,7 +89,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
         marker.setPosition(coords);
 
         try {
-          // ✅ 검색 결과도 REST API로 정규화
+          // ✅ 검색 결과도 REST API로 풀네임 보정
           const address = await getKakaoAddress(Number(y), Number(x));
           if (onAddressSelect) onAddressSelect(address, Number(y), Number(x));
         } catch {
