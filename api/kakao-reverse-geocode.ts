@@ -1,29 +1,31 @@
-export default async function handler(req, res) {
+const Be = async (Fe: GeolocationPosition) => {
+  const { latitude: Pe, longitude: pe } = Fe.coords;
   try {
-    const { latitude, longitude } = req.query;
-    const KAKAO_REST_API_KEY = process.env.KAKAO_REST_API_KEY;
+    const be = await fetch(`/api/kakao-reverse-geocode?latitude=${Pe}&longitude=${pe}`);
+    const Ue = await be.text();
+    let _e: any = null;
+    try {
+      _e = JSON.parse(Ue);
+    } catch {}
 
-    if (!latitude || !longitude) {
-      return res.status(400).json({ error: "latitude, longitude가 필요합니다." });
-    }
-    if (!KAKAO_REST_API_KEY) {
-      return res.status(500).json({ error: "KAKAO_REST_API_KEY가 설정되지 않았습니다." });
-    }
-
-    const apiUrl = `https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${longitude}&y=${latitude}`;
-
-    const response = await fetch(apiUrl, {
-      headers: { Authorization: `KakaoAK ${KAKAO_REST_API_KEY}` },
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: "Kakao API error", data });
+    if (!be.ok) {
+      throw new Error((_e?.error) || Ue || `HTTP ${be.status}`);
     }
 
-    return res.status(200).json(data);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
+    // 카카오 응답 구조에 맞게 수정
+    const address =
+      _e?.documents?.[0]?.road_address?.address_name ||
+      _e?.documents?.[0]?.address?.address_name;
+
+    if (address) {
+      le(address);
+    } else {
+      le("주소를 찾을 수 없습니다.");
+    }
+  } catch (be) {
+    console.error("Fetch error:", be);
+    le("주소 탐색 중 오류가 발생했습니다.");
+  } finally {
+    Z(false); // 로딩 해제
   }
-}
+};
