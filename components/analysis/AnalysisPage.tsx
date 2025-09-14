@@ -13,7 +13,7 @@ import JSZip from 'jszip';
 import { P2_TN_IDENTIFIERS, P2_TP_IDENTIFIERS, TN_IDENTIFIERS, TP_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
-import type { Type } from '@google/genai';
+import { Type } from '@google/genai';
 import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
 import { generateA4CompositeJPEGPages, dataURLtoBlob, generateStampedImage, CompositeImageInput } from '../../services/imageStampingService';
