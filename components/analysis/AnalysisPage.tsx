@@ -18,8 +18,8 @@ import {
   generateKtlJsonForPreview,
 } from '../../services/claydoxApiService';
 import JSZip from 'jszip';
-// 🔥 여기서 빌드 에러 방지: constants.ts에 정의가 없다면 import 제거하거나 추가 필요
-import { TN_IDENTIFIERS, TP_IDENTIFIERS } from '../../shared/constants';
+// ✅ constants에서 alias 포함해서 import
+import { TN_IDENTIFIERS, TP_IDENTIFIERS, P2_TN_IDENTIFIERS, P2_TP_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
 import { Type } from '@google/genai';
