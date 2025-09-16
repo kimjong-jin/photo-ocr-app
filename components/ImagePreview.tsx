@@ -12,6 +12,9 @@ interface ImagePreviewProps {
   totalSelectedImages?: number;
   currentImageIndex?: number;
   onDelete?: () => void;
+  // FIX: Add missing props to support displaying more context in the overlay.
+  siteName?: string;
+  gpsAddress?: string;
 }
 
 const DeleteIcon: React.FC = () => (
@@ -42,6 +45,9 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   totalSelectedImages,
   currentImageIndex,
   onDelete,
+  // FIX: Destructure the newly added props.
+  siteName,
+  gpsAddress,
 }) => {
   if (!imageBase64) return null;
 
@@ -69,7 +75,9 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
         {showOverlay && (
           <div className="absolute top-2 right-2 bg-black/70 text-white text-xs p-2 rounded-md shadow-lg">
             {receiptNumber && <p><strong>접수번호:</strong> {receiptNumber}</p>}
-            {/* siteLocation 제거 */}
+            {/* FIX: Display the siteName and gpsAddress in the overlay. */}
+            {siteName && <p><strong>현장:</strong> {siteName}</p>}
+            {gpsAddress && <p><strong>GPS:</strong> {gpsAddress}</p>}
             {item && <p><strong>항목:</strong> {item}</p>}
             {comment && (
               <p className="text-yellow-300"><strong>코멘트:</strong> {comment}</p>
