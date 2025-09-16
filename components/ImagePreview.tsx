@@ -6,7 +6,6 @@ interface ImagePreviewProps {
   fileName: string;
   mimeType: string;
   receiptNumber?: string;
-  // siteLocation?: string; // ✅ 주소는 이제 화면에서 제거
   item?: string;
   comment?: string;
   showOverlay?: boolean;
