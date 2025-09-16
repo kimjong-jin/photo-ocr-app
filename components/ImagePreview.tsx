@@ -12,16 +12,14 @@ interface ImagePreviewProps {
   totalSelectedImages?: number;
   currentImageIndex?: number;
   onDelete?: () => void;
-  // FIX: Add missing props to support displaying more context in the overlay.
-  siteName?: string;
-  gpsAddress?: string;
+  siteName?: string; // JPG 오버레이용
 }
 
 const DeleteIcon: React.FC = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" 
-       viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" 
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+       viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"
        className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" 
+    <path strokeLinecap="round" strokeLinejoin="round"
       d="M14.74 9l-.346 9m-4.788 0L9.26 9
          m9.968-3.21c.342.052.682.107 1.022.166
          m-1.022-.165L18.16 19.673a2.25 2.25 
@@ -45,9 +43,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   totalSelectedImages,
   currentImageIndex,
   onDelete,
-  // FIX: Destructure the newly added props.
   siteName,
-  gpsAddress,
 }) => {
   if (!imageBase64) return null;
 
@@ -75,9 +71,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
         {showOverlay && (
           <div className="absolute top-2 right-2 bg-black/70 text-white text-xs p-2 rounded-md shadow-lg">
             {receiptNumber && <p><strong>접수번호:</strong> {receiptNumber}</p>}
-            {/* FIX: Display the siteName and gpsAddress in the overlay. */}
             {siteName && <p><strong>현장:</strong> {siteName}</p>}
-            {gpsAddress && <p><strong>GPS:</strong> {gpsAddress}</p>}
             {item && <p><strong>항목:</strong> {item}</p>}
             {comment && (
               <p className="text-yellow-300"><strong>코멘트:</strong> {comment}</p>
