@@ -1,7 +1,6 @@
 
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview, getFileExtensionFromMime } from './services/claydoxApiService';
@@ -15,9 +14,9 @@ import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { generateCompositeImage, generateStampedImage, dataURLtoBlob } from './services/imageStampingService';
 import JSZip from 'jszip';
 import html2canvas from 'html2canvas';
-import { DrinkingWaterSnapshot } from './components/DrinkingWaterSnapshot';
 import { ExtractedEntry } from './shared/types';
 import PasswordModal from './components/PasswordModal';
+import { DrinkingWaterSnapshot } from './components/DrinkingWaterSnapshot';
 
 
 // --- Interfaces ---
@@ -52,7 +51,7 @@ return `${year}-${month}-${day}T${hours}:${minutes}`;
 
 const sanitizeFilenameComponent = (component: string): string => {
 if (!component) return '';
-return component.replace(/[/\\:?*\"<>|]/g, '').replace(/__+/g, '');
+return component.replace(/[/\\:?*\"<>|]/g, '').replace(/__+/g, '_');
 };
 
 const getCurrentLocalDateTimeString = (): string => {
@@ -68,6 +67,7 @@ interface DrinkingWaterPageProps {
   setJobs: React.Dispatch<React.SetStateAction<DrinkingWaterJob[]>>;
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
+  siteName: string;
   siteLocation: string;
   onDeleteJob: (jobId: string) => void;
 }
@@ -91,7 +91,7 @@ const TableIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 
-const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob }) => {
+const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob }) => {
 const [isLoading, setIsLoading] = useState<boolean>(false);
 const [processingError, setProcessingError] = useState<string | null>(null);
 const [isKtlPreflightModalOpen, setIsKtlPreflightModalOpen] = useState<boolean>(false);
@@ -99,7 +99,7 @@ const [ktlPreflightData, setKtlPreflightData] = useState<KtlPreflightData | null
 const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
 const fileInputRef = useRef<HTMLInputElement>(null);
 const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
-const snapshotHostRef = useRef<HTMLDivElement | null>(null);
+const dataTableRef = useRef<HTMLDivElement>(null);
 const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 const [isDateOverrideUnlocked, setIsDateOverrideUnlocked] = useState(false);
 const [overrideDateTime, setOverrideDateTime] = useState('');
@@ -159,11 +159,13 @@ const ktlJsonPreview = useMemo(() => {
 if (!activeJob || !userName || !siteLocation.trim()) return null;
 const { receiptNumber, selectedItem, processedOcrData, details, decimalPlaces, decimalPlacesCl } = activeJob;
 
-const finalSiteLocation = formatSite(siteLocation, details);
+const finalSiteLocationForData = formatSite(siteLocation, details);
+const finalSiteLocationForDesc = formatSite(siteName, details);
 
 const payload: ClaydoxPayload = {
   receiptNumber,
-  siteLocation: finalSiteLocation,
+  siteLocation: finalSiteLocationForData,
+  siteNameOnly: finalSiteLocationForDesc,
   item: selectedItem,
   ocrData: processedOcrData || [],
   updateUser: userName,
@@ -172,7 +174,7 @@ const payload: ClaydoxPayload = {
   maxDecimalPlacesCl: decimalPlacesCl,
 };
 return generateKtlJsonForPreview(payload, selectedItem, hypotheticalKtlFileNamesForPreview);
-}, [activeJob, userName, siteLocation, hypotheticalKtlFileNamesForPreview]);
+}, [activeJob, userName, siteName, siteLocation, hypotheticalKtlFileNamesForPreview]);
 
 const handleJobDetailChange = (field: keyof Pick<DrinkingWaterJob, 'decimalPlaces' | 'decimalPlacesCl' | 'details'>, value: number | string) => {
     updateActiveJob(j => ({ ...j, [field]: value, submissionStatus: 'idle', submissionMessage: undefined }));
@@ -341,20 +343,20 @@ if (!hasValues) {
 alert("전송할 입력된 데이터가 없습니다.");
 return;
 }
-const finalSiteLocation = formatSite(siteLocation, activeJob.details);
+const finalSiteLocationForData = formatSite(siteLocation, activeJob.details);
 
 setKtlPreflightData({
   jsonPayload: ktlJsonPreview || "JSON 미리보기를 생성할 수 없습니다.",
   fileNames: hypotheticalKtlFileNamesForPreview,
   context: {
     receiptNumber: activeJob.receiptNumber,
-    siteLocation: finalSiteLocation,
+    siteLocation: finalSiteLocationForData,
     selectedItem: activeJob.selectedItem,
     userName
   }
 });
 setIsKtlPreflightModalOpen(true);
-}, [activeJob, userName, ktlJsonPreview, siteLocation, hypotheticalKtlFileNamesForPreview]);
+}, [activeJob, userName, ktlJsonPreview, siteName, siteLocation, hypotheticalKtlFileNamesForPreview]);
 
 const handleSendToClaydoxConfirmed = useCallback(async () => {
     setIsKtlPreflightModalOpen(false);
@@ -365,11 +367,13 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
 
     updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "전송 중..." }));
 
-    const finalSiteLocation = formatSite(siteLocation, activeJob.details);
+    const finalSiteLocationForData = formatSite(siteLocation, activeJob.details);
+    const finalSiteLocationForDesc = formatSite(siteName, activeJob.details);
 
     const payload: ClaydoxPayload = {
         receiptNumber: activeJob.receiptNumber,
-        siteLocation: finalSiteLocation,
+        siteLocation: finalSiteLocationForData,
+        siteNameOnly: finalSiteLocationForDesc,
         item: activeJob.selectedItem,
         ocrData: activeJob.processedOcrData || [],
         updateUser: userName,
@@ -383,28 +387,16 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
 
     try {
         let dataTableFile: File | null = null;
-        if (snapshotHostRef.current) {
-            const snapshotRoot = createRoot(snapshotHostRef.current);
-            const renderPromise = new Promise<void>(resolve => {
-                snapshotRoot.render(<DrinkingWaterSnapshot job={activeJob} siteLocation={siteLocation} />);
-                setTimeout(resolve, 100); 
+        if (dataTableRef.current) {
+            const elementToCapture = dataTableRef.current;
+            const canvas = await html2canvas(elementToCapture, {
+                backgroundColor: '#1e293b', // slate-800
+                scale: 1.5,
             });
-            await renderPromise;
-
-            const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
-            if (elementToCapture) {
-                const canvas = await html2canvas(elementToCapture, {
-                    backgroundColor: '#1e293b',
-                    width: elementToCapture.offsetWidth,
-                    height: elementToCapture.offsetHeight,
-                    scale: 1.5,
-                });
-                const dataUrl = canvas.toDataURL('image/png');
-                const blob = dataURLtoBlob(dataUrl);
-                const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
-                dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
-            }
-            snapshotRoot.unmount();
+            const dataUrl = canvas.toDataURL('image/png');
+            const blob = dataURLtoBlob(dataUrl);
+            const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
+            dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
         }
 
         if (activeJob.photos.length > 0) {
@@ -413,7 +405,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
 
             const compositeDataUrl = await generateCompositeImage(
                 imageInfosForComposite,
-                { receiptNumber: activeJob.receiptNumber, siteLocation: finalSiteLocation, item: activeJob.selectedItem },
+                { receiptNumber: activeJob.receiptNumber, siteLocation: finalSiteLocationForData, item: activeJob.selectedItem },
                 'image/jpeg'
             );
             const compositeBlob = dataURLtoBlob(compositeDataUrl);
@@ -426,7 +418,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
             for (let i = 0; i < activeJob.photos.length; i++) {
                 const imageInfo = activeJob.photos[i];
                 const stampedDataUrl = await generateStampedImage(
-                    imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, finalSiteLocation, '', activeJob.selectedItem
+                    imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, finalSiteLocationForData, '', activeJob.selectedItem
                 );
                 const stampedBlob = dataURLtoBlob(stampedDataUrl);
                 const extension = 'png';
@@ -453,7 +445,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
     } catch (error: any) {
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
     }
-}, [activeJob, userName, siteLocation, updateActiveJob]);
+}, [activeJob, userName, siteName, siteLocation, updateActiveJob]);
 
 const handleOverrideDateTimeChange = useCallback((newDateTime: string) => {
     if (!activeJob || !activeJob.processedOcrData || !newDateTime) return;
@@ -493,7 +485,6 @@ const StatusIndicator: React.FC<{ status: DrinkingWaterJob['submissionStatus'], 
 
 return (
 <div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
-  <div ref={snapshotHostRef} style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}></div>
   <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">
     먹는물 분석 (P3)
   </h2>
@@ -617,7 +608,6 @@ return (
                         fileName={representativeActiveJobPhoto.file.name}
                         mimeType={representativeActiveJobPhoto.mimeType}
                         receiptNumber={activeJob.receiptNumber}
-                        siteLocation={siteLocation}
                         item={activeJob.selectedItem}
                         showOverlay={true}
                         totalSelectedImages={activeJob.photos.length}
@@ -653,78 +643,86 @@ return (
                 <TableIcon className="w-6 h-6 mr-2"/> 데이터 입력
             </h3>
             <div className="flex items-center gap-2">
-                {isDateOverrideUnlocked && (
-                    <input
-                        type="datetime-local"
-                        id="datetime-override-input-p3"
-                        value={overrideDateTime}
-                        onChange={handleDateTimeInputChange}
-                        className="p-2 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm text-slate-200"
-                    />
+                {isDateOverrideUnlocked ? (
+                  <input
+                    type="datetime-local"
+                    value={overrideDateTime}
+                    onChange={handleDateTimeInputChange}
+                    className="p-2 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm"
+                  />
+                ) : (
+                  activeJob.processedOcrData?.some(e => e.time) && (
+                    <button
+                        onClick={() => setIsPasswordModalOpen(true)}
+                        className="p-1.5 text-slate-400 hover:text-sky-400 rounded-full transition-colors"
+                        aria-label="날짜/시간 일괄 변경"
+                    >
+                        <CalendarIcon className="w-5 h-5" />
+                    </button>
+                  )
                 )}
-                <button
-                    onClick={() => {
-                        if (isDateOverrideUnlocked) {
-                            setIsDateOverrideUnlocked(false);
-                        } else {
-                            setIsPasswordModalOpen(true);
-                        }
-                    }}
-                    className="p-1.5 text-slate-400 hover:text-sky-400 rounded-full transition-colors"
-                    aria-label="날짜/시간 일괄 변경"
-                >
-                    <CalendarIcon className="w-5 h-5" />
-                </button>
             </div>
         </div>
-
         <OcrResultDisplay
-          ocrData={activeJob.processedOcrData}
-          error={processingError}
-          isLoading={false}
-          contextProvided={true}
-          hasImage={true}
-          selectedItem={activeJob.selectedItem}
-          onEntryPrimaryValueChange={(id, val) => handleEntryValueChange(id, 'primary', val)}
-          onEntryValueTPChange={(id, val) => handleEntryValueChange(id, 'tp', val)}
-          onEntryValueBlur={handleEntryValueBlur}
-          onEntryIdentifierChange={() => { }} 
-          onEntryIdentifierTPChange={() => { }} 
-          onEntryTimeChange={() => { }} 
-          onAddEntry={() => { }} 
-          onReorderRows={() => { }}
-          availableIdentifiers={[]} 
-          tnIdentifiers={[]} 
-          tpIdentifiers={[]}
-          ktlJsonToPreview={ktlJsonPreview}
-          isManualEntryMode={true}
-          timeColumnHeader="최종 저장 시간"
-          decimalPlaces={activeJob.decimalPlaces}
+            ocrData={activeJob.processedOcrData}
+            error={processingError}
+            isLoading={isLoading}
+            contextProvided={!!(activeJob.receiptNumber && siteLocation)}
+            hasImage={true} // In P3, we always show the table
+            isManualEntryMode={true}
+            selectedItem={activeJob.selectedItem}
+            onEntryIdentifierChange={() => {}} // Not used in P3
+            onEntryIdentifierTPChange={() => {}} // Not used in P3
+            onEntryTimeChange={(id, val) => handleEntryValueChange(id, 'primary', val)} // Time is also a value here
+            onEntryPrimaryValueChange={(id, val) => handleEntryValueChange(id, 'primary', val)}
+            onEntryValueTPChange={(id, val) => handleEntryValueChange(id, 'tp', val)}
+            onEntryValueBlur={handleEntryValueBlur}
+            onAddEntry={() => {}} // P3 has a fixed set of identifiers
+            onReorderRows={() => {}} // Not used in P3
+            availableIdentifiers={[]}
+            tnIdentifiers={[]}
+            tpIdentifiers={[]}
+            rawJsonForCopy={activeJob.processedOcrData ? JSON.stringify(activeJob.processedOcrData.filter(e => e.value.trim() || (e.valueTP && e.valueTP.trim())), null, 2) : null}
+            ktlJsonToPreview={ktlJsonPreview}
+            timeColumnHeader="최종 저장 시간"
+            decimalPlaces={activeJob.decimalPlaces}
         />
-      </div>
-    </div>
-  )}
 
-  {isKtlPreflightModalOpen && ktlPreflightData && (
-    <KtlPreflightModal
-      isOpen={isKtlPreflightModalOpen}
-      onClose={() => setIsKtlPreflightModalOpen(false)}
-      onConfirm={handleSendToClaydoxConfirmed}
-      preflightData={ktlPreflightData}
-    />
-  )}
-  {isPasswordModalOpen && (
-    <PasswordModal
-        isOpen={isPasswordModalOpen}
-        onClose={() => setIsPasswordModalOpen(false)}
-        onSuccess={() => {
-            setIsDateOverrideUnlocked(true);
-            setOverrideDateTime(getCurrentLocalDateTimeString());
-            setIsPasswordModalOpen(false);
-        }}
-    />
+        {activeJob.processedOcrData && (
+          <div
+            ref={dataTableRef}
+            style={{
+                position: 'absolute',
+                left: '-9999px',
+                top: '0',
+                pointerEvents: 'none',
+                opacity: 0,
+            }}
+            aria-hidden="true"
+          >
+            <DrinkingWaterSnapshot
+                job={activeJob}
+                siteLocation={siteLocation}
+            />
+          </div>
+        )}
+      </div>
+
+       {isPasswordModalOpen && (
+            <PasswordModal
+                isOpen={isPasswordModalOpen}
+                onClose={() => setIsPasswordModalOpen(false)}
+                onSuccess={() => {
+                    setIsDateOverrideUnlocked(true);
+                    setOverrideDateTime(getCurrentLocalDateTimeString());
+                    setIsPasswordModalOpen(false);
+                }}
+            />
+        )}
+    </div>
   )}
 </div>
 );
 };
+
 export default DrinkingWaterPage;
