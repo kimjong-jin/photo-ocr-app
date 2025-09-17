@@ -704,51 +704,6 @@ const handleFetchGpsAddress = useCallback(() => {
     setNewItemKey('');
   }, [newItemKey, receiptNumber, receiptNumberCommon, receiptNumberDetail, activePage, finalSiteLocation]);
 
-  const handleFetchGpsAddress = useCallback(() => {
-    setIsFetchingAddress(true);
-    setCurrentGpsAddress("주소 찾는 중...");
-
-    if (!navigator.geolocation) {
-      setCurrentGpsAddress("이 브라우저에서는 GPS를 지원하지 않습니다.");
-      setIsFetchingAddress(false);
-      return;
-    }
-
-    const onSuccess = async (position: GeolocationPosition) => {
-      const { latitude, longitude } = position.coords;
-      setCoords({ lat: latitude, lng: longitude });
-
-      try {
-        const addr = await getKakaoAddress(latitude, longitude);
-        setCurrentGpsAddress(addr);
-      } catch (err: any) {
-        console.error("GPS 주소 오류:", err);
-        setCurrentGpsAddress(`주소 탐색 중 오류 발생: ${err.message}`);
-      } finally {
-        setIsFetchingAddress(false);
-      }
-    };
-
-    const onError = (error: GeolocationPositionError) => {
-      console.error(
-        "Geolocation error:",
-        `Code: ${error.code}, Message: ${error.message}`
-      );
-      setCurrentGpsAddress(
-        error.code === error.PERMISSION_DENIED
-          ? "GPS 위치 권한이 거부되었습니다."
-          : "GPS 위치를 가져올 수 없습니다."
-      );
-      setIsFetchingAddress(false);
-    };
-
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 0,
-    });
-  }, []);
-
   const itemOptionsForNewTask = useMemo(() => {
     if (activePage === 'photoLog') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
     if (activePage === 'fieldCount') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '현장 계수')?.items || [];
