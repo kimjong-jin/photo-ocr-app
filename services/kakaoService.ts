@@ -21,6 +21,34 @@ const REGION_FULLNAME_MAP: Record<string, string> = {
   "제주": "제주특별자치도",
 };
 
+// ✅ 요청 캐시 & 중복 요청 제어
+const addressCache = new Map<string, string>();
+let inflightController: AbortController | null = null;
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function safeFetch(url: string, apiKey: string, attempt = 1): Promise<Response> {
+  // 이전 요청 취소
+  if (inflightController) inflightController.abort();
+  inflightController = new AbortController();
+
+  const res = await fetch(url, {
+    headers: { Authorization: `KakaoAK ${apiKey}` },
+    signal: inflightController.signal,
+  });
+
+  // ✅ Rate Limit 초과 시 지수 백오프 재시도
+  if (res.status === 429 && attempt < 3) {
+    console.warn(`[kakaoService] Rate limit hit, retrying... (attempt ${attempt})`);
+    await sleep(500 * attempt);
+    return safeFetch(url, apiKey, attempt + 1);
+  }
+
+  return res;
+}
+
 // ✅ 행정구역 보정 함수
 function normalizeRegion(name: string): string {
   return REGION_FULLNAME_MAP[name] || name;
@@ -30,39 +58,33 @@ function normalizeRegion(name: string): string {
 function cleanAddress(address: string, region: string): string {
   const regionFullName = normalizeRegion(region);
 
-  // 지역명이 중복되면 뒤에 부분만 제거하는 로직
   if (address.startsWith(regionFullName)) {
-    // "부산광역시 부산" -> "부산광역시"
     let cleanedAddress = address.replace(regionFullName, "").trim();
-
-    // "부산광역시 부산"처럼 주소 뒤에 동일한 지역명이 남을 경우 다시 제거
     const regionPattern = new RegExp(`^${regionFullName}`);
     cleanedAddress = cleanedAddress.replace(regionPattern, "").trim();
-
-    // 지역명이 남지 않으면 그대로 지역명만 반환
     return cleanedAddress ? `${regionFullName} ${cleanedAddress}` : regionFullName;
   }
-
   return address;
 }
 
 // ✅ 지번 주소 기반으로 도로명 주소 재검색
 async function searchAddressByQuery(query: string, apiKey: string): Promise<string | null> {
+  const cacheKey = `query:${query}`;
+  if (addressCache.has(cacheKey)) return addressCache.get(cacheKey)!;
+
   const url = new URL("https://dapi.kakao.com/v2/local/search/address.json");
   url.searchParams.set("query", query);
 
   try {
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `KakaoAK ${apiKey}` },
-    });
-
+    const res = await safeFetch(url.toString(), apiKey);
     if (!res.ok) {
       console.warn(`[kakaoService] Address search failed (${res.status}): ${query}`);
       return null;
     }
-
     const data = await res.json();
-    return data?.documents?.[0]?.road_address?.address_name || null;
+    const result = data?.documents?.[0]?.road_address?.address_name || null;
+    if (result) addressCache.set(cacheKey, result);
+    return result;
   } catch (err) {
     console.error(`[kakaoService] Query search error (${query}):`, err);
     return null;
@@ -74,61 +96,46 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
   if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
 
+  const key = `${latitude},${longitude}`;
+  if (addressCache.has(key)) return addressCache.get(key)!;
+
   const url = new URL("https://dapi.kakao.com/v2/local/geo/coord2address.json");
   url.searchParams.set("x", String(longitude));
   url.searchParams.set("y", String(latitude));
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `KakaoAK ${apiKey}` },
-  });
-
+  const res = await safeFetch(url.toString(), apiKey);
   if (!res.ok) {
-    // 실패 시 서울시청으로 이동
-    return "서울특별시 중구 세종대로 110 서울시청"; // 서울시청 위치 주소 반환
+    return "서울특별시 중구 세종대로 110 서울시청";
   }
 
   const data = await res.json();
   const doc = data?.documents?.[0];
-  if (!doc) {
-    return "서울특별시 중구 세종대로 110 서울시청"; // 주소를 못 찾으면 서울시청
-  }
+  if (!doc) return "서울특별시 중구 세종대로 110 서울시청";
 
   const roadAddr = doc.road_address?.address_name ?? "";
   const lotAddr = doc.address?.address_name ?? "";
-
   const addr = doc.address;
-  const region1 = normalizeRegion(addr?.region_1depth_name ?? ""); // 첫 번째 행정구역 (부산광역시 등)
-  const region2 = addr?.region_2depth_name ?? ""; // 두 번째 행정구역
-  const region3 = addr?.region_3depth_name ?? ""; // 세 번째 행정구역
+  const region1 = normalizeRegion(addr?.region_1depth_name ?? "");
+  const region2 = addr?.region_2depth_name ?? "";
+  const region3 = addr?.region_3depth_name ?? "";
   const lotNumber =
     addr?.main_address_no +
     (addr?.sub_address_no ? "-" + addr.sub_address_no : "");
 
-  // 1️⃣ 도로명 주소가 있으면
+  let finalAddr = "주소를 찾을 수 없습니다.";
   if (roadAddr) {
-    let cleanedAddress = cleanAddress(roadAddr, region1);
-
-    // 중복된 지역을 제거하고, 지역이 남지 않으면 `region1`(광역시)만 추가
-    if (!cleanedAddress) cleanedAddress = `${region1} ${roadAddr}`;
-    return cleanedAddress;
-  }
-
-  // 2️⃣ 도로명 주소가 없으면 지번 주소로 재검색
-  if (lotAddr) {
+    finalAddr = cleanAddress(roadAddr, region1) || `${region1} ${roadAddr}`;
+  } else if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
     if (searchedRoad) {
-      let cleanedAddress = cleanAddress(searchedRoad, region1);
-
-      // 중복된 지역을 제거하고, 지역이 남지 않으면 `region1`(광역시)만 추가
-      if (!cleanedAddress) cleanedAddress = `${region1} ${searchedRoad}`;
-      return cleanedAddress;
+      finalAddr = cleanAddress(searchedRoad, region1) || `${region1} ${searchedRoad}`;
+    } else {
+      finalAddr = `${region1} ${region2} ${region3} ${lotNumber}`.trim();
     }
-
-    // 3️⃣ 실패 시 풀네임 조합
-    return `${region1} ${region2} ${region3} ${lotNumber}`.trim();
   }
 
-  return "주소를 찾을 수 없습니다."; // 주소를 찾을 수 없으면 기본 반환 값
+  addressCache.set(key, finalAddr);
+  return finalAddr;
 }
 
 // ✅ 명칭 검색 (여러 개 반환)
@@ -140,15 +147,11 @@ export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
   url.searchParams.set("query", keyword);
 
   try {
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `KakaoAK ${apiKey}` },
-    });
-
+    const res = await safeFetch(url.toString(), apiKey);
     if (!res.ok) {
       console.warn(`[kakaoService] Keyword search failed (${res.status}): ${keyword}`);
       return [];
     }
-
     const data = await res.json();
     return data?.documents || [];
   } catch (err) {
