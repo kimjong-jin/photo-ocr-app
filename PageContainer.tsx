@@ -101,6 +101,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [openSections, setOpenSections] = useState<string[]>(['addTask']);
 
+  const lastFetchRef = useRef<number>(0);
+
   const finalSiteLocation = useMemo(() => {
     const site = siteName.trim();
     const gps = currentGpsAddress.trim();
@@ -116,15 +118,67 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   }, [siteName, currentGpsAddress]);
 
   const toggleSection = (sectionName: string) => {
-    setOpenSections(prevOpenSections => {
-      const isOpen = prevOpenSections.includes(sectionName);
-      if (isOpen) {
-        return prevOpenSections.filter(s => s !== sectionName);
-      } else {
-        return [...prevOpenSections, sectionName];
-      }
-    });
+  setOpenSections(prevOpenSections => {
+    const isOpen = prevOpenSections.includes(sectionName);
+    if (isOpen) {
+      return prevOpenSections.filter(s => s !== sectionName);
+    } else {
+      return [...prevOpenSections, sectionName];
+    }
+  });
+};
+
+// ✅ 여기 "toggleSection" 함수 닫힌 뒤에 넣어주세요
+const handleFetchGpsAddress = useCallback(() => {
+  const now = Date.now();
+
+  // ✅ 500ms 이내 재클릭 방지
+  if (now - lastFetchRef.current < 500) {
+    console.log("🚫 너무 빠른 재클릭 → 요청 무시");
+    return;
+  }
+  lastFetchRef.current = now;
+
+  setIsFetchingAddress(true);
+  setCurrentGpsAddress("주소 찾는 중...");
+
+  if (!navigator.geolocation) {
+    setCurrentGpsAddress("이 브라우저에서는 GPS를 지원하지 않습니다.");
+    setIsFetchingAddress(false);
+    return;
+  }
+
+  const onSuccess = async (position: GeolocationPosition) => {
+    const { latitude, longitude } = position.coords;
+    setCoords({ lat: latitude, lng: longitude });
+
+    try {
+      const addr = await getKakaoAddress(latitude, longitude);
+      setCurrentGpsAddress(addr);
+    } catch (err: any) {
+      console.error("GPS 주소 오류:", err);
+      setCurrentGpsAddress(`주소 탐색 중 오류 발생: ${err.message}`);
+    } finally {
+      setIsFetchingAddress(false);
+    }
   };
+
+  const onError = (error: GeolocationPositionError) => {
+    console.error("Geolocation error:", error);
+    setCurrentGpsAddress(
+      error.code === error.PERMISSION_DENIED
+        ? "GPS 위치 권한이 거부되었습니다."
+        : "GPS 위치를 가져올 수 없습니다."
+    );
+    setIsFetchingAddress(false);
+  };
+
+  navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 0,
+  });
+}, []);
 
   const handleDeletePhotoLogJob = useCallback((jobIdToDelete: string) => {
     setPhotoLogJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
