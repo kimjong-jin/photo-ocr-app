@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -148,12 +147,11 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
 
     const formattedDateTime = newDateTime.replace('T', ' ');
 
-    // FIX: Refactored to use an immutable update pattern, which resolves a TypeScript type inference error. The original implementation mutated an intermediate object, causing the type of `submissionStatus` to be inferred incorrectly as `string` instead of the specific union type required by the `StructuralJob` interface.
     updateActiveJob(job => {
         const updatedChecklistData = { ...job.checklistData };
         for (const itemName in updatedChecklistData) {
             const item = updatedChecklistData[itemName];
-            if (item.confirmedAt) { // Only update items that have been confirmed
+            if (item.confirmedAt) {
                 updatedChecklistData[itemName] = {
                     ...item,
                     confirmedAt: formattedDateTime,
@@ -161,12 +159,14 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
             }
         }
         
+        const newPostInspectionDateConfirmedAt = job.postInspectionDateConfirmedAt ? formattedDateTime : null;
+        
         return {
           ...job,
           checklistData: updatedChecklistData,
           submissionStatus: 'idle',
           submissionMessage: undefined,
-          postInspectionDateConfirmedAt: job.postInspectionDateConfirmedAt ? formattedDateTime : job.postInspectionDateConfirmedAt,
+          postInspectionDateConfirmedAt: newPostInspectionDateConfirmedAt,
         };
     });
   }, [activeJob, updateActiveJob]);
@@ -727,7 +727,6 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                 fileNames: fileNamesForPreflight,
                 context: {
                       receiptNumber: activeJob.receiptNumber,
-                      // FIX: The context expects 'siteLocation', not 'siteName'.
                       siteLocation: siteName,
                       selectedItem: MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey,
                       userName,
@@ -976,7 +975,6 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                         fileName={activeJob.photos[currentPhotoIndexOfActiveJob].file.name}
                         mimeType={activeJob.photos[currentPhotoIndexOfActiveJob].mimeType}
                         receiptNumber={activeJob.receiptNumber}
-                        // FIX: The 'siteLocation' prop does not exist on ImagePreview. Corrected to 'siteName' and added 'gpsAddress'.
                         siteName={siteName}
                         gpsAddress={currentGpsAddress}
                         item={MAIN_STRUCTURAL_ITEMS.find(it => it.key === activeJob.mainItemKey)?.name}
@@ -1175,7 +1173,9 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                 onClose={() => setIsPasswordModalOpen(false)}
                 onSuccess={() => {
                     setIsDateOverrideUnlocked(true);
-                    setOverrideDateTime(getCurrentLocalDateTimeString());
+                    const newDateTime = getCurrentLocalDateTimeString();
+                    setOverrideDateTime(newDateTime);
+                    handleOverrideDateTimeChange(newDateTime);
                     setIsPasswordModalOpen(false);
                 }}
             />
