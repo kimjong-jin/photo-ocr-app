@@ -945,33 +945,31 @@ export const sendBatchStructuralChecksToKtlApi = async (
   });
 
   if (filesToUploadDirectly.length > 0) {
-    const formDataForAllUploads = new FormData();
-    filesToUploadDirectly.forEach((file) => {
-      formDataForAllUploads.append('files', file, file.name);
-    });
+    console.log('[ClaydoxAPI - Page 4] Uploading files (concurrency x4):', filesToUploadDirectly.map(f => f.name));
     try {
-      console.log('[ClaydoxAPI - Page 4] Uploading files directly to KTL /uploadfiles (batched):', filesToUploadDirectly.map((f) => f.name));
-      const batchSize = 3;
-      for (let i = 0; i < filesToUploadDirectly.length; i += batchSize) {
-        const slice = filesToUploadDirectly.slice(i, i + batchSize);
-        const fd = new FormData();
-        slice.forEach((f) => fd.append('files', f, f.name));
-        await retryKtlApiCall<KtlApiResponseData>(
-          () =>
-            axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, fd, {
-              // 브라우저에서는 Content-Type을 명시하지 않으면 경계(boundary)가 자동 설정됩니다.
-              timeout: Math.max(KTL_API_TIMEOUT, 120000),
-              maxBodyLength: Infinity,
-              maxContentLength: Infinity
-            }),
-          2,
-          2000,
-          `Page 4 Upload batch ${Math.floor(i / batchSize) + 1}`
-        );
+      const CONCURRENCY = 4;
+      for (let i = 0; i < filesToUploadDirectly.length; i += CONCURRENCY) {
+        const slice = filesToUploadDirectly.slice(i, i + CONCURRENCY);
+        await Promise.all(slice.map((file, k) => {
+          const fd = new FormData();
+          fd.append('files', file, file.name);
+          const label = `Page 4 Upload ${i + k + 1}/${filesToUploadDirectly.length}`;
+          return retryKtlApiCall<KtlApiResponseData>(
+            () =>
+              axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, fd, {
+                timeout: 0,
+                maxBodyLength: Infinity,
+                maxContentLength: Infinity
+              }),
+            2,
+            2000,
+            label
+          );
+        }));
       }
-      console.log('[ClaydoxAPI - Page 4] All file batches for Page 4 uploaded successfully to KTL /uploadfiles.');
+      console.log('[ClaydoxAPI - Page 4] All files uploaded (parallel).');
     } catch (filesUploadError: any) {
-      console.error('[ClaydoxAPI - Page 4] Files upload to KTL /uploadfiles failed:', filesUploadError);
+      console.error('[ClaydoxAPI - Page 4] Files upload failed:', filesUploadError);
       jobs.forEach((job) => {
         if (!results.find((r) => r.receiptNo === job.receiptNumber && (MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey) === r.mainItem)) {
           results.push({
