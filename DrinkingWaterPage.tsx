@@ -1,7 +1,6 @@
 
-
-
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview, getFileExtensionFromMime } from './services/claydoxApiService';
@@ -18,6 +17,7 @@ import html2canvas from 'html2canvas';
 import { ExtractedEntry } from './shared/types';
 import PasswordModal from './components/PasswordModal';
 import { DrinkingWaterSnapshot } from './components/DrinkingWaterSnapshot';
+import { Spinner } from './components/Spinner';
 
 
 // --- Interfaces ---
@@ -100,10 +100,12 @@ const [ktlPreflightData, setKtlPreflightData] = useState<KtlPreflightData | null
 const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
 const fileInputRef = useRef<HTMLInputElement>(null);
 const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
-const dataTableRef = useRef<HTMLDivElement>(null);
 const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 const [isDateOverrideUnlocked, setIsDateOverrideUnlocked] = useState(false);
 const [overrideDateTime, setOverrideDateTime] = useState('');
+const snapshotHostRef = useRef<HTMLDivElement | null>(null);
+const [isSendingToClaydox, setIsSendingToClaydox] = useState<boolean>(false);
+const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
 
 const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
@@ -347,7 +349,7 @@ return;
 const finalSiteLocationForData = formatSite(siteLocation, activeJob.details);
 
 setKtlPreflightData({
-  jsonPayload: ktlJsonPreview || "",
+  jsonPayload: ktlJsonPreview || "JSON 미리보기를 생성할 수 없습니다.",
   fileNames: hypotheticalKtlFileNamesForPreview,
   context: {
     receiptNumber: activeJob.receiptNumber,
@@ -388,16 +390,24 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
 
     try {
         let dataTableFile: File | null = null;
-        if (dataTableRef.current) {
-            const elementToCapture = dataTableRef.current;
-            const canvas = await html2canvas(elementToCapture, {
-                backgroundColor: '#1e293b', // slate-800
-                scale: 1.5,
+        if (snapshotHostRef.current) {
+            const snapshotRoot = createRoot(snapshotHostRef.current);
+            await new Promise<void>(resolve => {
+                snapshotRoot.render(<DrinkingWaterSnapshot job={activeJob} siteLocation={siteLocation} />);
+                // A short timeout to ensure React has rendered the component.
+                setTimeout(resolve, 100);
             });
-            const dataUrl = canvas.toDataURL('image/png');
-            const blob = dataURLtoBlob(dataUrl);
-            const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
-            dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
+
+            const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
+            if (elementToCapture) {
+                const canvas = await html2canvas(elementToCapture, { backgroundColor: '#1e293b', scale: 1.5 });
+                const dataUrl = canvas.toDataURL('image/png');
+                const blob = dataURLtoBlob(dataUrl);
+                const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
+                dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
+            }
+            // Unmount the component after capture to clean up.
+            snapshotRoot.unmount();
         }
 
         if (activeJob.photos.length > 0) {
@@ -448,12 +458,97 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
     }
 }, [activeJob, userName, siteName, siteLocation, updateActiveJob]);
 
+const handleBatchSendToKtl = async () => {
+    const jobsToSend = jobs.filter(j => j.processedOcrData?.some(d => d.value.trim() !== '' || (d.valueTP && d.valueTP.trim() !== '')));
+    if (jobsToSend.length === 0) {
+        alert("전송할 데이터가 있는 작업이 없습니다.");
+        return;
+    }
+
+    setIsSendingToClaydox(true);
+    setBatchSendProgress(`(0/${jobsToSend.length}) 작업 처리 시작...`);
+    setJobs(prev => prev.map(j => jobsToSend.find(jts => jts.id === j.id) ? { ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' } : j));
+
+    for (let i = 0; i < jobsToSend.length; i++) {
+        const job = jobsToSend[i];
+        setBatchSendProgress(`(${(i + 1)}/${jobsToSend.length}) '${job.receiptNumber}' 전송 중...`);
+        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionMessage: '파일 생성 및 전송 중...' } : j));
+        
+        try {
+            const finalSiteLocationForData = formatSite(siteLocation, job.details);
+            const finalSiteLocationForDesc = formatSite(siteName, job.details);
+
+            const payload: ClaydoxPayload = {
+                receiptNumber: job.receiptNumber,
+                siteLocation: finalSiteLocationForData,
+                siteNameOnly: finalSiteLocationForDesc,
+                item: job.selectedItem,
+                ocrData: job.processedOcrData || [],
+                updateUser: userName,
+                pageType: 'DrinkingWater',
+                maxDecimalPlaces: job.decimalPlaces,
+                maxDecimalPlacesCl: job.decimalPlacesCl,
+            };
+
+            let filesToUpload: File[] = [];
+            let actualKtlFileNames: string[] = [];
+
+            if (snapshotHostRef.current) {
+                const snapshotRoot = createRoot(snapshotHostRef.current);
+                await new Promise<void>(resolve => {
+                    snapshotRoot.render(<DrinkingWaterSnapshot job={job} siteLocation={siteLocation} />);
+                    setTimeout(resolve, 100);
+                });
+
+                const elementToCapture = document.getElementById(`snapshot-container-for-${job.id}`);
+                if (elementToCapture) {
+                    const canvas = await html2canvas(elementToCapture, { backgroundColor: '#1e293b', scale: 1.5 });
+                    const blob = dataURLtoBlob(canvas.toDataURL('image/png'));
+                    const dataTableFileName = `${job.receiptNumber}_먹는물_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}_datatable.png`;
+                    const dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
+                    filesToUpload.push(dataTableFile);
+                    actualKtlFileNames.push(dataTableFile.name);
+                }
+                snapshotRoot.unmount();
+            }
+
+            if (job.photos.length > 0) {
+                const baseName = `${job.receiptNumber}_먹는물_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}`;
+                const compositeDataUrl = await generateCompositeImage(job.photos, { receiptNumber: job.receiptNumber, siteLocation: finalSiteLocationForData, item: job.selectedItem }, 'image/jpeg');
+                const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
+                filesToUpload.push(compositeFile);
+                actualKtlFileNames.push(compositeFile.name);
+
+                const zip = new JSZip();
+                for (let i = 0; i < job.photos.length; i++) {
+                    const stampedDataUrl = await generateStampedImage(job.photos[i].base64, job.photos[i].mimeType, job.receiptNumber, finalSiteLocationForData, '', job.selectedItem);
+                    zip.file(`${baseName}_${i + 1}.png`, dataURLtoBlob(stampedDataUrl));
+                }
+                const zipFile = new File([await zip.generateAsync({ type: "blob" })], `${baseName}_압축.zip`, { type: 'application/zip' });
+                filesToUpload.push(zipFile);
+                actualKtlFileNames.push(zipFile.name);
+            }
+
+            const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, actualKtlFileNames);
+            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message } : j));
+        } catch (error: any) {
+            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
+        }
+    }
+
+    setBatchSendProgress('일괄 전송 완료.');
+    setIsSendingToClaydox(false);
+    setTimeout(() => setBatchSendProgress(null), 5000);
+};
+
 const handleOverrideDateTimeChange = useCallback((newDateTime: string) => {
     if (!activeJob || !activeJob.processedOcrData || !newDateTime) return;
+    
+    const formattedDateTime = newDateTime.replace('T', ' ');
 
     const updatedData = activeJob.processedOcrData.map(entry => {
         if (entry.time) { // Only update entries that already have a time
-            return { ...entry, time: newDateTime };
+            return { ...entry, time: formattedDateTime };
         }
         return entry;
     });
@@ -473,7 +568,7 @@ activeJob && activeJob.photos.length > 0 && currentPhotoIndexOfActiveJob !== -1
 : null
 , [activeJob, currentPhotoIndexOfActiveJob]);
 
-const isControlsDisabled = isLoading;
+const isControlsDisabled = isLoading || isSendingToClaydox || !!batchSendProgress;
 const isClaydoxDisabled = !activeJob || isControlsDisabled || !siteLocation.trim() || !activeJob.processedOcrData?.some(e => e.value.trim() || (e.valueTP && e.valueTP.trim()));
 
 const StatusIndicator: React.FC<{ status: DrinkingWaterJob['submissionStatus'], message?: string }> = ({ status, message }) => {
@@ -486,6 +581,7 @@ const StatusIndicator: React.FC<{ status: DrinkingWaterJob['submissionStatus'], 
 
 return (
 <div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
+  <div ref={snapshotHostRef} style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}></div>
   <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">
     먹는물 분석 (P3)
   </h2>
@@ -688,25 +784,6 @@ return (
             timeColumnHeader="최종 저장 시간"
             decimalPlaces={activeJob.decimalPlaces}
         />
-
-        {activeJob.processedOcrData && (
-          <div
-            ref={dataTableRef}
-            style={{
-                position: 'absolute',
-                left: '-9999px',
-                top: '0',
-                pointerEvents: 'none',
-                opacity: 0,
-            }}
-            aria-hidden="true"
-          >
-            <DrinkingWaterSnapshot
-                job={activeJob}
-                siteLocation={siteLocation}
-            />
-          </div>
-        )}
       </div>
 
        {isPasswordModalOpen && (
@@ -715,21 +792,49 @@ return (
                 onClose={() => setIsPasswordModalOpen(false)}
                 onSuccess={() => {
                     setIsDateOverrideUnlocked(true);
-                    setOverrideDateTime(getCurrentLocalDateTimeString());
+                    const newDateTime = getCurrentLocalDateTimeString();
+                    setOverrideDateTime(newDateTime);
+                    handleOverrideDateTimeChange(newDateTime);
                     setIsPasswordModalOpen(false);
                 }}
             />
         )}
-       {isKtlPreflightModalOpen && ktlPreflightData && (
-         <KtlPreflightModal
-            isOpen={isKtlPreflightModalOpen}
-            onClose={() => setIsKtlPreflightModalOpen(false)}
-            onConfirm={handleSendToClaydoxConfirmed}
-            preflightData={ktlPreflightData}
-         />
-       )}
     </div>
   )}
+  
+  {isKtlPreflightModalOpen && ktlPreflightData && (
+    <KtlPreflightModal
+      isOpen={isKtlPreflightModalOpen}
+      onClose={() => setIsKtlPreflightModalOpen(false)}
+      onConfirm={handleSendToClaydoxConfirmed}
+      preflightData={ktlPreflightData}
+    />
+  )}
+
+  {jobs.length > 0 && (
+    <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
+        <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
+        <p className="text-sm text-slate-400">
+            이 페이지의 모든 작업을 KTL로 전송합니다. 각 작업에 입력된 데이터가 있어야 합니다.
+        </p>
+        {batchSendProgress && (
+            <div className="p-3 bg-slate-700/50 rounded-md text-sky-300 text-sm flex items-center gap-2">
+                <Spinner size="sm" />
+                <span>{batchSendProgress}</span>
+            </div>
+        )}
+        <ActionButton
+            onClick={handleBatchSendToKtl}
+            disabled={isControlsDisabled}
+            fullWidth
+            variant="secondary"
+            className="bg-teal-600 hover:bg-teal-500"
+        >
+            {batchSendProgress ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.length}건)`}
+        </ActionButton>
+    </div>
+  )}
+
 </div>
 );
 };
