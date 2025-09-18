@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ImageInput, ImageInfo as BaseImageInfo } from '../ImageInput';
 import { CameraView } from '../CameraView';
@@ -17,7 +18,7 @@ import {
 } from '../../services/claydoxApiService';
 import JSZip from 'jszip';
 // ✅ constants에서 alias 포함해서 import
-import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, P2_TN_IDENTIFIERS, P2_TP_IDENTIFIERS } from '../../shared/constants';
+import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, P2_TN_IDENTIFIERS, P2_TP_IDENTIFIERS, P2_SINGLE_ITEM_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
 import { Type } from '@google/genai';
@@ -300,6 +301,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
 
   const availableTnIdentifiers = pageType === 'FieldCount' ? P2_TN_IDENTIFIERS : TN_IDENTIFIERS;
   const availableTpIdentifiers = pageType === 'FieldCount' ? P2_TP_IDENTIFIERS : TP_IDENTIFIERS;
+  const availableIdentifiers = pageType === 'FieldCount' ? P2_SINGLE_ITEM_IDENTIFIERS : IDENTIFIER_OPTIONS;
 
   const ocrControlsKtlStatus = useMemo<KtlApiCallStatus>(() => {
     if (!activeJob) return 'idle';
@@ -374,6 +376,8 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
       identifierSequence: identifierSequence,
       pageType: pageType,
       maxDecimalPlaces: activeJob.decimalPlaces,
+      inspectionStartDate: activeJob.inspectionStartDate,
+      inspectionEndDate: activeJob.inspectionEndDate,
     };
     return generateKtlJsonForPreview(payload, activeJob.selectedItem, hypotheticalKtlFileNamesForPreview);
   }, [activeJob, userName, siteName, siteLocation, pageType, hypotheticalKtlFileNamesForPreview]);
@@ -469,12 +473,16 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     setProcessingError(null);
   }, [activeJob, updateActiveJob]);
 
-  const generatePromptForProAnalysis = ( receiptNum: string, siteLoc: string, item: string ): string => {
+  const generatePromptForProAnalysis = ( receiptNum: string, siteLoc: string, item: string, inspectionStartDate?: string, inspectionEndDate?: string ): string => {
     let prompt = `제공된 측정 장비의 이미지를 분석해주세요.
 컨텍스트:`;
     if (receiptNum) prompt += `\n- 접수번호: ${receiptNum}`;
     if (siteLoc) prompt += `\n- 현장/위치: ${siteLoc}`;
-    
+    if (inspectionStartDate && inspectionEndDate) {
+      prompt += `\n- 검사 기간: ${inspectionStartDate} ~ ${inspectionEndDate}. 모든 시간(time) 값은 이 기간 내에 있어야 합니다. 자정을 넘기면 날짜가 증가해야 합니다.`
+    } else if (inspectionStartDate) {
+      prompt += `\n- 검사 시작 날짜: ${inspectionStartDate}. 모든 시간(time) 값은 이 날짜로 시작해야 합니다. 이미지의 시간(HH:MM)과 이 날짜를 조합하세요.`
+    }
     if (item === "TN/TP") {
         prompt += `\n- 항목/파라미터: TN 및 TP. 이미지에서 TN과 TP 각각의 시간 및 값 쌍을 추출해야 합니다.`;
         prompt += `\n- 각 시간(time) 항목에 대해 TN 값은 "value_tn" 키에, TP 값은 "value_tp" 키에 할당해야 합니다.`;
@@ -549,7 +557,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const imageProcessingPromises = activeJob.photos.map(async (image) => {
             let jsonStr: string = "";
             try {
-                const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem);
+                const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, activeJob.inspectionStartDate, activeJob.inspectionEndDate);
                 const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
                 
                 jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
@@ -580,20 +588,52 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         if (criticalErrorOccurred) throw new Error(criticalErrorOccurred);
         
         if (allRawExtractedEntries.length > 0) {
-            const normalizeTime = (timeStr: string): string => {
-                if (!timeStr) return '';
-                const standardized = timeStr.replace(/-/g, '/');
-                const match = standardized.match(/(\d{4}\/\d{2}\/\d{2}\s\d{2}:\d{2})/);
-                return match ? match[1] : standardized;
-            };
+            
+            allRawExtractedEntries.sort((a, b) => {
+                const getTimePart = (timeStr: string) => {
+                    const match = timeStr.match(/(\d{4}[/-]\d{2}[/-]\d{2}\s*)?(\d{2}:\d{2}(:\d{2})?)/);
+                    return match ? (match[1] || '') + match[2] : timeStr;
+                };
+                return getTimePart(a.time).localeCompare(getTimePart(b.time));
+            });
 
             const uniqueEntriesMap = new Map<string, RawEntryUnion>();
+
+            let currentDate: Date | null = null;
+            if (activeJob.inspectionStartDate) {
+                currentDate = new Date(activeJob.inspectionStartDate + "T00:00:00Z"); // Use UTC to avoid timezone issues
+            }
+            const endDate: Date | null = activeJob.inspectionEndDate ? new Date(activeJob.inspectionEndDate + "T23:59:59Z") : null;
+            
+            let lastTime: string | null = null;
+
             allRawExtractedEntries.forEach(entry => {
-                const normalizedTime = normalizeTime(entry.time);
-                if (!uniqueEntriesMap.has(normalizedTime)) {
-                    uniqueEntriesMap.set(normalizedTime, { ...entry, time: normalizedTime });
+                let finalTimestamp = entry.time.replace(/-/g, '/').trim();
+                const timeMatch = finalTimestamp.match(/(\d{2}:\d{2})(?::\d{2})?$/);
+                const currentTime = timeMatch ? timeMatch[1] : null;
+
+                if (currentDate && currentTime) {
+                    if (endDate && lastTime && currentTime < lastTime) {
+                        const nextDay = new Date(currentDate);
+                        nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+                        if (nextDay <= endDate) {
+                            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+                        }
+                    }
+                    const year = currentDate.getUTCFullYear();
+                    const month = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
+                    const day = String(currentDate.getUTCDate()).padStart(2, '0');
+                    finalTimestamp = `${year}/${month}/${day} ${timeMatch![0]}`;
+                }
+                
+                if (currentTime) {
+                    lastTime = currentTime;
+                }
+                
+                if (!uniqueEntriesMap.has(finalTimestamp)) {
+                    uniqueEntriesMap.set(finalTimestamp, { ...entry, time: finalTimestamp });
                 } else {
-                    const existing = uniqueEntriesMap.get(normalizedTime)!;
+                    const existing = uniqueEntriesMap.get(finalTimestamp)!;
                     if (activeJob.selectedItem === "TN/TP") {
                         const existingTnTp = existing as RawEntryTnTp;
                         const currentTnTp = entry as RawEntryTnTp;
@@ -608,6 +648,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                     }
                 }
             });
+
             const finalOcrData = Array.from(uniqueEntriesMap.values()).sort((a,b) => a.time.localeCompare(b.time)).map((rawEntry: RawEntryUnion) => {
                 let primaryValue = '', tpValue: string | undefined = undefined;
                 if (activeJob.selectedItem === "TN/TP") {
@@ -619,6 +660,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                 }
                 return { id: self.crypto.randomUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
             });
+
             updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
             if (batchHadError) setProcessingError("일부 이미지를 처리하지 못했습니다.");
         } else {
@@ -875,6 +917,53 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setProcessingError(null);
   }, [activeJob, updateActiveJob]);
 
+  const handleDownloadStampedImages = useCallback(async () => {
+    if (!activeJob || activeJob.photos.length === 0) {
+      alert("스탬프를 적용할 사진이 없습니다.");
+      return;
+    }
+    setIsDownloadingStamped(true);
+
+    try {
+      const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
+      const sanitizedSite = sanitizeFilenameComponent(siteName);
+      const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
+      const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
+      
+      const zip = new JSZip();
+
+      for (let i = 0; i < activeJob.photos.length; i++) {
+        const imageInfo = activeJob.photos[i];
+        const stampedDataUrl = await generateStampedImage(
+          imageInfo.base64,
+          imageInfo.mimeType,
+          activeJob.receiptNumber,
+          siteLocation,
+          activeJob.inspectionStartDate || '',
+          activeJob.selectedItem,
+          activeJob.photoComments[imageInfo.uid]
+        );
+        const stampedBlob = dataURLtoBlob(stampedDataUrl);
+        const fileNameInZip = `${baseName}_${i + 1}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`;
+        zip.file(fileNameInZip, stampedBlob);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(zipBlob);
+      link.download = `${baseName}_Stamped_Images.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+
+    } catch (error: any) {
+      console.error("Error creating stamped image zip:", error);
+      alert(`스탬프 이미지 ZIP 파일 생성 중 오류 발생: ${error.message}`);
+    } finally {
+      setIsDownloadingStamped(false);
+    }
+  }, [activeJob, siteName, siteLocation, pageType]);
 
   const handleInitiateSendToKtl = useCallback(() => {
     if (!activeJob || !ktlJsonPreview) {
@@ -884,7 +973,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setKtlPreflightData({
         jsonPayload: ktlJsonPreview, 
         fileNames: hypotheticalKtlFileNamesForPreview,
-        context: { receiptNumber: activeJob.receiptNumber, siteLocation: siteLocation, selectedItem: activeJob.selectedItem, userName }
+        context: { receiptNumber: activeJob.receiptNumber, siteLocation: siteLocation, selectedItem: activeJob.selectedItem, userName, inspectionStartDate: activeJob.inspectionStartDate }
     });
     setIsKtlPreflightModalOpen(true);
   }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
@@ -905,6 +994,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             identifierSequence: identifierSequence,
             maxDecimalPlaces: activeJob.decimalPlaces,
             pageType: pageType,
+            inspectionStartDate: activeJob.inspectionStartDate,
+            inspectionEndDate: activeJob.inspectionEndDate,
         };
 
         const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
@@ -926,7 +1017,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                 receiptNumber: activeJob.receiptNumber,
                 siteLocation: siteLocation,
                 item: activeJob.selectedItem,
-                inspectionStartDate: ''
+                inspectionStartDate: activeJob.inspectionStartDate || ''
             };
             const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails);
 
@@ -982,7 +1073,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
             const payload: ClaydoxPayload = {
                 receiptNumber: job.receiptNumber, siteLocation, siteNameOnly: siteName, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
-                identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: pageType,
+                identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: pageType, inspectionStartDate: job.inspectionStartDate, inspectionEndDate: job.inspectionEndDate,
             };
             const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
             const sanitizedSite = sanitizeFilenameComponent(siteName);
@@ -1003,7 +1094,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                     receiptNumber: job.receiptNumber,
                     siteLocation: siteLocation,
                     item: job.selectedItem,
-                    inspectionStartDate: ''
+                    inspectionStartDate: job.inspectionStartDate || ''
                 };
                 const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails);
     
@@ -1015,155 +1106,146 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                     compositeFileNames.push(fileName);
                 });
             }
-            
             const zip = new JSZip();
-            for (const imageInfo of job.photos) {
+            for (let i = 0; i < job.photos.length; i++) {
+                const imageInfo = job.photos[i];
                 const originalDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
-                zip.file(`${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`, dataURLtoBlob(originalDataUrl));
+                const fileNameInZip = `${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`;
+                zip.file(fileNameInZip, dataURLtoBlob(originalDataUrl));
             }
             const zipBlob = await zip.generateAsync({ type: "blob" });
             const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
-
+            
             const filesToUpload = [...compositeFiles, zipFile];
             const fileNamesForKtlJson = [...compositeFileNames, zipFile.name];
 
             const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, fileNamesForKtlJson);
-            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message || '전송 성공' } : j));
+            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message } : j));
         } catch (error: any) {
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
         }
     }
-
     setBatchSendProgress('일괄 전송 완료.');
     setIsSendingToClaydox(false);
     setTimeout(() => setBatchSendProgress(null), 5000);
   };
-  
-    const handleDownloadStampedImages = useCallback(async () => {
-    if (!activeJob || activeJob.photos.length === 0) {
-        alert("다운로드할 이미지가 없습니다.");
-        return;
-    }
-    setIsDownloadingStamped(true);
-    try {
-        const zip = new JSZip();
-        const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
-        const sanitizedReceipt = sanitizeFilenameComponent(activeJob.receiptNumber);
-        const sanitizedSite = sanitizeFilenameComponent(siteName);
-        const sanitizedItem = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
-        const baseName = `${sanitizedReceipt}_${sanitizedSite}_${pageIdentifier}_${sanitizedItem}`;
 
-        for (let i = 0; i < activeJob.photos.length; i++) {
-            const imageInfo = activeJob.photos[i];
-            const comment = activeJob.photoComments[imageInfo.uid];
-            const stampedDataUrl = await generateStampedImage(
-                imageInfo.base64,
-                imageInfo.mimeType,
-                activeJob.receiptNumber,
-                siteLocation,
-                '',
-                activeJob.selectedItem,
-                comment
-            );
-            const blob = dataURLtoBlob(stampedDataUrl);
-            zip.file(`${baseName}_${i + 1}.png`, blob);
-        }
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(zipBlob);
-        link.download = `${baseName}_stamped_images.zip`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(link.href);
+  const isControlsDisabled = isLoading || isDownloadingStamped || isSendingToClaydox || !!batchSendProgress;
 
-    } catch (error) {
-        console.error("Error creating stamped image zip:", error);
-        alert(`스탬프 이미지 ZIP 파일 생성 중 오류가 발생했습니다: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-        setIsDownloadingStamped(false);
-    }
-  }, [activeJob, siteName, siteLocation, pageType]);
-
-  const isControlsDisabled = isLoading || isDownloadingStamped || isSendingToClaydox || isCameraOpen || !!batchSendProgress;
-  const representativeImageData = activeJob && currentImageIndex !== -1 ? activeJob.photos[currentImageIndex] : null;
-  const StatusIndicator: React.FC<{ status: PhotoLogJob['submissionStatus'], message?: string }> = ({ status, message }) => {
-    if (status === 'idle' || !message) return null;
-    if (status === 'sending') return <span className="text-xs text-sky-400 animate-pulse">{message}</span>;
-    if (status === 'success') return <span className="text-xs text-green-400">✅ {message}</span>;
-    if (status === 'error') return <span className="text-xs text-red-400" title={message}>❌ {message.length > 30 ? message.substring(0, 27) + '...' : message}</span>;
-    return null;
-  };
-  
+  // FIX: Add the missing JSX return statement.
   return (
-    <div className="w-full max-w-4xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
+    <div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">{pageTitle}</h2>
-      
+  
       {jobs.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
           <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
             {jobs.map(job => (
-              <div key={job.id}
-                   className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
-              >
-                 <div className="flex justify-between items-center">
-                    <div className="flex-grow cursor-pointer" onClick={() => setActiveJobId(job.id)}>
-                        <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>{job.receiptNumber} / {job.selectedItem}</span>
-                    </div>
-                     <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteJob(job.id);
-                        }}
-                        className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0"
-                        title="이 작업 삭제"
-                        aria-label={`'${job.receiptNumber}' 작업 삭제`}
-                    >
-                        <TrashIcon />
-                    </button>
-                 </div>
-                 <div className="mt-1 text-right cursor-pointer" onClick={() => setActiveJobId(job.id)}>
-                    <StatusIndicator status={job.submissionStatus} message={job.submissionMessage} />
-                 </div>
+              <div key={job.id} onClick={() => setActiveJobId(job.id)}
+                className={`p-2.5 rounded-md cursor-pointer transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}>
+                <div className="flex justify-between items-center">
+                  <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>
+                    {job.receiptNumber} / {job.selectedItem}
+                  </span>
+                  <button onClick={(e) => { e.stopPropagation(); onDeleteJob(job.id); }} className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0" aria-label="작업 삭제">
+                    <TrashIcon />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
-
+  
       {!activeJob && jobs.length > 0 && <p className="text-center text-slate-400 p-4">계속하려면 위 목록에서 작업을 선택하세요.</p>}
       {!activeJob && jobs.length === 0 && <p className="text-center text-slate-400 p-4">시작하려면 '공통 정보 및 작업 관리' 섹션에서 작업을 추가하세요.</p>}
-
+  
       {activeJob && (
         <div className="space-y-4 pt-4 border-t border-slate-700">
-          {isCameraOpen ? ( <CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} /> ) : (
-            <>
-              <ImageInput onImagesSet={handleImagesSet} onOpenCamera={handleOpenCamera} isLoading={isControlsDisabled} ref={fileInputRef} selectedImageCount={activeJob.photos.length} />
-              {representativeImageData && ( <ImagePreview imageBase64={representativeImageData.base64} fileName={representativeImageData.file.name} mimeType={representativeImageData.mimeType} receiptNumber={activeJob.receiptNumber} siteLocation={siteLocation} item={activeJob.selectedItem} showOverlay={true} totalSelectedImages={activeJob.photos.length} currentImageIndex={currentImageIndex} onDelete={() => handleDeleteImage(currentImageIndex)} /> )}
-              <ThumbnailGallery images={activeJob.photos} currentIndex={currentImageIndex} onSelectImage={setCurrentImageIndex} onDeleteImage={handleDeleteImage} disabled={isControlsDisabled}/>
-            </>
-          )}
-          <OcrControls 
-            onExtract={handleExtractText} 
+          <h3 className="text-lg font-semibold text-slate-100">활성 작업: {activeJob.receiptNumber} / {activeJob.selectedItem}</h3>
+          
+          <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                      <label htmlFor="inspection-start-date" className="block text-sm font-medium text-slate-300 mb-1">검사 시작일 (선택)</label>
+                      <input type="date" id="inspection-start-date" value={activeJob.inspectionStartDate || ''}
+                             onChange={(e) => updateActiveJob(j => ({ ...j, inspectionStartDate: e.target.value }))}
+                             className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm" />
+                  </div>
+                  <div>
+                      <label htmlFor="inspection-end-date" className="block text-sm font-medium text-slate-300 mb-1">검사 종료일 (선택)</label>
+                      <input type="date" id="inspection-end-date" value={activeJob.inspectionEndDate || ''}
+                             onChange={(e) => updateActiveJob(j => ({ ...j, inspectionEndDate: e.target.value }))}
+                             className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm" />
+                  </div>
+              </div>
+               <p className="text-xs text-slate-400">검사 시작/종료일은 AI 분석 시 시간(Time) 값의 날짜 부분을 완성하는 데 사용됩니다.</p>
+          </div>
+  
+          <div className="mt-4 pt-4 border-t border-slate-600 space-y-3">
+              <h4 className="text-md font-semibold text-slate-200">참고 사진 ({activeJob.photos.length}개)</h4>
+              {isCameraOpen ? (
+                  <CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} />
+              ) : (
+                  <>
+                      <ImageInput
+                          onImagesSet={handleImagesSet}
+                          onOpenCamera={handleOpenCamera}
+                          isLoading={isLoading}
+                          ref={fileInputRef}
+                          selectedImageCount={activeJob.photos.length}
+                      />
+                      {currentImageIndex !== -1 && activeJob.photos[currentImageIndex] && (
+                          <ImagePreview
+                              imageBase64={activeJob.photos[currentImageIndex].base64}
+                              fileName={activeJob.photos[currentImageIndex].file.name}
+                              mimeType={activeJob.photos[currentImageIndex].mimeType}
+                              receiptNumber={activeJob.receiptNumber}
+                              item={activeJob.selectedItem}
+                              showOverlay={true}
+                              totalSelectedImages={activeJob.photos.length}
+                              currentImageIndex={currentImageIndex}
+                              onDelete={() => handleDeleteImage(currentImageIndex)}
+                              siteName={siteName}
+                              gpsAddress={siteLocation.replace(siteName, '').replace('()','').trim()}
+                          />
+                      )}
+                      <ThumbnailGallery
+                          images={activeJob.photos}
+                          currentIndex={currentImageIndex}
+                          onSelectImage={setCurrentImageIndex}
+                          onDeleteImage={handleDeleteImage}
+                          disabled={isLoading}
+                      />
+                  </>
+              )}
+          </div>
+          
+          <OcrControls
+            onExtract={handleExtractText}
+            isExtractDisabled={isControlsDisabled || activeJob.photos.length === 0}
             onExtractLogFile={handleExtractFromLogFile}
             isExtractLogFileDisabled={isControlsDisabled || activeJob.photos.length === 0}
-            onClear={resetActiveJobData} 
-            isExtractDisabled={isControlsDisabled || activeJob.photos.length === 0} 
-            isClearDisabled={isControlsDisabled || activeJob.photos.length === 0} 
+            onClear={resetActiveJobData}
+            isClearDisabled={isControlsDisabled || (activeJob.photos.length === 0 && !activeJob.processedOcrData)}
             onDownloadStampedImages={handleDownloadStampedImages}
-            isDownloadStampedDisabled={isControlsDisabled || !activeJob || activeJob.photos.length === 0}
+            isDownloadStampedDisabled={isControlsDisabled || activeJob.photos.length === 0}
             isDownloadingStamped={isDownloadingStamped}
-            onInitiateSendToKtl={handleInitiateSendToKtl} 
-            isClaydoxDisabled={isControlsDisabled || !activeJob.processedOcrData || activeJob.processedOcrData.length === 0 || activeJob.submissionStatus === 'sending'} 
-            isSendingToClaydox={isSendingToClaydox || (activeJob?.submissionStatus === 'sending')}
-            ktlApiCallStatus={ocrControlsKtlStatus} 
-            onAutoAssignIdentifiers={showAutoAssignIdentifiers ? handleAutoAssignIdentifiers : undefined} 
-            isAutoAssignDisabled={isControlsDisabled || !activeJob.processedOcrData || !activeJob.concentrationBoundaries}
+            onInitiateSendToKtl={handleInitiateSendToKtl}
+            isClaydoxDisabled={isControlsDisabled || !activeJob.processedOcrData || activeJob.photos.length === 0 || !siteLocation.trim()}
+            isSendingToClaydox={isSendingToClaydox}
+            ktlApiCallStatus={ocrControlsKtlStatus}
+            onAutoAssignIdentifiers={showAutoAssignIdentifiers ? handleAutoAssignIdentifiers : undefined}
+            isAutoAssignDisabled={isControlsDisabled || !activeJob.processedOcrData}
           />
-          <OcrResultDisplay 
-            ocrData={activeJob.processedOcrData} 
+  
+          {showRangeDifferenceDisplay && (
+            <RangeDifferenceDisplay results={activeJob.rangeDifferenceResults} />
+          )}
+          
+          <OcrResultDisplay
+            ocrData={activeJob.processedOcrData}
             error={processingError}
             isLoading={isLoading}
             contextProvided={!!(activeJob.receiptNumber && siteLocation)}
@@ -1176,47 +1258,45 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             onEntryValueTPChange={(id, val) => handleEntryChange(id, 'valueTP', val)}
             onAddEntry={handleAddEntry}
             onReorderRows={handleReorderRows}
-            availableIdentifiers={IDENTIFIER_OPTIONS}
+            availableIdentifiers={availableIdentifiers}
             tnIdentifiers={availableTnIdentifiers}
             tpIdentifiers={availableTpIdentifiers}
-            rawJsonForCopy={activeJob.processedOcrData ? JSON.stringify(activeJob.processedOcrData, null, 2) : null}
+            rawJsonForCopy={activeJob.draftJsonPreview}
             ktlJsonToPreview={ktlJsonPreview}
-// FIX: The `draftJsonPreview` prop does not exist on the `OcrResultDisplay` component. It has been corrected to `draftJsonToPreview`.
-            draftJsonToPreview={null}
-            decimalPlaces={activeJob.decimalPlaces}
           />
         </div>
       )}
-      {showRangeDifferenceDisplay && activeJob && <RangeDifferenceDisplay results={activeJob.rangeDifferenceResults} />}
-      {jobs.length > 0 && pageType === 'PhotoLog' && (
-        <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
-            <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
-            <p className="text-sm text-slate-400">
-                이 페이지의 모든 작업을 KTL로 전송합니다. 각 작업에 사진과 추출된 데이터가 모두 있어야 합니다.
-            </p>
-            {batchSendProgress && (
-                <div className="p-3 bg-slate-700/50 rounded-md text-sky-300 text-sm flex items-center gap-2">
-                    <Spinner size="sm" />
-                    <span>{batchSendProgress}</span>
-                </div>
-            )}
-            <ActionButton
-                onClick={handleBatchSendToKtl}
-                disabled={isControlsDisabled}
-                fullWidth
-                variant="secondary"
-                className="bg-teal-600 hover:bg-teal-500"
-            >
-                {batchSendProgress ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.length}건)`}
-            </ActionButton>
-        </div>
+  
+      {jobs.length > 0 && (
+      <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
+          <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
+          <p className="text-sm text-slate-400">
+              이 페이지의 모든 작업을 KTL로 전송합니다. 각 작업에 사진과 추출된 데이터가 있어야 합니다.
+          </p>
+          {batchSendProgress && (
+              <div className="p-3 bg-slate-700/50 rounded-md text-sky-300 text-sm flex items-center gap-2">
+                  <Spinner size="sm" />
+                  <span>{batchSendProgress}</span>
+              </div>
+          )}
+          <ActionButton
+              onClick={handleBatchSendToKtl}
+              disabled={isControlsDisabled}
+              fullWidth
+              variant="secondary"
+              className="bg-teal-600 hover:bg-teal-500"
+          >
+              {batchSendProgress ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.length}건)`}
+          </ActionButton>
+      </div>
       )}
+  
       {isKtlPreflightModalOpen && ktlPreflightData && (
-        <KtlPreflightModal 
-            isOpen={isKtlPreflightModalOpen} 
-            onClose={() => setIsKtlPreflightModalOpen(false)} 
-            onConfirm={handleSendToClaydoxConfirmed}
-            preflightData={ktlPreflightData}
+        <KtlPreflightModal
+          isOpen={isKtlPreflightModalOpen}
+          onClose={() => setIsKtlPreflightModalOpen(false)}
+          onConfirm={handleSendToClaydoxConfirmed}
+          preflightData={ktlPreflightData}
         />
       )}
     </div>
