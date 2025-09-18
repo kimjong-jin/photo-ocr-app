@@ -865,14 +865,24 @@ export const sendBatchStructuralChecksToKtlApi = async (
       const zip = new JSZip();
       for (const photo of photosForThisReceipt) {
         try {
-          // *** ZIP에는 원본(base64Original)만 사용 ***
-          const base64ForZip = pickZipBase64(photo);
-          const rawDataUrl = `data:${photo.mimeType};base64,${base64ForZip}`;
-          const rawBlob = dataURLtoBlob(rawDataUrl);
+          // *** ZIP에는 스탬프/리사이즈된 버전 사용 ***
+          const sourceJob = jobs.find((j) => j.id === photo.jobId);
+          const comment = sourceJob?.photoComments[photo.uid];
+          const srcBase64 = (photo as any).base64Stamped || (photo as any).base64 || photo.base64Original || '';
+          const stampedDataUrl = await generateStampedImage(
+            srcBase64,
+            photo.mimeType,
+            photo.jobReceipt,
+            siteNameGlobal,
+            '',
+            photo.jobItemName,
+            comment
+          );
+          const stampedBlob = dataURLtoBlob(stampedDataUrl);
           const fileNameInZip = safeNameWithExt(photo.file.name, photo.mimeType);
-          zip.file(fileNameInZip, rawBlob);
+          zip.file(fileNameInZip, stampedBlob);
         } catch (zipError: any) {
-          console.error(`[ClaydoxAPI - Page 4] Error adding raw photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
+          console.error(`[ClaydoxAPI - Page 4] Error adding stamped photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
         }
       }
       if (Object.keys(zip.files).length > 0) {
@@ -940,18 +950,26 @@ export const sendBatchStructuralChecksToKtlApi = async (
       formDataForAllUploads.append('files', file, file.name);
     });
     try {
-      console.log('[ClaydoxAPI - Page 4] Uploading all files directly to KTL /uploadfiles:', filesToUploadDirectly.map((f) => f.name));
-      await retryKtlApiCall<KtlApiResponseData>(
-        () =>
-          axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formDataForAllUploads, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            timeout: KTL_API_TIMEOUT
-          }),
-        2,
-        2000,
-        'Page 4 All Files Upload (Direct to KTL /uploadfiles)'
-      );
-      console.log('[ClaydoxAPI - Page 4] All files for Page 4 uploaded successfully to KTL /uploadfiles.');
+      console.log('[ClaydoxAPI - Page 4] Uploading files directly to KTL /uploadfiles (batched):', filesToUploadDirectly.map((f) => f.name));
+      const batchSize = 3;
+      for (let i = 0; i < filesToUploadDirectly.length; i += batchSize) {
+        const slice = filesToUploadDirectly.slice(i, i + batchSize);
+        const fd = new FormData();
+        slice.forEach((f) => fd.append('files', f, f.name));
+        await retryKtlApiCall<KtlApiResponseData>(
+          () =>
+            axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, fd, {
+              // 브라우저에서는 Content-Type을 명시하지 않으면 경계(boundary)가 자동 설정됩니다.
+              timeout: Math.max(KTL_API_TIMEOUT, 120000),
+              maxBodyLength: Infinity,
+              maxContentLength: Infinity
+            }),
+          2,
+          2000,
+          `Page 4 Upload batch ${Math.floor(i / batchSize) + 1}`
+        );
+      }
+      console.log('[ClaydoxAPI - Page 4] All file batches for Page 4 uploaded successfully to KTL /uploadfiles.');
     } catch (filesUploadError: any) {
       console.error('[ClaydoxAPI - Page 4] Files upload to KTL /uploadfiles failed:', filesUploadError);
       jobs.forEach((job) => {
