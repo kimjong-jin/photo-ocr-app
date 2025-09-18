@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import MapView from './components/MapView';
 import PhotoLogPage from './PhotoLogPage';
 import type { PhotoLogJob } from './shared/types';
@@ -101,8 +102,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [openSections, setOpenSections] = useState<string[]>(['addTask']);
 
-  const lastFetchRef = useRef<number>(0);
-
   const finalSiteLocation = useMemo(() => {
     const site = siteName.trim();
     const gps = currentGpsAddress.trim();
@@ -118,67 +117,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   }, [siteName, currentGpsAddress]);
 
   const toggleSection = (sectionName: string) => {
-  setOpenSections(prevOpenSections => {
-    const isOpen = prevOpenSections.includes(sectionName);
-    if (isOpen) {
-      return prevOpenSections.filter(s => s !== sectionName);
-    } else {
-      return [...prevOpenSections, sectionName];
-    }
-  });
-};
-
-// ✅ 여기 "toggleSection" 함수 닫힌 뒤에 넣어주세요
-const handleFetchGpsAddress = useCallback(() => {
-  const now = Date.now();
-
-  // ✅ 500ms 이내 재클릭 방지
-  if (now - lastFetchRef.current < 500) {
-    console.log("🚫 너무 빠른 재클릭 → 요청 무시");
-    return;
-  }
-  lastFetchRef.current = now;
-
-  setIsFetchingAddress(true);
-  setCurrentGpsAddress("주소 찾는 중...");
-
-  if (!navigator.geolocation) {
-    setCurrentGpsAddress("이 브라우저에서는 GPS를 지원하지 않습니다.");
-    setIsFetchingAddress(false);
-    return;
-  }
-
-  const onSuccess = async (position: GeolocationPosition) => {
-    const { latitude, longitude } = position.coords;
-    setCoords({ lat: latitude, lng: longitude });
-
-    try {
-      const addr = await getKakaoAddress(latitude, longitude);
-      setCurrentGpsAddress(addr);
-    } catch (err: any) {
-      console.error("GPS 주소 오류:", err);
-      setCurrentGpsAddress(`주소 탐색 중 오류 발생: ${err.message}`);
-    } finally {
-      setIsFetchingAddress(false);
-    }
+    setOpenSections(prevOpenSections => {
+      const isOpen = prevOpenSections.includes(sectionName);
+      if (isOpen) {
+        return prevOpenSections.filter(s => s !== sectionName);
+      } else {
+        return [...prevOpenSections, sectionName];
+      }
+    });
   };
-
-  const onError = (error: GeolocationPositionError) => {
-    console.error("Geolocation error:", error);
-    setCurrentGpsAddress(
-      error.code === error.PERMISSION_DENIED
-        ? "GPS 위치 권한이 거부되었습니다."
-        : "GPS 위치를 가져올 수 없습니다."
-    );
-    setIsFetchingAddress(false);
-  };
-
-  navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-    enableHighAccuracy: true,
-    timeout: 10000,
-    maximumAge: 0,
-  });
-}, []);
 
   const handleDeletePhotoLogJob = useCallback((jobIdToDelete: string) => {
     setPhotoLogJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
@@ -254,12 +201,20 @@ const handleFetchGpsAddress = useCallback(() => {
         const jobsToSaveP4 = structuralCheckJobs.filter(j => j.receiptNumber === receiptToSave);
         const jobsToSaveP6 = csvGraphJobs.filter(j => j.receiptNumber === receiptToSave);
         
+        const allP1P2JobsForDate = [...photoLogJobs, ...fieldCountJobs].filter(j => j.receiptNumber === receiptToSave);
+        const firstJobWithDates = allP1P2JobsForDate.find(j => j.inspectionStartDate);
+
+        const inspectionStartDateToSave = firstJobWithDates?.inspectionStartDate;
+        const inspectionEndDateToSave = firstJobWithDates?.inspectionEndDate;
+
         const allItems = new Set<string>();
         const apiPayload: SaveDataPayload['values'] = {};
         
         const globalMetadata = {
             site: siteName,
             gps_address: currentGpsAddress.trim() || undefined,
+            inspectionStartDate: inspectionStartDateToSave,
+            inspectionEndDate: inspectionEndDateToSave,
         };
         apiPayload['_global_metadata'] = {
             data: {
@@ -410,6 +365,9 @@ const handleFetchGpsAddress = useCallback(() => {
 
         let loadedSite = site;
         let loadedGpsAddress = gps_address || "";
+        let loadedInspectionStartDate: string | undefined = undefined;
+        let loadedInspectionEndDate: string | undefined = undefined;
+
 
         const globalMetadataRecord = values?._global_metadata;
         const globalMetadataEntry = globalMetadataRecord?.['data'];
@@ -421,6 +379,12 @@ const handleFetchGpsAddress = useCallback(() => {
                 }
                 if (typeof parsedMeta.gps_address === 'string') {
                     loadedGpsAddress = parsedMeta.gps_address;
+                }
+                if (typeof parsedMeta.inspectionStartDate === 'string' && parsedMeta.inspectionStartDate) {
+                    loadedInspectionStartDate = parsedMeta.inspectionStartDate;
+                }
+                if (typeof parsedMeta.inspectionEndDate === 'string' && parsedMeta.inspectionEndDate) {
+                    loadedInspectionEndDate = parsedMeta.inspectionEndDate;
                 }
             } catch (e) {
                 console.warn("[LOAD] Global metadata parsing failed:", e);
@@ -506,7 +470,7 @@ const handleFetchGpsAddress = useCallback(() => {
                     }
                 });
             }
-            return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, siteLocation: site, selectedItem: itemName, photos: [], photoComments: {}, processedOcrData: reconstructedOcrData, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', decimalPlacesCl: undefined, ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined };
+            return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, siteLocation: site, selectedItem: itemName, photos: [], photoComments: {}, processedOcrData: reconstructedOcrData, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', decimalPlacesCl: undefined, ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined, inspectionStartDate: loadedInspectionStartDate, inspectionEndDate: loadedInspectionEndDate };
         };
 
         const createDrinkingWaterJob = (itemName: string, data: LoadedData): DrinkingWaterJob => {
@@ -572,7 +536,7 @@ const handleFetchGpsAddress = useCallback(() => {
         const newP3Jobs: DrinkingWaterJob[] = allSelections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
         if (newP3Jobs.length > 0) {
             setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
-            if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
+            if (activePage === 'drinkingWater') setActivePhotoLogJobId(newP3Jobs[0]?.id || null);
         }
     
         const newP4Jobs = allSelections.structuralCheck.map(itemName => {
@@ -703,6 +667,51 @@ const handleFetchGpsAddress = useCallback(() => {
     }
     setNewItemKey('');
   }, [newItemKey, receiptNumber, receiptNumberCommon, receiptNumberDetail, activePage, finalSiteLocation]);
+
+  const handleFetchGpsAddress = useCallback(() => {
+    setIsFetchingAddress(true);
+    setCurrentGpsAddress("주소 찾는 중...");
+
+    if (!navigator.geolocation) {
+      setCurrentGpsAddress("이 브라우저에서는 GPS를 지원하지 않습니다.");
+      setIsFetchingAddress(false);
+      return;
+    }
+
+    const onSuccess = async (position: GeolocationPosition) => {
+      const { latitude, longitude } = position.coords;
+      setCoords({ lat: latitude, lng: longitude });
+
+      try {
+        const addr = await getKakaoAddress(latitude, longitude);
+        setCurrentGpsAddress(addr);
+      } catch (err: any) {
+        console.error("GPS 주소 오류:", err);
+        setCurrentGpsAddress(`주소 탐색 중 오류 발생: ${err.message}`);
+      } finally {
+        setIsFetchingAddress(false);
+      }
+    };
+
+    const onError = (error: GeolocationPositionError) => {
+      console.error(
+        "Geolocation error:",
+        `Code: ${error.code}, Message: ${error.message}`
+      );
+      setCurrentGpsAddress(
+        error.code === error.PERMISSION_DENIED
+          ? "GPS 위치 권한이 거부되었습니다."
+          : "GPS 위치를 가져올 수 없습니다."
+      );
+      setIsFetchingAddress(false);
+    };
+
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0,
+    });
+  }, []);
 
   const itemOptionsForNewTask = useMemo(() => {
     if (activePage === 'photoLog') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
@@ -950,6 +959,7 @@ const handleFetchGpsAddress = useCallback(() => {
                     <MapView
                         latitude={coords.lat}
                         longitude={coords.lng}
+                        address={currentGpsAddress}
                         onAddressSelect={(addr, lat, lng) => {
                           setCurrentGpsAddress(addr);
                           setCoords({ lat, lng });
