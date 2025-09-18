@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { ActionButton } from './ActionButton';
 import { ImageInfo } from './ImageInput';
@@ -35,9 +36,9 @@ const KtlPreflightModal: React.FC<KtlPreflightModalProps> = ({
   }
 
   const { jsonPayload, fileNames, context } = preflightData;
+  const rn = (context?.receiptNumber ?? '').toLowerCase();
   const isSpecificReceiptPreview =
-    !context.receiptNumber.toLowerCase().includes('일괄 작업') &&
-    !context.receiptNumber.toLowerCase().includes('batch');
+    rn !== '' && !rn.includes('일괄 작업') && !rn.includes('batch');
 
   const copyToClipboard = async (
     text: string | null | undefined,
@@ -153,21 +154,24 @@ const KtlPreflightModal: React.FC<KtlPreflightModalProps> = ({
                 variant="secondary"
                 className="text-xs py-1 px-2"
                 aria-label="KTL JSON 데이터 클립보드에 복사"
-                disabled={!jsonPayload || /^\s*$/.test(jsonPayload)}
+                disabled={
+                  !jsonPayload ||
+                  jsonPayload.startsWith('표시할 JSON 예시가 없습니다')
+                }
               >
                 JSON 복사
               </ActionButton>
             </div>
             <pre className="bg-slate-900 p-3 rounded-md text-xs text-slate-300 overflow-x-auto max-h-60 border border-slate-700">
-              {jsonPayload || '표시할 JSON 예시가 없습니다.'}
+              {jsonPayload}
             </pre>
-            {(!jsonPayload || /^\s*$/.test(jsonPayload)) && (
+            {jsonPayload?.startsWith('표시할 JSON 예시가 없습니다') && (
               <p className="text-xs text-slate-400 mt-1">
                 참고: 현재 작업에 대한 JSON 예시를 생성할 수 없습니다. 데이터를
                 확인하세요.
               </p>
             )}
-            {(!!jsonPayload && !/^\s*$/.test(jsonPayload)) && (
+            {!jsonPayload?.startsWith('표시할 JSON 예시가 없습니다') && (
               <p className="text-xs text-slate-400 mt-1">
                 참고: 전체 일괄 작업이 KTL 서버로 전송됩니다.
                 {isSpecificReceiptPreview
