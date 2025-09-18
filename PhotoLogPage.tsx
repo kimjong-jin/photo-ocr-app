@@ -1,3 +1,4 @@
+
 import React from 'react';
 import AnalysisPage from './components/analysis/AnalysisPage';
 import type { PhotoLogJob } from './shared/types';
@@ -9,6 +10,9 @@ interface PhotoLogPageProps {
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
   onDeleteJob: (jobId: string) => void;
+  // FIX: Add missing siteName and siteLocation props required by AnalysisPage
+  siteName: string;
+  siteLocation: string;
 }
 
 const PhotoLogPage: React.FC<PhotoLogPageProps> = (props) => {
