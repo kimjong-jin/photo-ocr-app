@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import MapView from './components/MapView';
 import PhotoLogPage from './PhotoLogPage';
 import type { PhotoLogJob } from './shared/types';
