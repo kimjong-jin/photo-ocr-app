@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
@@ -346,7 +347,7 @@ return;
 const finalSiteLocationForData = formatSite(siteLocation, activeJob.details);
 
 setKtlPreflightData({
-  jsonPayload: ktlJsonPreview || "JSON 미리보기를 생성할 수 없습니다.",
+  jsonPayload: ktlJsonPreview || "",
   fileNames: hypotheticalKtlFileNamesForPreview,
   context: {
     receiptNumber: activeJob.receiptNumber,
@@ -719,6 +720,14 @@ return (
                 }}
             />
         )}
+       {isKtlPreflightModalOpen && ktlPreflightData && (
+         <KtlPreflightModal
+            isOpen={isKtlPreflightModalOpen}
+            onClose={() => setIsKtlPreflightModalOpen(false)}
+            onConfirm={handleSendToClaydoxConfirmed}
+            preflightData={ktlPreflightData}
+         />
+       )}
     </div>
   )}
 </div>
