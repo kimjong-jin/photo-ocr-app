@@ -538,18 +538,18 @@ const constructMergedLabviewItemForStructural = (
       }
 
       if (checklistItemName !== '기기번호 확인') {
-        let statusForKtl: string;
-        if (data.status === '선택 안됨') {
-          statusForKtl = '';
-        } else if (data.status === '적합') {
-          statusForKtl = '적 합';
-        } else {
-          statusForKtl = data.status;
-        }
-        mergedItems[`${baseKeyForData}_상태`] = statusForKtl;
+        if (data.status && data.status !== '선택 안됨') {
+          let statusForKtl: string;
+          if (data.status === '적합') {
+            statusForKtl = '적 합';
+          } else { // '부적합'
+            statusForKtl = data.status;
+          }
+          mergedItems[`${baseKeyForData}_상태`] = statusForKtl;
 
-        if (data.confirmedAt && data.confirmedAt.trim() !== '') {
-          mergedItems[`${baseKeyForData}_확인일시`] = data.confirmedAt.trim();
+          if (data.confirmedAt && data.confirmedAt.trim() !== '') {
+            mergedItems[`${baseKeyForData}_확인일시`] = data.confirmedAt.trim();
+          }
         }
       }
 
@@ -928,10 +928,15 @@ export const sendBatchStructuralChecksToKtlApi = async (
     const relatedJobStrict = payloadsForKtlService.find((jp) => {
       const receiptSanitized = sanitizeFilename(jp.receiptNumber);
       let itemPartForFilename = '';
-      if (jp.mainItemKey === 'TN') itemPartForFilename = '';
-      else if (jp.mainItemKey === 'TP') itemPartForFilename = 'P';
-      else if (jp.mainItemKey === 'Cl') itemPartForFilename = 'C';
-      else itemPartForFilename = sanitizeFilename(jp.mainItemKey);
+      if (jp.mainItemKey === 'TN') {
+        // 그대로 사용
+      } else if (jp.mainItemKey === 'TP') {
+        itemPartForFilename = 'P';
+      } else if (jp.mainItemKey === 'Cl') {
+        itemPartForFilename = 'C';
+      } else {
+        itemPartForFilename = sanitizeFilename(jp.mainItemKey);
+      }
 
       const expectedFilename = `${receiptSanitized}${itemPartForFilename ? `_${itemPartForFilename}` : ''}_checklist.png`;
       return chkImgInfo.file.name === expectedFilename;
