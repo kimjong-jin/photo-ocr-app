@@ -9,6 +9,9 @@ interface FieldCountPageProps {
   activeJobId: string | null;
   setActiveJobId: (id: string | null) => void;
   onDeleteJob: (jobId: string) => void;
+  // FIX: Add missing siteName and siteLocation props required by AnalysisPage
+  siteName: string;
+  siteLocation: string;
 }
 
 const FieldCountPage: React.FC<FieldCountPageProps> = (props) => {
@@ -18,7 +21,7 @@ const FieldCountPage: React.FC<FieldCountPageProps> = (props) => {
       pageTitle="현장 계수 (P2)"
       pageType="FieldCount"
       showRangeDifferenceDisplay={true}
-      showAutoAssignIdentifiers={true}
+      showAutoAssignIdentifiers={false}
     />
   );
 };
