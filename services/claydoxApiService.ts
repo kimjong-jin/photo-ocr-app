@@ -865,24 +865,14 @@ export const sendBatchStructuralChecksToKtlApi = async (
       const zip = new JSZip();
       for (const photo of photosForThisReceipt) {
         try {
-          // *** ZIP에는 스탬프/리사이즈된 버전 사용 ***
-          const sourceJob = jobs.find((j) => j.id === photo.jobId);
-          const comment = sourceJob?.photoComments[photo.uid];
-          const srcBase64 = (photo as any).base64Stamped || (photo as any).base64 || photo.base64Original || '';
-          const stampedDataUrl = await generateStampedImage(
-            srcBase64,
-            photo.mimeType,
-            photo.jobReceipt,
-            siteNameGlobal,
-            '',
-            photo.jobItemName,
-            comment
-          );
-          const stampedBlob = dataURLtoBlob(stampedDataUrl);
+          // *** ZIP에는 원본(base64Original)만 사용 ***
+          const base64ForZip = pickZipBase64(photo);
+          const rawDataUrl = `data:${photo.mimeType};base64,${base64ForZip}`;
+          const rawBlob = dataURLtoBlob(rawDataUrl);
           const fileNameInZip = safeNameWithExt(photo.file.name, photo.mimeType);
-          zip.file(fileNameInZip, stampedBlob);
+          zip.file(fileNameInZip, rawBlob);
         } catch (zipError: any) {
-          console.error(`[ClaydoxAPI - Page 4] Error adding stamped photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
+          console.error(`[ClaydoxAPI - Page 4] Error adding raw photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
         }
       }
       if (Object.keys(zip.files).length > 0) {
@@ -945,38 +935,25 @@ export const sendBatchStructuralChecksToKtlApi = async (
   });
 
   if (filesToUploadDirectly.length > 0) {
-    console.log('[ClaydoxAPI - Page 4] Uploading files (sequential, timeout:0):', filesToUploadDirectly.map(f => f.name));
+    const formDataForAllUploads = new FormData();
+    filesToUploadDirectly.forEach((file) => {
+      formDataForAllUploads.append('files', file, file.name);
+    });
     try {
-      const SLEEP = (ms: number) => new Promise((r) => setTimeout(r, ms));
-      for (let idx = 0; idx < filesToUploadDirectly.length; idx++) {
-        const file = filesToUploadDirectly[idx];
-        const fd = new FormData();
-        fd.append('files', file, file.name);
-        const label = `Page 4 Upload ${idx + 1}/${filesToUploadDirectly.length}`;
-        await retryKtlApiCall<KtlApiResponseData>(
-          () =>
-            axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, fd, {
-              timeout: 0,                  // << 타임아웃 해제 (브라우저 XHR)
-              maxBodyLength: Infinity,
-              maxContentLength: Infinity,
-              onUploadProgress: (e) => {
-                if (e.total) {
-                  const pct = Math.round((e.loaded / e.total) * 100);
-                  if (pct === 100) {
-                    console.log(`[ClaydoxAPI - Page 4] ${label} sent (${e.total} bytes)`);
-                  }
-                }
-              }
-            }),
-          2,
-          1000,
-          label
-        );
-        await SLEEP(500); // << 요청 사이 간격 주기(중간 장비/서버 부담 완화)
-      }
-      console.log('[ClaydoxAPI - Page 4] All files uploaded (sequential).');
+      console.log('[ClaydoxAPI - Page 4] Uploading all files directly to KTL /uploadfiles:', filesToUploadDirectly.map((f) => f.name));
+      await retryKtlApiCall<KtlApiResponseData>(
+        () =>
+          axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formDataForAllUploads, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: KTL_API_TIMEOUT
+          }),
+        2,
+        2000,
+        'Page 4 All Files Upload (Direct to KTL /uploadfiles)'
+      );
+      console.log('[ClaydoxAPI - Page 4] All files for Page 4 uploaded successfully to KTL /uploadfiles.');
     } catch (filesUploadError: any) {
-      console.error('[ClaydoxAPI - Page 4] Files upload failed:', filesUploadError);
+      console.error('[ClaydoxAPI - Page 4] Files upload to KTL /uploadfiles failed:', filesUploadError);
       jobs.forEach((job) => {
         if (!results.find((r) => r.receiptNo === job.receiptNumber && (MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey) === r.mainItem)) {
           results.push({
