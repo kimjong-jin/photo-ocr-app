@@ -40,4 +40,6 @@ export interface PhotoLogJob {
   draftJsonPreview: string | null;
   submissionStatus: 'idle' | 'sending' | 'success' | 'error';
   submissionMessage?: string;
+  inspectionStartDate?: string;
+  inspectionEndDate?: string;
 }
