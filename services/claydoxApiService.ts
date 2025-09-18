@@ -945,29 +945,36 @@ export const sendBatchStructuralChecksToKtlApi = async (
   });
 
   if (filesToUploadDirectly.length > 0) {
-    console.log('[ClaydoxAPI - Page 4] Uploading files (concurrency x4):', filesToUploadDirectly.map(f => f.name));
+    console.log('[ClaydoxAPI - Page 4] Uploading files (sequential, timeout:0):', filesToUploadDirectly.map(f => f.name));
     try {
-      const CONCURRENCY = 4;
-      for (let i = 0; i < filesToUploadDirectly.length; i += CONCURRENCY) {
-        const slice = filesToUploadDirectly.slice(i, i + CONCURRENCY);
-        await Promise.all(slice.map((file, k) => {
-          const fd = new FormData();
-          fd.append('files', file, file.name);
-          const label = `Page 4 Upload ${i + k + 1}/${filesToUploadDirectly.length}`;
-          return retryKtlApiCall<KtlApiResponseData>(
-            () =>
-              axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, fd, {
-                timeout: 0,
-                maxBodyLength: Infinity,
-                maxContentLength: Infinity
-              }),
-            2,
-            2000,
-            label
-          );
-        }));
+      const SLEEP = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      for (let idx = 0; idx < filesToUploadDirectly.length; idx++) {
+        const file = filesToUploadDirectly[idx];
+        const fd = new FormData();
+        fd.append('files', file, file.name);
+        const label = `Page 4 Upload ${idx + 1}/${filesToUploadDirectly.length}`;
+        await retryKtlApiCall<KtlApiResponseData>(
+          () =>
+            axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, fd, {
+              timeout: 0,                  // << 타임아웃 해제 (브라우저 XHR)
+              maxBodyLength: Infinity,
+              maxContentLength: Infinity,
+              onUploadProgress: (e) => {
+                if (e.total) {
+                  const pct = Math.round((e.loaded / e.total) * 100);
+                  if (pct === 100) {
+                    console.log(`[ClaydoxAPI - Page 4] ${label} sent (${e.total} bytes)`);
+                  }
+                }
+              }
+            }),
+          2,
+          1000,
+          label
+        );
+        await SLEEP(500); // << 요청 사이 간격 주기(중간 장비/서버 부담 완화)
       }
-      console.log('[ClaydoxAPI - Page 4] All files uploaded (parallel).');
+      console.log('[ClaydoxAPI - Page 4] All files uploaded (sequential).');
     } catch (filesUploadError: any) {
       console.error('[ClaydoxAPI - Page 4] Files upload failed:', filesUploadError);
       jobs.forEach((job) => {
