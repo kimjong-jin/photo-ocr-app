@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { ActionButton } from './ActionButton';
 
@@ -13,6 +14,8 @@ interface ImagePreviewProps {
   currentImageIndex?: number;
   onDelete?: () => void;
   siteName?: string; // JPG 오버레이용
+  // FIX: Add gpsAddress prop to accept GPS coordinates/address string.
+  gpsAddress?: string;
 }
 
 const DeleteIcon: React.FC = () => (
@@ -44,10 +47,12 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   currentImageIndex,
   onDelete,
   siteName,
+  gpsAddress,
 }) => {
   if (!imageBase64) return null;
 
   const src = `data:${mimeType};base64,${imageBase64}`;
+  const locationText = [siteName, gpsAddress && `(${gpsAddress})`].filter(Boolean).join(' ');
 
   return (
     <div className="mt-6">
@@ -71,7 +76,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
         {showOverlay && (
           <div className="absolute top-2 right-2 bg-black/70 text-white text-xs p-2 rounded-md shadow-lg">
             {receiptNumber && <p><strong>접수번호:</strong> {receiptNumber}</p>}
-            {siteName && <p><strong>현장:</strong> {siteName}</p>}
+            {locationText && <p><strong>현장:</strong> {locationText}</p>}
             {item && <p><strong>항목:</strong> {item}</p>}
             {comment && (
               <p className="text-yellow-300"><strong>코멘트:</strong> {comment}</p>
