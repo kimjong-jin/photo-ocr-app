@@ -369,7 +369,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
         return;
     }
 
-    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "전송 중..." }));
+    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(1/4) 전송 준비 중..." }));
 
     const finalSiteLocationForData = formatSite(siteLocation, activeJob.details);
     const finalSiteLocationForDesc = formatSite(siteName, activeJob.details);
@@ -392,10 +392,10 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
     try {
         let dataTableFile: File | null = null;
         if (snapshotHostRef.current) {
+            updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(2/4) 데이터 테이블 이미지 생성 중..." }));
             const snapshotRoot = createRoot(snapshotHostRef.current);
             await new Promise<void>(resolve => {
                 snapshotRoot.render(<DrinkingWaterSnapshot job={activeJob} siteLocation={siteLocation} />);
-                // A short timeout to ensure React has rendered the component.
                 setTimeout(resolve, 100);
             });
 
@@ -407,11 +407,11 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
                 const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
                 dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
             }
-            // Unmount the component after capture to clean up.
             snapshotRoot.unmount();
         }
 
         if (activeJob.photos.length > 0) {
+            updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(3/4) 보고서 및 압축 파일 생성 중..." }));
             const imageInfosForComposite = activeJob.photos.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
             const baseName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}`;
 
@@ -451,7 +451,8 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
             filesToUpload.push(dataTableFile);
             actualKtlFileNames.push(dataTableFile.name);
         }
-
+        
+        updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(4/4) KTL 서버로 업로드 중..." }));
         const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, actualKtlFileNames);
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
     } catch (error: any) {
