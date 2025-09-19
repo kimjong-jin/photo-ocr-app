@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ImageInput, ImageInfo as BaseImageInfo } from '../ImageInput';
 import { CameraView } from '../CameraView';
@@ -1130,9 +1131,16 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     setTimeout(() => setBatchSendProgress(null), 5000);
   };
 
-  const isControlsDisabled = isLoading || isDownloadingStamped || isSendingToClaydox || !!batchSendProgress;
+  const isControlsDisabled = isLoading || isDownloadingStamped || isSendingToClaydox || !!batchSendProgress || activeJob?.submissionStatus === 'sending';
 
-  // FIX: Add the missing JSX return statement.
+  const StatusIndicator: React.FC<{ status: PhotoLogJob['submissionStatus'], message?: string }> = ({ status, message }) => {
+    if (status === 'idle' || !message) return null;
+    if (status === 'sending') return <span className="text-xs text-sky-400 animate-pulse">{message}</span>;
+    if (status === 'success') return <span className="text-xs text-green-400">✅ {message}</span>;
+    if (status === 'error') return <span className="text-xs text-red-400" title={message}>❌ {message.length > 30 ? message.substring(0, 27) + '...' : message}</span>;
+    return null;
+  };
+
   return (
     <div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">{pageTitle}</h2>
@@ -1142,15 +1150,27 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
           <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
             {jobs.map(job => (
-              <div key={job.id} onClick={() => setActiveJobId(job.id)}
-                className={`p-2.5 rounded-md cursor-pointer transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}>
+              <div
+                key={job.id}
+                className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
+              >
                 <div className="flex justify-between items-center">
-                  <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>
-                    {job.receiptNumber} / {job.selectedItem}
-                  </span>
-                  <button onClick={(e) => { e.stopPropagation(); onDeleteJob(job.id); }} className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0" aria-label="작업 삭제">
-                    <TrashIcon />
-                  </button>
+                    <div className="flex-grow cursor-pointer" onClick={() => setActiveJobId(job.id)}>
+                        <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>
+                            {job.receiptNumber} / {job.selectedItem}
+                        </span>
+                    </div>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onDeleteJob(job.id); }}
+                        className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0"
+                        aria-label={`${job.receiptNumber} 작업 삭제`}
+                        disabled={isControlsDisabled}
+                    >
+                        <TrashIcon />
+                    </button>
+                </div>
+                <div className="mt-1 text-right cursor-pointer" onClick={() => setActiveJobId(job.id)}>
+                    <StatusIndicator status={job.submissionStatus} message={job.submissionMessage} />
                 </div>
               </div>
             ))}
@@ -1234,7 +1254,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             isDownloadingStamped={isDownloadingStamped}
             onInitiateSendToKtl={handleInitiateSendToKtl}
             isClaydoxDisabled={isControlsDisabled || !activeJob.processedOcrData || activeJob.photos.length === 0 || !siteLocation.trim()}
-            isSendingToClaydox={isSendingToClaydox}
+            isSendingToClaydox={isSendingToClaydox || activeJob.submissionStatus === 'sending'}
             ktlApiCallStatus={ocrControlsKtlStatus}
             onAutoAssignIdentifiers={showAutoAssignIdentifiers ? handleAutoAssignIdentifiers : undefined}
             isAutoAssignDisabled={isControlsDisabled || !activeJob.processedOcrData}
