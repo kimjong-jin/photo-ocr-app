@@ -30,6 +30,7 @@ import {
   dataURLtoBlob,
   generateStampedImage,
   CompositeImageInput,
+  compressImage,
 } from '../../services/imageStampingService';
 import { autoAssignIdentifiersByConcentration } from '../../services/identifierAutomationService';
 import type {
@@ -1021,7 +1022,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                 item: activeJob.selectedItem,
                 inspectionStartDate: activeJob.inspectionStartDate || ''
             };
-            const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails);
+            const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails, { quality: 0.7 });
 
 
             a4PageDataUrls.forEach((dataUrl, index) => {
@@ -1037,9 +1038,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const zip = new JSZip();
         for (let i = 0; i < activeJob.photos.length; i++) {
             const imageInfo = activeJob.photos[i];
-            const originalDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
-            const fileNameInZip = `${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`;
-            zip.file(fileNameInZip, dataURLtoBlob(originalDataUrl));
+            const compressedDataUrl = await compressImage(imageInfo.base64, imageInfo.mimeType);
+            const fileNameInZip = `${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.jpg`;
+            zip.file(fileNameInZip, dataURLtoBlob(compressedDataUrl));
         }
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
@@ -1100,7 +1101,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                     item: job.selectedItem,
                     inspectionStartDate: job.inspectionStartDate || ''
                 };
-                const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails);
+                const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails, { quality: 0.7 });
     
                 a4PageDataUrls.forEach((dataUrl, index) => {
                     const pageNum = (index + 1).toString().padStart(2, '0');
@@ -1113,9 +1114,9 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             const zip = new JSZip();
             for (let i = 0; i < job.photos.length; i++) {
                 const imageInfo = job.photos[i];
-                const originalDataUrl = `data:${imageInfo.mimeType};base64,${imageInfo.base64}`;
-                const fileNameInZip = `${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`;
-                zip.file(fileNameInZip, dataURLtoBlob(originalDataUrl));
+                const compressedDataUrl = await compressImage(imageInfo.base64, imageInfo.mimeType);
+                const fileNameInZip = `${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.jpg`;
+                zip.file(fileNameInZip, dataURLtoBlob(compressedDataUrl));
             }
             const zipBlob = await zip.generateAsync({ type: "blob" });
             const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
