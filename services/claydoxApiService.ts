@@ -462,9 +462,9 @@ const constructMergedLabviewItemForStructural = (
       // Default logic for all items
       let baseKeyForData = `구조_${sanitizedChecklistItemName}`;
       if (payload.mainItemKey === 'TP') {
-        baseKeyForData = `구조_${sanitizedChecklistItemName}P`;
+        baseKeyForData = `구조P_${sanitizedChecklistItemName}`;
       } else if (payload.mainItemKey === 'Cl') {
-        baseKeyForData = `구조_${sanitizedChecklistItemName}C`;
+        baseKeyForData = `구조C_${sanitizedChecklistItemName}`;
       }
 
       if (checklistItemName !== '기기번호 확인') {
@@ -1076,7 +1076,6 @@ export const sendBatchStructuralChecksToKtlApi = async (
     const dynamicLabviewGubn = `구조_${uniqueMainItemKeys.join(',')}`;
 
     const finalKtlJsonObject = {
-// FIX: Correct typo from `dynamicLabviewGub` to `dynamicLabviewGubn`.
       LABVIEW_GUBN: dynamicLabviewGubn,
       LABVIEW_DESC: JSON.stringify(labviewDescObject),
       LABVIEW_RECEIPTNO: receiptNo,
