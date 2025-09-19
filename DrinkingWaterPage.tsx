@@ -733,6 +733,7 @@ return (
         onInitiateSendToKtl={handleInitiateSendToKtl}
         isClaydoxDisabled={isClaydoxDisabled}
         isSendingToClaydox={activeJob.submissionStatus === 'sending'}
+        sendingMessage={activeJob.submissionMessage}
         ktlApiCallStatus={ocrControlsKtlStatus}
       />
 
