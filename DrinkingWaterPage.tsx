@@ -12,7 +12,7 @@ import { ImageInput, ImageInfo } from './components/ImageInput';
 import { CameraView } from './components/CameraView';
 import { ImagePreview } from './components/ImagePreview';
 import { ThumbnailGallery } from './components/ThumbnailGallery';
-import { generateCompositeImage, generateStampedImage, dataURLtoBlob } from './services/imageStampingService';
+import { generateCompositeImage, generateStampedImage, dataURLtoBlob, compressImage } from './services/imageStampingService';
 import JSZip from 'jszip';
 import html2canvas from 'html2canvas';
 import { ExtractedEntry } from './shared/types';
@@ -418,7 +418,8 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
             const compositeDataUrl = await generateCompositeImage(
                 imageInfosForComposite,
                 { receiptNumber: activeJob.receiptNumber, siteLocation: finalSiteLocationForData, item: activeJob.selectedItem },
-                'image/jpeg'
+                'image/jpeg',
+                0.7
             );
             const compositeBlob = dataURLtoBlob(compositeDataUrl);
             const compositeKtlFileName = `${baseName}_composite.jpg`;
@@ -432,8 +433,9 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
                 const stampedDataUrl = await generateStampedImage(
                     imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, finalSiteLocationForData, '', activeJob.selectedItem
                 );
-                const stampedBlob = dataURLtoBlob(stampedDataUrl);
-                const extension = 'png';
+                const compressedDataUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
+                const stampedBlob = dataURLtoBlob(compressedDataUrl);
+                const extension = 'jpg';
                 const fileNameInZip = `${baseName}_${i + 1}.${extension}`;
                 zip.file(fileNameInZip, stampedBlob);
             }
@@ -516,7 +518,7 @@ const handleBatchSendToKtl = async () => {
 
             if (job.photos.length > 0) {
                 const baseName = `${job.receiptNumber}_먹는물_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}`;
-                const compositeDataUrl = await generateCompositeImage(job.photos, { receiptNumber: job.receiptNumber, siteLocation: finalSiteLocationForData, item: job.selectedItem }, 'image/jpeg');
+                const compositeDataUrl = await generateCompositeImage(job.photos, { receiptNumber: job.receiptNumber, siteLocation: finalSiteLocationForData, item: job.selectedItem }, 'image/jpeg', 0.7);
                 const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
                 filesToUpload.push(compositeFile);
                 actualKtlFileNames.push(compositeFile.name);
@@ -524,7 +526,8 @@ const handleBatchSendToKtl = async () => {
                 const zip = new JSZip();
                 for (let i = 0; i < job.photos.length; i++) {
                     const stampedDataUrl = await generateStampedImage(job.photos[i].base64, job.photos[i].mimeType, job.receiptNumber, finalSiteLocationForData, '', job.selectedItem);
-                    zip.file(`${baseName}_${i + 1}.png`, dataURLtoBlob(stampedDataUrl));
+                    const compressedDataUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
+                    zip.file(`${baseName}_${i + 1}.jpg`, dataURLtoBlob(compressedDataUrl));
                 }
                 const zipFile = new File([await zip.generateAsync({ type: "blob" })], `${baseName}_압축.zip`, { type: 'application/zip' });
                 filesToUpload.push(zipFile);
