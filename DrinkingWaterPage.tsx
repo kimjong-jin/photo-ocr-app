@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
@@ -568,7 +569,7 @@ activeJob && activeJob.photos.length > 0 && currentPhotoIndexOfActiveJob !== -1
 : null
 , [activeJob, currentPhotoIndexOfActiveJob]);
 
-const isControlsDisabled = isLoading || isSendingToClaydox || !!batchSendProgress;
+const isControlsDisabled = isLoading || isSendingToClaydox || !!batchSendProgress || activeJob?.submissionStatus === 'sending';
 const isClaydoxDisabled = !activeJob || isControlsDisabled || !siteLocation.trim() || !activeJob.processedOcrData?.some(e => e.value.trim() || (e.valueTP && e.valueTP.trim()));
 
 const StatusIndicator: React.FC<{ status: DrinkingWaterJob['submissionStatus'], message?: string }> = ({ status, message }) => {
