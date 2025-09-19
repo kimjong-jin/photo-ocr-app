@@ -24,7 +24,7 @@ import { CameraView } from './components/CameraView';
 import { ChecklistItemRow } from './components/structural/ChecklistItemRow';
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
-import { sendBatchStructuralChecksToKtlApi, generateStructuralKtlJsonForPreview, generateCompositeImageNameForKtl, generateZipFileNameForKtl } from './services/claydoxApiService';
+import { sendBatchStructuralChecksToKtlApi, generateStructuralKtlJsonForPreview, generateCompositeImageNameForKtl, generateZipFileNameForKtl, sendSingleStructuralCheckToKtlApi } from './services/claydoxApiService';
 import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
 import { ImagePreview } from './components/ImagePreview';
 import { extractTextFromImage } from './services/geminiService';
@@ -754,18 +754,23 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
       return;
     }
     setKtlPreflightModalOpen(false);
-    updateActiveJob(job => ({...job, submissionStatus: 'sending', submissionMessage: '전송 중...'}));
+
+    const onProgress = (message: string) => {
+        updateActiveJob(job => ({ ...job, submissionStatus: 'sending', submissionMessage: message }));
+    };
+
+    onProgress('전송 시작...');
 
     try {
-      const results = await sendBatchStructuralChecksToKtlApi(
-        [activeJob],
-        [ktlPreflightData.generatedChecklistImage],
+      const result = await sendSingleStructuralCheckToKtlApi(
+        activeJob,
+        ktlPreflightData.generatedChecklistImage,
         siteName,
         userName,
         currentGpsAddress,
+        onProgress
       );
 
-      const result = results[0];
       if (result && result.success) {
         updateActiveJob(job => ({...job, submissionStatus: 'success', submissionMessage: result.message}));
       } else {
