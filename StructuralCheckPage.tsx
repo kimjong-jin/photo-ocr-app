@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -874,7 +875,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
         return null;
     };
     
-    const isControlsDisabled = isLoading || isAnalyzingDetail || isRenderingChecklist || !!batchSendProgress;
+    const isControlsDisabled = isLoading || isAnalyzingDetail || isRenderingChecklist || !!batchSendProgress || activeJob?.submissionStatus === 'sending';
     
     const currentMethodOptions = activeJob ? MEASUREMENT_METHOD_OPTIONS[activeJob.mainItemKey] : undefined;
     const currentRangeOptions = activeJob ? MEASUREMENT_RANGE_OPTIONS[activeJob.mainItemKey] : undefined;
