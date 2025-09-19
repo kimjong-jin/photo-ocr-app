@@ -442,7 +442,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
         });
         const finalPhotos = Array.from(uniqueImageMap.values());
         
-        return { ...job, photos: finalPhotos, processedOcrData: null, rangeDifferenceResults: null, submissionStatus: 'idle', submissionMessage: undefined };
+        return { ...job, photos: finalPhotos, submissionStatus: 'idle', submissionMessage: undefined };
     });
     setProcessingError(null);
   }, [activeJob, updateActiveJob]);
@@ -455,7 +455,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     updateActiveJob(job => {
         const newPhotos = [...(job.photos || []), capturedImageInfo];
         setCurrentImageIndex(newPhotos.length - 1);
-        return { ...job, photos: newPhotos, processedOcrData: null, rangeDifferenceResults: null, submissionStatus: 'idle', submissionMessage: undefined };
+        return { ...job, photos: newPhotos, submissionStatus: 'idle', submissionMessage: undefined };
     });
     setIsCameraOpen(false);
     setProcessingError(null);
