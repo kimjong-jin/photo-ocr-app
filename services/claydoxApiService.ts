@@ -458,14 +458,8 @@ const constructMergedLabviewItemForStructural = (
       }
 
       const sanitizedChecklistItemName = sanitizeFilename(checklistItemName).replace(/_/g, '');
-
-      // Default logic for all items
-      let baseKeyForData = `구조_${sanitizedChecklistItemName}`;
-      if (payload.mainItemKey === 'TP') {
-        baseKeyForData = `구조P_${sanitizedChecklistItemName}`;
-      } else if (payload.mainItemKey === 'Cl') {
-        baseKeyForData = `구조C_${sanitizedChecklistItemName}`;
-      }
+      const keySuffix = payload.mainItemKey === 'TP' ? 'P' : payload.mainItemKey === 'Cl' ? 'C' : '';
+      const baseKeyForData = `구조_${sanitizedChecklistItemName}`;
 
       if (checklistItemName !== '기기번호 확인') {
         let statusForKtl: string;
@@ -476,15 +470,15 @@ const constructMergedLabviewItemForStructural = (
         } else {
           statusForKtl = data.status;
         }
-        mergedItems[`${baseKeyForData}_상태`] = statusForKtl;
+        mergedItems[`${baseKeyForData}${keySuffix}_상태`] = statusForKtl;
 
         if (data.confirmedAt && data.confirmedAt.trim() !== '') {
-          mergedItems[`${baseKeyForData}_확인일시`] = data.confirmedAt.trim();
+          mergedItems[`${baseKeyForData}${keySuffix}_확인일시`] = data.confirmedAt.trim();
         }
       }
 
       if (checklistItemName === '측정범위확인') {
-        mergedItems[`${baseKeyForData}_노트`] = data.notes || '';
+        mergedItems[`${baseKeyForData}${keySuffix}_노트`] = data.notes || '';
         let upperLimitValue = '';
         const notesTrimmed = data.notes?.trim();
         if (notesTrimmed && notesTrimmed !== ANALYSIS_IMPOSSIBLE_OPTION) {
@@ -504,9 +498,9 @@ const constructMergedLabviewItemForStructural = (
             }
           }
         }
-        mergedItems[`${baseKeyForData}_상한값`] = upperLimitValue;
+        mergedItems[`${baseKeyForData}${keySuffix}_상한값`] = upperLimitValue;
       } else if (data.specialNotes && data.specialNotes.trim() !== '') {
-        mergedItems[`${baseKeyForData}_특이사항`] = data.specialNotes.trim();
+        mergedItems[`${baseKeyForData}${keySuffix}_특이사항`] = data.specialNotes.trim();
       }
 
       if (checklistItemName === '정도검사 증명서' && data.notes) {
@@ -526,37 +520,37 @@ const constructMergedLabviewItemForStructural = (
             default:
               statusText = certDetails.presence && certDetails.presence !== 'not_selected' ? String(certDetails.presence) : '선택 안됨';
           }
-          mergedItems[`${baseKeyForData}_세부상태`] = statusText;
+          mergedItems[`${baseKeyForData}${keySuffix}_세부상태`] = statusText;
 
           if (certDetails.productName && certDetails.productName.trim() !== '') {
-            mergedItems[`${baseKeyForData}_품명`] = certDetails.productName.trim();
+            mergedItems[`${baseKeyForData}${keySuffix}_품명`] = certDetails.productName.trim();
           }
           if (certDetails.manufacturer && certDetails.manufacturer.trim() !== '') {
-            mergedItems[`${baseKeyForData}_제작사`] = certDetails.manufacturer.trim();
+            mergedItems[`${baseKeyForData}${keySuffix}_제작사`] = certDetails.manufacturer.trim();
           }
           if (certDetails.serialNumber && certDetails.serialNumber.trim() !== '') {
-            mergedItems[`${baseKeyForData}_기기번호`] = certDetails.serialNumber.trim();
+            mergedItems[`${baseKeyForData}${keySuffix}_기기번호`] = certDetails.serialNumber.trim();
           }
           if (certDetails.typeApprovalNumber && certDetails.typeApprovalNumber.trim() !== '') {
-            mergedItems[`${baseKeyForData}_번호`] = certDetails.typeApprovalNumber.trim();
+            mergedItems[`${baseKeyForData}${keySuffix}_번호`] = certDetails.typeApprovalNumber.trim();
           }
           if (certDetails.inspectionDate && certDetails.inspectionDate.trim() !== '') {
             const formattedInspectionDate = certDetails.inspectionDate.replace(/\s/g, '').replace(/\./g, '-');
-            mergedItems[`${baseKeyForData}_검사일자`] = formattedInspectionDate;
+            mergedItems[`${baseKeyForData}${keySuffix}_검사일자`] = formattedInspectionDate;
           }
           if (certDetails.validity && certDetails.validity.trim() !== '') {
             const formattedValidity = certDetails.validity.replace(/\s/g, '').replace(/\./g, '-');
-            mergedItems[`${baseKeyForData}_유효기간`] = formattedValidity;
+            mergedItems[`${baseKeyForData}${keySuffix}_유효기간`] = formattedValidity;
           }
           if (certDetails.previousReceiptNumber && certDetails.previousReceiptNumber.trim() !== '') {
-            mergedItems[`${baseKeyForData}_직전접수번호`] = certDetails.previousReceiptNumber.trim();
+            mergedItems[`${baseKeyForData}${keySuffix}_직전접수번호`] = certDetails.previousReceiptNumber.trim();
           }
-          if (certDetails.specialNotes && certDetails.specialNotes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
-            mergedItems[`${baseKeyForData}_특이사항`] = certDetails.specialNotes.trim();
+          if (certDetails.specialNotes && certDetails.specialNotes.trim() !== '' && !mergedItems[`${baseKeyForData}${keySuffix}_특이사항`]) {
+            mergedItems[`${baseKeyForData}${keySuffix}_특이사항`] = certDetails.specialNotes.trim();
           }
         } catch (e) {
-          if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
-            mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
+          if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}${keySuffix}_특이사항`]) {
+            mergedItems[`${baseKeyForData}${keySuffix}_노트`] = data.notes.trim();
           }
         }
       } else if (checklistItemName === '표시사항확인') {
@@ -568,7 +562,7 @@ const constructMergedLabviewItemForStructural = (
               for (const [key, value] of Object.entries(parsedNotes)) {
                 if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
                   const sanitizedExtractedKey = sanitizeFilename(key).replace(/_/g, '');
-                  mergedItems[`${baseKeyForData}_${sanitizedExtractedKey}`] = String(value);
+                  mergedItems[`${baseKeyForData}${keySuffix}_${sanitizedExtractedKey}`] = String(value);
                 }
               }
               successfullyParsedAndExpanded = true;
@@ -577,12 +571,12 @@ const constructMergedLabviewItemForStructural = (
             /* ignore */
           }
         }
-        if (!successfullyParsedAndExpanded && data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
-          mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
+        if (!successfullyParsedAndExpanded && data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}${keySuffix}_특이사항`]) {
+          mergedItems[`${baseKeyForData}${keySuffix}_노트`] = data.notes.trim();
         }
       } else {
-        if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
-          mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
+        if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}${keySuffix}_특이사항`]) {
+          mergedItems[`${baseKeyForData}${keySuffix}_노트`] = data.notes.trim();
         }
       }
     });
