@@ -1134,7 +1134,7 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
                         fullWidth
                         icon={isRenderingChecklist || activeJob.submissionStatus === 'sending' ? <Spinner size="sm"/> : undefined}
                     >
-                        {isRenderingChecklist ? '체크리스트 캡처 중...' : (activeJob.submissionStatus === 'sending' ? '전송 중...' : `활성 작업 KTL로 전송`)}
+                        {isRenderingChecklist ? '체크리스트 캡처 중...' : (activeJob.submissionStatus === 'sending' ? (activeJob.submissionMessage || '전송 중...') : `활성 작업 KTL로 전송`)}
                     </ActionButton>
                     {activeJob.submissionMessage && activeJob.submissionStatus !== 'sending' && (
                         <p className={`mt-3 text-sm text-center ${activeJob.submissionStatus === 'error' ? 'text-red-400' : 'text-green-400'}`}>
