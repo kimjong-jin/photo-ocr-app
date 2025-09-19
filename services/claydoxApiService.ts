@@ -16,7 +16,7 @@ import {
   RESPONSE_TIME_ITEM_NAME
 } from '../shared/StructuralChecklists';
 import { ImageInfo } from '../components/ImageInput';
-import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput } from './imageStampingService';
+import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput, compressImage } from './imageStampingService';
 import JSZip from 'jszip';
 import type { StructuralJob } from '../StructuralCheckPage';
 
@@ -458,8 +458,9 @@ const constructMergedLabviewItemForStructural = (
       }
 
       const sanitizedChecklistItemName = sanitizeFilename(checklistItemName).replace(/_/g, '');
-      const keySuffix = payload.mainItemKey === 'TP' ? 'P' : payload.mainItemKey === 'Cl' ? 'C' : '';
-      const baseKeyForData = `구조_${sanitizedChecklistItemName}`;
+      const itemSuffix = payload.mainItemKey === 'TP' ? 'P' : payload.mainItemKey === 'Cl' ? 'C' : '';
+      
+      const baseKeyForData = `구조_${sanitizedChecklistItemName}${itemSuffix}`;
 
       if (checklistItemName !== '기기번호 확인') {
         let statusForKtl: string;
@@ -470,15 +471,15 @@ const constructMergedLabviewItemForStructural = (
         } else {
           statusForKtl = data.status;
         }
-        mergedItems[`${baseKeyForData}${keySuffix}_상태`] = statusForKtl;
+        mergedItems[`${baseKeyForData}_상태`] = statusForKtl;
 
         if (data.confirmedAt && data.confirmedAt.trim() !== '') {
-          mergedItems[`${baseKeyForData}${keySuffix}_확인일시`] = data.confirmedAt.trim();
+          mergedItems[`${baseKeyForData}_확인일시`] = data.confirmedAt.trim();
         }
       }
 
       if (checklistItemName === '측정범위확인') {
-        mergedItems[`${baseKeyForData}${keySuffix}_노트`] = data.notes || '';
+        mergedItems[`${baseKeyForData}_노트`] = data.notes || '';
         let upperLimitValue = '';
         const notesTrimmed = data.notes?.trim();
         if (notesTrimmed && notesTrimmed !== ANALYSIS_IMPOSSIBLE_OPTION) {
@@ -498,9 +499,9 @@ const constructMergedLabviewItemForStructural = (
             }
           }
         }
-        mergedItems[`${baseKeyForData}${keySuffix}_상한값`] = upperLimitValue;
+        mergedItems[`${baseKeyForData}_상한값`] = upperLimitValue;
       } else if (data.specialNotes && data.specialNotes.trim() !== '') {
-        mergedItems[`${baseKeyForData}${keySuffix}_특이사항`] = data.specialNotes.trim();
+        mergedItems[`${baseKeyForData}_특이사항`] = data.specialNotes.trim();
       }
 
       if (checklistItemName === '정도검사 증명서' && data.notes) {
@@ -520,37 +521,37 @@ const constructMergedLabviewItemForStructural = (
             default:
               statusText = certDetails.presence && certDetails.presence !== 'not_selected' ? String(certDetails.presence) : '선택 안됨';
           }
-          mergedItems[`${baseKeyForData}${keySuffix}_세부상태`] = statusText;
+          mergedItems[`${baseKeyForData}_세부상태`] = statusText;
 
           if (certDetails.productName && certDetails.productName.trim() !== '') {
-            mergedItems[`${baseKeyForData}${keySuffix}_품명`] = certDetails.productName.trim();
+            mergedItems[`${baseKeyForData}_품명`] = certDetails.productName.trim();
           }
           if (certDetails.manufacturer && certDetails.manufacturer.trim() !== '') {
-            mergedItems[`${baseKeyForData}${keySuffix}_제작사`] = certDetails.manufacturer.trim();
+            mergedItems[`${baseKeyForData}_제작사`] = certDetails.manufacturer.trim();
           }
           if (certDetails.serialNumber && certDetails.serialNumber.trim() !== '') {
-            mergedItems[`${baseKeyForData}${keySuffix}_기기번호`] = certDetails.serialNumber.trim();
+            mergedItems[`${baseKeyForData}_기기번호`] = certDetails.serialNumber.trim();
           }
           if (certDetails.typeApprovalNumber && certDetails.typeApprovalNumber.trim() !== '') {
-            mergedItems[`${baseKeyForData}${keySuffix}_번호`] = certDetails.typeApprovalNumber.trim();
+            mergedItems[`${baseKeyForData}_번호`] = certDetails.typeApprovalNumber.trim();
           }
           if (certDetails.inspectionDate && certDetails.inspectionDate.trim() !== '') {
             const formattedInspectionDate = certDetails.inspectionDate.replace(/\s/g, '').replace(/\./g, '-');
-            mergedItems[`${baseKeyForData}${keySuffix}_검사일자`] = formattedInspectionDate;
+            mergedItems[`${baseKeyForData}_검사일자`] = formattedInspectionDate;
           }
           if (certDetails.validity && certDetails.validity.trim() !== '') {
             const formattedValidity = certDetails.validity.replace(/\s/g, '').replace(/\./g, '-');
-            mergedItems[`${baseKeyForData}${keySuffix}_유효기간`] = formattedValidity;
+            mergedItems[`${baseKeyForData}_유효기간`] = formattedValidity;
           }
           if (certDetails.previousReceiptNumber && certDetails.previousReceiptNumber.trim() !== '') {
-            mergedItems[`${baseKeyForData}${keySuffix}_직전접수번호`] = certDetails.previousReceiptNumber.trim();
+            mergedItems[`${baseKeyForData}_직전접수번호`] = certDetails.previousReceiptNumber.trim();
           }
-          if (certDetails.specialNotes && certDetails.specialNotes.trim() !== '' && !mergedItems[`${baseKeyForData}${keySuffix}_특이사항`]) {
-            mergedItems[`${baseKeyForData}${keySuffix}_특이사항`] = certDetails.specialNotes.trim();
+          if (certDetails.specialNotes && certDetails.specialNotes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
+            mergedItems[`${baseKeyForData}_특이사항`] = certDetails.specialNotes.trim();
           }
         } catch (e) {
-          if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}${keySuffix}_특이사항`]) {
-            mergedItems[`${baseKeyForData}${keySuffix}_노트`] = data.notes.trim();
+          if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
+            mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
           }
         }
       } else if (checklistItemName === '표시사항확인') {
@@ -562,7 +563,7 @@ const constructMergedLabviewItemForStructural = (
               for (const [key, value] of Object.entries(parsedNotes)) {
                 if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
                   const sanitizedExtractedKey = sanitizeFilename(key).replace(/_/g, '');
-                  mergedItems[`${baseKeyForData}${keySuffix}_${sanitizedExtractedKey}`] = String(value);
+                  mergedItems[`${baseKeyForData}_${sanitizedExtractedKey}`] = String(value);
                 }
               }
               successfullyParsedAndExpanded = true;
@@ -571,12 +572,12 @@ const constructMergedLabviewItemForStructural = (
             /* ignore */
           }
         }
-        if (!successfullyParsedAndExpanded && data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}${keySuffix}_특이사항`]) {
-          mergedItems[`${baseKeyForData}${keySuffix}_노트`] = data.notes.trim();
+        if (!successfullyParsedAndExpanded && data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
+          mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
         }
       } else {
-        if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}${keySuffix}_특이사항`]) {
-          mergedItems[`${baseKeyForData}${keySuffix}_노트`] = data.notes.trim();
+        if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
+          mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
         }
       }
     });
@@ -709,14 +710,14 @@ export const sendSingleStructuralCheckToKtlApi = async (
   let compositeFileNameOnServer: string | undefined;
   let zipFileNameOnServer: string | undefined;
 
-  // 1. Add checklist image
+  // 1. Add checklist image (Do not compress this)
   onProgress('(1/4) 체크리스트 이미지 준비 중...');
   const checklistBlob = dataURLtoBlob(`data:${checklistImage.mimeType};base64,${checklistImage.base64}`);
   filesToUpload.push(new File([checklistBlob], checklistImage.file.name, { type: checklistImage.mimeType }));
 
   // 2. Process photos if they exist
   if (job.photos && job.photos.length > 0) {
-    // 2a. Create composite image
+    // 2a. Create composite image and compress it
     onProgress('(2/4) 참고사진 종합 이미지 생성 중...');
     try {
       const imageSourcesForComposite: CompositeImageInput[] = job.photos.map(p => ({
@@ -727,19 +728,23 @@ export const sendSingleStructuralCheckToKtlApi = async (
       const itemSummaryForStamp = MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey;
       const stampDetailsComposite = { receiptNumber: job.receiptNumber, siteLocation: siteNameGlobal, item: itemSummaryForStamp };
       const compositeDataUrl = await generateCompositeImage(imageSourcesForComposite, stampDetailsComposite, 'image/png');
-      compositeFileNameOnServer = generateCompositeImageNameForKtl(job.receiptNumber);
-      filesToUpload.push(new File([dataURLtoBlob(compositeDataUrl)], compositeFileNameOnServer, { type: 'image/png' }));
+      const compressedCompositeUrl = await compressImage(compositeDataUrl.split(',')[1], 'image/png');
+      compositeFileNameOnServer = generateCompositeImageNameForKtl(job.receiptNumber).replace(/\.png$/, '.jpg');
+      filesToUpload.push(new File([dataURLtoBlob(compressedCompositeUrl)], compositeFileNameOnServer, { type: 'image/jpeg' }));
     } catch (e: any) {
       throw new Error(`참고사진 종합 이미지 생성 실패: ${e.message}`);
     }
 
-    // 2b. Create ZIP file
+    // 2b. Create ZIP file with compressed stamped images
     onProgress('(3/4) 참고사진 ZIP 파일 생성 중...');
     try {
       const zip = new JSZip();
       for (const photo of job.photos) {
         const stampedDataUrl = await generateStampedImage(photo.base64, photo.mimeType, job.receiptNumber, siteNameGlobal, '', MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey, job.photoComments[photo.uid]);
-        zip.file(safeNameWithExt(photo.file.name, photo.mimeType), dataURLtoBlob(stampedDataUrl));
+        const compressedUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
+        const safeName = safeNameWithExt(photo.file.name, photo.mimeType);
+        const jpegName = safeName.replace(/\.[^/.]+$/, "") + ".jpg";
+        zip.file(jpegName, dataURLtoBlob(compressedUrl));
       }
       zipFileNameOnServer = generateZipFileNameForKtl(job.receiptNumber);
       const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -878,9 +883,10 @@ export const sendBatchStructuralChecksToKtlApi = async (
 
       try {
         const compositeDataUrl = await generateCompositeImage(imageSourcesForComposite, stampDetailsComposite, 'image/png');
-        const compositeBlob = dataURLtoBlob(compositeDataUrl);
-        const compositeFileNameOnServer = generateCompositeImageNameForKtl(receiptNo);
-        const compositeFile = new File([compositeBlob], compositeFileNameOnServer, { type: 'image/png' });
+        const compressedCompositeUrl = await compressImage(compositeDataUrl.split(',')[1], 'image/png');
+        const compositeBlob = dataURLtoBlob(compressedCompositeUrl);
+        const compositeFileNameOnServer = generateCompositeImageNameForKtl(receiptNo).replace(/\.png$/, '.jpg');
+        const compositeFile = new File([compositeBlob], compositeFileNameOnServer, { type: 'image/jpeg' });
         filesToUploadDirectly.push(compositeFile);
         receiptToCompositeFileNameMap.set(receiptNo, compositeFileNameOnServer);
       } catch (compositeGenError: any) {
@@ -905,7 +911,6 @@ export const sendBatchStructuralChecksToKtlApi = async (
       const zip = new JSZip();
       for (const photo of photosForThisReceipt) {
         try {
-          // *** ZIP에는 스탬프/리사이즈된 버전 사용 ***
           const sourceJob = jobs.find((j) => j.id === photo.jobId);
           const comment = sourceJob?.photoComments[photo.uid];
           const srcBase64 = (photo as any).base64Stamped || (photo as any).base64 || photo.base64Original || '';
@@ -918,9 +923,11 @@ export const sendBatchStructuralChecksToKtlApi = async (
             photo.jobItemName,
             comment
           );
-          const stampedBlob = dataURLtoBlob(stampedDataUrl);
-          const fileNameInZip = safeNameWithExt(photo.file.name, photo.mimeType);
-          zip.file(fileNameInZip, stampedBlob);
+          const compressedUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
+          const safeName = safeNameWithExt(photo.file.name, photo.mimeType);
+          const jpegName = safeName.replace(/\.[^/.]+$/, "") + ".jpg";
+          const stampedBlob = dataURLtoBlob(compressedUrl);
+          zip.file(jpegName, stampedBlob);
         } catch (zipError: any) {
           console.error(`[ClaydoxAPI - Page 4] Error adding stamped photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
         }
@@ -929,7 +936,6 @@ export const sendBatchStructuralChecksToKtlApi = async (
         try {
           const zipBlob = await zip.generateAsync({ type: 'blob' });
           const zipFileNameOnServer = generateZipFileNameForKtl(receiptNo);
-          // NOTE: 브라우저 환경 기준. Node 환경이면 File 대신 Blob 사용 필요.
           const zipFile = new File([zipBlob], zipFileNameOnServer, { type: 'application/zip' });
           filesToUploadDirectly.push(zipFile);
           receiptToZipFileNameMap.set(receiptNo, zipFileNameOnServer);
@@ -961,7 +967,6 @@ export const sendBatchStructuralChecksToKtlApi = async (
 
   generatedChecklistImages.forEach((chkImgInfo) => {
     const blob = dataURLtoBlob(`data:${chkImgInfo.mimeType};base64,${chkImgInfo.base64}`);
-    // NOTE: 브라우저 환경 기준. Node 환경이면 File 대신 Blob 사용 필요.
     const file = new File([blob], chkImgInfo.file.name, { type: chkImgInfo.mimeType });
     filesToUploadDirectly.push(file);
 
