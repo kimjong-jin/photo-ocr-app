@@ -985,7 +985,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
       updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: "KTL 전송을 위한 필수 데이터가 누락되었습니다." }));
       return;
     }
-    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "전송 중..."}));
+    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(1/4) 전송 준비 중..."}));
 
     try {
         const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
@@ -1008,6 +1008,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const compositeFileNames: string[] = [];
 
         if (activeJob.photos.length > 0) {
+            updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(2/4) 보고서용 이미지 생성 중..."}));
             const imagesForA4: CompositeImageInput[] = activeJob.photos.map(p => ({
                 base64: p.base64,
                 mimeType: p.mimeType,
@@ -1032,6 +1033,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             });
         }
         
+        updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(3/4) 원본 사진 압축 중..."}));
         const zip = new JSZip();
         for (let i = 0; i < activeJob.photos.length; i++) {
             const imageInfo = activeJob.photos[i];
@@ -1045,6 +1047,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const filesToUpload = [...compositeFiles, zipFile];
         const fileNamesForKtlJson = [...compositeFileNames, zipFile.name];
 
+        updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(4/4) KTL 서버로 업로드 중..."}));
         const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, fileNamesForKtlJson);
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
 
