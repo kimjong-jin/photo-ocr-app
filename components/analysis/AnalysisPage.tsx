@@ -1258,6 +1258,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             onInitiateSendToKtl={handleInitiateSendToKtl}
             isClaydoxDisabled={isControlsDisabled || !activeJob.processedOcrData || activeJob.photos.length === 0 || !siteLocation.trim()}
             isSendingToClaydox={isSendingToClaydox || activeJob.submissionStatus === 'sending'}
+            sendingMessage={activeJob.submissionMessage}
             ktlApiCallStatus={ocrControlsKtlStatus}
             onAutoAssignIdentifiers={showAutoAssignIdentifiers ? handleAutoAssignIdentifiers : undefined}
             isAutoAssignDisabled={isControlsDisabled || !activeJob.processedOcrData}
