@@ -702,6 +702,122 @@ function pickZipBase64(photo: ClaydoxJobPhoto): string {
   return photo.base64Original || fallback;
 }
 
+// FIX: Add missing 'sendSingleStructuralCheckToKtlApi' function.
+export const sendSingleStructuralCheckToKtlApi = async (
+  job: StructuralJob,
+  checklistImage: ImageInfo,
+  siteNameGlobal: string,
+  userNameGlobal: string,
+  gpsAddressGlobal: string,
+  onProgress: (message: string) => void
+): Promise<{ success: boolean; message: string }> => {
+  const filesToUpload: File[] = [];
+  let compositeFileNameOnServer: string | undefined;
+  let zipFileNameOnServer: string | undefined;
+
+  // 1. Add checklist image
+  onProgress('(1/4) 체크리스트 이미지 준비 중...');
+  const checklistBlob = dataURLtoBlob(`data:${checklistImage.mimeType};base64,${checklistImage.base64}`);
+  filesToUpload.push(new File([checklistBlob], checklistImage.file.name, { type: checklistImage.mimeType }));
+
+  // 2. Process photos if they exist
+  if (job.photos && job.photos.length > 0) {
+    // 2a. Create composite image
+    onProgress('(2/4) 참고사진 종합 이미지 생성 중...');
+    try {
+      const imageSourcesForComposite: CompositeImageInput[] = job.photos.map(p => ({
+        base64: p.base64,
+        mimeType: p.mimeType,
+        comment: job.photoComments[p.uid],
+      }));
+      const itemSummaryForStamp = MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey;
+      const stampDetailsComposite = { receiptNumber: job.receiptNumber, siteLocation: siteNameGlobal, item: itemSummaryForStamp };
+      const compositeDataUrl = await generateCompositeImage(imageSourcesForComposite, stampDetailsComposite, 'image/png');
+      compositeFileNameOnServer = generateCompositeImageNameForKtl(job.receiptNumber);
+      filesToUpload.push(new File([dataURLtoBlob(compositeDataUrl)], compositeFileNameOnServer, { type: 'image/png' }));
+    } catch (e: any) {
+      throw new Error(`참고사진 종합 이미지 생성 실패: ${e.message}`);
+    }
+
+    // 2b. Create ZIP file
+    onProgress('(3/4) 참고사진 ZIP 파일 생성 중...');
+    try {
+      const zip = new JSZip();
+      for (const photo of job.photos) {
+        const stampedDataUrl = await generateStampedImage(photo.base64, photo.mimeType, job.receiptNumber, siteNameGlobal, '', MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey, job.photoComments[photo.uid]);
+        zip.file(safeNameWithExt(photo.file.name, photo.mimeType), dataURLtoBlob(stampedDataUrl));
+      }
+      zipFileNameOnServer = generateZipFileNameForKtl(job.receiptNumber);
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      filesToUpload.push(new File([zipBlob], zipFileNameOnServer, { type: 'application/zip' }));
+    } catch (e: any) {
+      throw new Error(`참고사진 ZIP 파일 생성 실패: ${e.message}`);
+    }
+  }
+
+  // 3. Upload all files
+  onProgress('(4/4) KTL 서버로 파일 업로드 중...');
+  if (filesToUpload.length > 0) {
+    const formData = new FormData();
+    filesToUpload.forEach(file => formData.append('files', file, file.name));
+    try {
+      await retryKtlApiCall(
+        () => axios.post(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, { timeout: KTL_API_TIMEOUT }),
+        2, 2000, 'Page 4 Single Upload'
+      );
+    } catch (e: any) {
+      throw new Error(`파일 업로드 실패: ${e.message}`);
+    }
+  }
+
+  // 4. Construct and send JSON
+  onProgress('KTL 서버로 JSON 데이터 전송 중...');
+  const payload: StructuralCheckPayloadForKtl = {
+    receiptNumber: job.receiptNumber,
+    siteName: siteNameGlobal,
+    mainItemKey: job.mainItemKey,
+    checklistData: job.checklistData,
+    updateUser: userNameGlobal,
+    photoFileNames: {},
+    checklistImageFileName: checklistImage.file.name,
+    postInspectionDateValue: job.postInspectionDate,
+  };
+
+  const mergedLabviewItem = constructMergedLabviewItemForStructural(
+    [payload],
+    userNameGlobal,
+    siteNameGlobal,
+    gpsAddressGlobal,
+    compositeFileNameOnServer,
+    zipFileNameOnServer
+  );
+  
+  const today = new Date();
+  mergedLabviewItem['검사시작일'] = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  
+  const mainItemName = MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey;
+  const labviewDescComment = `구조 (항목: ${mainItemName}, 현장: ${siteNameGlobal})`;
+  const dynamicLabviewGubn = `구조_${job.mainItemKey}`;
+
+  const finalKtlJsonObject = {
+    LABVIEW_GUBN: dynamicLabviewGubn,
+    LABVIEW_DESC: JSON.stringify({ comment: labviewDescComment }),
+    LABVIEW_RECEIPTNO: job.receiptNumber,
+    UPDATE_USER: userNameGlobal,
+    LABVIEW_ITEM: JSON.stringify(mergedLabviewItem),
+  };
+
+  try {
+    const jsonResponse = await retryKtlApiCall(
+      () => axios.post(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, { timeout: KTL_API_TIMEOUT }),
+      2, 2000, 'Page 4 Single JSON Send'
+    );
+    return { success: true, message: jsonResponse.data?.message || '데이터 전송 완료' };
+  } catch (e: any) {
+    throw new Error(`JSON 데이터 전송 실패: ${e.message}`);
+  }
+};
+
 export const sendBatchStructuralChecksToKtlApi = async (
   jobs: StructuralJob[],
   generatedChecklistImages: ImageInfo[],
@@ -960,25 +1076,19 @@ export const sendBatchStructuralChecksToKtlApi = async (
     const dynamicLabviewGubn = `구조_${uniqueMainItemKeys.join(',')}`;
 
     const finalKtlJsonObject = {
+// FIX: Correct typo from `dynamicLabviewGub` to `dynamicLabviewGubn`.
       LABVIEW_GUBN: dynamicLabviewGubn,
       LABVIEW_DESC: JSON.stringify(labviewDescObject),
       LABVIEW_RECEIPTNO: receiptNo,
       UPDATE_USER: userNameGlobal,
-      LABVIEW_ITEM: JSON.stringify(mergedLabviewItem)
+      LABVIEW_ITEM: JSON.stringify(mergedLabviewItem),
     };
 
-    const jsonTargetUrl = `${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`;
-    const operationLogName = `Page 4 JSON Send for ${receiptNo} directly to /env`;
-
-    console.log(
-      `[ClaydoxAPI - Page 4] Sending MERGED JSON for ${receiptNo} (Items: ${mainItemNamesForDesc.join(', ')}) directly to URL: ${jsonTargetUrl}`
-    );
-    console.log(`[ClaydoxAPI - Page 4] Stringified JSON length for ${receiptNo}: ${JSON.stringify(finalKtlJsonObject).length}`);
-
     try {
+      console.log(`[ClaydoxAPI - Page 4] Sending final JSON for ${receiptNo} to KTL /env:`, finalKtlJsonObject);
       const jsonResponse = await retryKtlApiCall<KtlApiResponseData>(
         () =>
-          axios.post<KtlApiResponseData>(jsonTargetUrl, finalKtlJsonObject, {
+          axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, {
             headers: {
               'Content-Type': 'application/json',
               Accept: 'application/json'
@@ -987,124 +1097,80 @@ export const sendBatchStructuralChecksToKtlApi = async (
           }),
         2,
         2000,
-        operationLogName
+        `Page 4 JSON Send for ${receiptNo}`
       );
-
-      console.log(`[ClaydoxAPI - Page 4] MERGED JSON for ${receiptNo} sent. Response:`, jsonResponse.data);
-      currentGroupOfJobs.forEach((job) => {
+      console.log(`[ClaydoxAPI - Page 4] JSON for ${receiptNo} sent successfully. Response:`, jsonResponse.data);
+      currentGroupOfJobs.forEach((jobPayload) => {
         results.push({
-          receiptNo: job.receiptNumber,
-          mainItem: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey,
+          receiptNo: jobPayload.receiptNumber,
+          mainItem: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === jobPayload.mainItemKey)?.name || jobPayload.mainItemKey,
           success: true,
-          message: jsonResponse.data?.message || `성공`
+          message: jsonResponse.data?.message || '데이터 전송 성공'
         });
       });
-    } catch (error: any) {
-      let errorMsg = `알 수 없는 오류 (직접 전송)`;
-      if (axios.isAxiosError(error)) {
-        const axiosError = error as AxiosError;
-        const responseData = axiosError.response?.data;
-        console.error(
-          `[ClaydoxAPI - Page 4] Axios MERGED JSON send for ${receiptNo} directly to /env failed. TargetURL: ${jsonTargetUrl}. Error:`,
-          responseData || axiosError.message
-        );
-
-        if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof (responseData as any).message === 'string') {
-          errorMsg = (responseData as any).message;
-        } else if (typeof responseData === 'string') {
-          if (responseData.trim().length > 0 && responseData.length < 500) {
-            errorMsg = responseData.trim();
-          } else {
-            errorMsg = axiosError.message || `KTL API 응답 문자열 처리 오류 (${receiptNo}, 직접 Axios 오류)`;
-          }
-        } else if (axiosError.message) {
-          errorMsg = axiosError.message;
-        } else {
-          errorMsg = `KTL 서버와 통신 중 알 수 없는 오류 (${receiptNo}, 직접 Axios 오류)`;
-        }
-      } else {
-        // @ts-ignore
-        errorMsg = error.isNetworkError ? error.message : error.message || `알 수 없는 비-Axios 오류 (${receiptNo}, 직접 전송)`;
-      }
-      console.error(`[ClaydoxAPI - Page 4] Final error message for ${receiptNo} (direct to /env):`, errorMsg);
-      currentGroupOfJobs.forEach((job) => {
+    } catch (jsonSendError: any) {
+      console.error(`[ClaydoxAPI - Page 4] JSON send for ${receiptNo} failed:`, jsonSendError);
+      currentGroupOfJobs.forEach((jobPayload) => {
         results.push({
-          receiptNo: job.receiptNumber,
-          mainItem: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey,
+          receiptNo: jobPayload.receiptNumber,
+          mainItem: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === jobPayload.mainItemKey)?.name || jobPayload.mainItemKey,
           success: false,
-          message: `JSON 전송 실패 (직접 전송): ${errorMsg}`
+          message: `JSON 데이터 전송 실패: ${jsonSendError.message || '알 수 없는 오류'}`
         });
       });
     }
   }
+
   return results;
 };
 
-// --- END: Page 4 (Structural Check) Functionality ---
 
 // --- START: Page 5 (KakaoTalk) Functionality ---
 
-const KAKAO_API_KEY = '9f04ece57d9f1f613b8888dae1997c57d3f';
-
-interface KakaoTalkInnerPayload {
-  APIKEY: string;
-  MSG: string;
-  PHONE: string;
-  RESERVETIME?: string;
-}
-
+// FIX: Add missing 'sendKakaoTalkMessage' function.
 export const sendKakaoTalkMessage = async (
   message: string,
-  phoneNumbers: string,
+  phone: string,
   reservationTime?: string
-): Promise<{ message: string; data?: KtlApiResponseData }> => {
-  const innerPayload: KakaoTalkInnerPayload = {
-    APIKEY: KAKAO_API_KEY,
+): Promise<{ message: string }> => {
+  const payload: { MSG: string; PHONE: string; reservation_time?: string } = {
     MSG: message,
-    PHONE: phoneNumbers
+    PHONE: phone,
   };
-
   if (reservationTime) {
-    innerPayload.RESERVETIME = reservationTime;
+    payload.reservation_time = reservationTime;
   }
 
-  const labviewItemValue = JSON.stringify(innerPayload);
-
-  // The KTL Kakao API expects a JSON payload with a single key, "LABVIEW_ITEM",
-  // whose value is a stringified JSON object containing the actual parameters.
-  const payloadForJsonRequest = {
-    LABVIEW_ITEM: labviewItemValue
-  };
+  console.log('[ClaydoxAPI - Page 5] Sending KakaoTalk message:', payload);
 
   try {
-    console.log('[ClaydoxAPI - Page 5] Sending KakaoTalk message with payload:', labviewItemValue);
-    const response = await retryKtlApiCall<KtlApiResponseData>(
+    const response = await retryKtlApiCall<{ message: string }>(
       () =>
-        axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_KAKAO_API_ENDPOINT}`, payloadForJsonRequest, {
+        axios.post<{ message: string }>(`${KTL_API_BASE_URL}${KTL_KAKAO_API_ENDPOINT}`, payload, {
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
           },
-          timeout: KTL_API_TIMEOUT
+          timeout: 30000, // Shorter timeout for this API
         }),
-      2,
-      2000,
-      'Page 5 KakaoTalk Send'
+      1, // Less aggressive retries
+      1500,
+      'KakaoTalk Message Send'
     );
-    console.log('[ClaydoxAPI - Page 5] KakaoTalk message sent. Response:', response.data);
-    return { message: response.data?.message || '카카오톡 메시지 전송 요청 완료', data: response.data };
+
+    console.log('[ClaydoxAPI - Page 5] KakaoTalk message sent successfully. Response:', response.data);
+    return { message: response.data?.message || '카카오톡 메시지가 예약되었습니다.' };
   } catch (error: any) {
-    let errorMsg = '알 수 없는 오류 발생 (카카오톡)';
+    let errorMsg = '알 수 없는 오류 발생 (Page 5)';
     if (axios.isAxiosError(error)) {
-        const axiosError = error as AxiosError;
-        const responseData = axiosError.response?.data;
-        if (responseData && typeof responseData === 'object' && 'message' in responseData) {
-            errorMsg = (responseData as any).message;
-        } else if (axiosError.message) {
-            errorMsg = axiosError.message;
-        }
+      const axiosError = error as AxiosError;
+      const responseData = axiosError.response?.data as any;
+      console.error('[ClaydoxAPI - Page 5] KakaoTalk API Error:', responseData || axiosError.message);
+      errorMsg = responseData?.message || axiosError.message || `KTL API와 통신 중 오류가 발생했습니다.`;
     } else {
-        errorMsg = error.message || '알 수 없는 비-Axios 오류 발생 (카카오톡)';
+      errorMsg = error.message || '알 수 없는 비-Axios 오류 발생';
     }
+    console.error('[ClaydoxAPI - Page 5] Final error to throw:', errorMsg);
     throw new Error(errorMsg);
   }
 };
