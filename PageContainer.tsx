@@ -69,7 +69,7 @@ const ChevronDownIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userContact, onLogout }) => {
-  const [activePage, setActivePage] = useState<Page>('photoLog');
+  const [activePage, setActivePage] = useState<Page>('structuralCheck');
   const [receiptNumberCommon, setReceiptNumberCommon] = useState('');
   const [receiptNumberDetail, setReceiptNumberDetail] = useState('');
   const [siteName, setSiteName] = useState('');
@@ -1035,32 +1035,32 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       {/* 네비게이션 */}
       <nav className="w-full max-w-5xl mb-6 flex justify-center space-x-1 sm:space-x-2 p-2 bg-slate-800 rounded-lg shadow-md">
         <button
+          onClick={() => setActivePage('structuralCheck')}
+          className={`${navButtonBaseStyle} ${activePage === 'structuralCheck' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
+          aria-pressed={activePage === 'structuralCheck'}
+        >
+          구조 확인 (P1)
+        </button>
+        <button
           onClick={() => setActivePage('photoLog')}
           className={`${navButtonBaseStyle} ${activePage === 'photoLog' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
           aria-pressed={activePage === 'photoLog'}
         >
-          수질 분석 (P1)
+          수질 분석 (P2)
         </button>
         <button
           onClick={() => setActivePage('fieldCount')}
           className={`${navButtonBaseStyle} ${activePage === 'fieldCount' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
           aria-pressed={activePage === 'fieldCount'}
         >
-          현장 계수 (P2)
+          현장 계수 (P3)
         </button>
         <button
           onClick={() => setActivePage('drinkingWater')}
           className={`${navButtonBaseStyle} ${activePage === 'drinkingWater' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
           aria-pressed={activePage === 'drinkingWater'}
         >
-          먹는물 분석 (P3)
-        </button>
-        <button
-          onClick={() => setActivePage('structuralCheck')}
-          className={`${navButtonBaseStyle} ${activePage === 'structuralCheck' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'structuralCheck'}
-        >
-          구조 확인 (P4)
+          먹는물 분석 (P4)
         </button>
         <button
           onClick={() => setActivePage('kakaoTalk')}
