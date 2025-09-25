@@ -97,7 +97,7 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
     const res = await safeFetch(url.toString(), apiKey);
     if (!res.ok) return null;
     const data = await res.json();
-    const result = data?.documents?.[0]?.road_address?.address_name || null;
+    const result = data?.documents?.[0]?.road_address?.address_name || data?.documents?.[0]?.address?.address_name || null;
     if (result) setToCache(cacheKey, result);
     return result;
   } catch {
@@ -158,7 +158,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
       finalAddr = cleanAddress(searchedRoad, region1) || `${region1} ${searchedRoad}`;
     } else {
       const keywordResults = await searchAddressByKeyword(lotAddr);
-      const firstMatch = keywordResults?.[0]?.road_address_name ?? "";
+      const firstMatch = keywordResults?.[0]?.road_address_name || keywordResults?.[0]?.address_name || "";
       finalAddr = firstMatch
         ? cleanAddress(firstMatch, region1) || `${region1} ${firstMatch}`
         : `${region1} ${region2} ${region3} ${lotNumber}`.trim();
