@@ -713,6 +713,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     });
   }, []);
 
+  const handleResetGps = useCallback(() => {
+    setCoords(null);
+    setCurrentGpsAddress("");
+    setIsFetchingAddress(false);
+  }, []);
+
   const itemOptionsForNewTask = useMemo(() => {
     if (activePage === 'photoLog') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
     if (activePage === 'fieldCount') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '현장 계수')?.items || [];
@@ -930,7 +936,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
               >
                 <div className="pt-4 px-2 space-y-2">
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-2 items-center">
-                    <div className="sm:col-span-8">
+                    <div className="sm:col-span-6">
                       <label htmlFor="current-gps-address" className="sr-only">
                         현재 주소 (GPS)
                       </label>
@@ -943,15 +949,27 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         placeholder="GPS 주소 또는 직접 입력"
                       />
                     </div>
-                    <div className="sm:col-span-4">
-                      <ActionButton
-                        onClick={handleFetchGpsAddress}
-                        disabled={isFetchingAddress}
-                        fullWidth
-                        icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />}
-                      >
-                        GPS로 주소 찾기
-                      </ActionButton>
+                    <div className="sm:col-span-6">
+                      <div className="grid grid-cols-2 gap-2">
+                        <ActionButton
+                          onClick={handleFetchGpsAddress}
+                          disabled={isFetchingAddress}
+                          fullWidth
+                          icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />}
+                          className="!px-2 !py-2.5 !text-xs"
+                        >
+                          GPS로 주소 찾기
+                        </ActionButton>
+                        <ActionButton
+                          onClick={handleResetGps}
+                          disabled={isFetchingAddress}
+                          fullWidth
+                          variant="secondary"
+                          className="!px-2 !py-2.5 !text-xs"
+                        >
+                          지도 닫기
+                        </ActionButton>
+                      </div>
                     </div>
                   </div>
                   {coords && (
