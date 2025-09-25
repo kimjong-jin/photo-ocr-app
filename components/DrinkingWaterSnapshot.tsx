@@ -1,18 +1,19 @@
 
+
 import React from 'react';
 import type { DrinkingWaterJob } from '../DrinkingWaterPage';
 import { DRINKING_WATER_IDENTIFIERS } from '../shared/constants';
 
 interface DrinkingWaterSnapshotProps {
   job: DrinkingWaterJob;
-  siteLocation: string;
+  siteName: string;
 }
 
 const formatSite = (site: string, details?: string) =>
   details && details.trim() ? `${site.trim()}_(${details.trim()})` : site.trim();
 
-export const DrinkingWaterSnapshot: React.FC<DrinkingWaterSnapshotProps> = ({ job, siteLocation }) => {
-  const finalSite = formatSite(siteLocation, job.details);
+export const DrinkingWaterSnapshot: React.FC<DrinkingWaterSnapshotProps> = ({ job, siteName }) => {
+  const finalSite = formatSite(siteName, job.details);
   const isTuClMode = job.selectedItem === 'TU/CL';
 
   const dataToRender = job.processedOcrData?.length ? job.processedOcrData : DRINKING_WATER_IDENTIFIERS.map(id => ({ id: self.crypto.randomUUID(), identifier: id, value: '', time: '', valueTP: isTuClMode ? '' : undefined }));
