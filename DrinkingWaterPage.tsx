@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
@@ -395,7 +397,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
             updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(2/4) 데이터 테이블 이미지 생성 중..." }));
             const snapshotRoot = createRoot(snapshotHostRef.current);
             await new Promise<void>(resolve => {
-                snapshotRoot.render(<DrinkingWaterSnapshot job={activeJob} siteLocation={siteLocation} />);
+                snapshotRoot.render(<DrinkingWaterSnapshot job={activeJob} siteName={siteName} />);
                 setTimeout(resolve, 100);
             });
 
@@ -417,7 +419,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
 
             const compositeDataUrl = await generateCompositeImage(
                 imageInfosForComposite,
-                { receiptNumber: activeJob.receiptNumber, siteLocation: finalSiteLocationForData, item: activeJob.selectedItem },
+                { receiptNumber: activeJob.receiptNumber, siteLocation: finalSiteLocationForDesc, item: activeJob.selectedItem },
                 'image/jpeg',
                 0.7
             );
@@ -431,7 +433,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
             for (let i = 0; i < activeJob.photos.length; i++) {
                 const imageInfo = activeJob.photos[i];
                 const stampedDataUrl = await generateStampedImage(
-                    imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, finalSiteLocationForData, '', activeJob.selectedItem
+                    imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, finalSiteLocationForDesc, '', activeJob.selectedItem
                 );
                 const compressedDataUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
                 const stampedBlob = dataURLtoBlob(compressedDataUrl);
@@ -500,7 +502,7 @@ const handleBatchSendToKtl = async () => {
             if (snapshotHostRef.current) {
                 const snapshotRoot = createRoot(snapshotHostRef.current);
                 await new Promise<void>(resolve => {
-                    snapshotRoot.render(<DrinkingWaterSnapshot job={job} siteLocation={siteLocation} />);
+                    snapshotRoot.render(<DrinkingWaterSnapshot job={job} siteName={siteName} />);
                     setTimeout(resolve, 100);
                 });
 
@@ -518,14 +520,14 @@ const handleBatchSendToKtl = async () => {
 
             if (job.photos.length > 0) {
                 const baseName = `${job.receiptNumber}_먹는물_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}`;
-                const compositeDataUrl = await generateCompositeImage(job.photos, { receiptNumber: job.receiptNumber, siteLocation: finalSiteLocationForData, item: job.selectedItem }, 'image/jpeg', 0.7);
+                const compositeDataUrl = await generateCompositeImage(job.photos, { receiptNumber: job.receiptNumber, siteLocation: finalSiteLocationForDesc, item: job.selectedItem }, 'image/jpeg', 0.7);
                 const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
                 filesToUpload.push(compositeFile);
                 actualKtlFileNames.push(compositeFile.name);
 
                 const zip = new JSZip();
                 for (let i = 0; i < job.photos.length; i++) {
-                    const stampedDataUrl = await generateStampedImage(job.photos[i].base64, job.photos[i].mimeType, job.receiptNumber, finalSiteLocationForData, '', job.selectedItem);
+                    const stampedDataUrl = await generateStampedImage(job.photos[i].base64, job.photos[i].mimeType, job.receiptNumber, finalSiteLocationForDesc, '', job.selectedItem);
                     const compressedDataUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
                     zip.file(`${baseName}_${i + 1}.jpg`, dataURLtoBlob(compressedDataUrl));
                 }
@@ -588,7 +590,7 @@ return (
 <div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
   <div ref={snapshotHostRef} style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}></div>
   <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">
-    먹는물 분석 (P3)
+    먹는물 분석 (P4)
   </h2>
 
   {jobs.length > 0 && (
