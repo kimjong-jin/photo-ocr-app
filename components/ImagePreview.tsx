@@ -52,7 +52,16 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   if (!imageBase64) return null;
 
   const src = `data:${mimeType};base64,${imageBase64}`;
-  const locationText = [siteName, gpsAddress && `(${gpsAddress})`].filter(Boolean).join(' ');
+  
+  const gpsPart = gpsAddress?.trim();
+  let locationText = siteName || '';
+  if (gpsPart) {
+    if (locationText) {
+      locationText += ` (${gpsPart.replace(/^\(|\)$/g, '')})`;
+    } else {
+      locationText = gpsPart;
+    }
+  }
 
   return (
     <div className="mt-6">
