@@ -1,6 +1,8 @@
 
 
 
+
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -364,9 +366,15 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
         const newStatus = value as ChecklistStatus;
         updatedItemData.status = newStatus;
         if (newStatus !== '선택 안됨') updatedItemData.confirmedAt = getCurrentTimestamp();
+        
         if (job.mainItemKey === 'TU' && itemName === '세척 기능') {
-          updatedItemData.specialNotes = newStatus === '적합' ? '있음' : newStatus === '부적합' ? '없음' : '';
+          updatedItemData.specialNotes = newStatus === '적합' ? '세척 가능' : newStatus === '부적합' ? '없음' : '';
         }
+        
+        if (job.mainItemKey === 'Cl' && itemName === '검출장치') {
+          updatedItemData.specialNotes = newStatus === '적합' ? '(전극식/시약식)에 따른 구성요소 확인 및 내식성 재질 사용, 세척 가능' : '';
+        }
+
       } else {
         updatedItemData[field] = value as string;
       }
@@ -397,7 +405,10 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
             confirmedAt: timestamp 
           };
           if (job.mainItemKey === 'TU' && itemName === '세척 기능') {
-            updatedChecklistData[itemName].specialNotes = '있음';
+            updatedChecklistData[itemName].specialNotes = '세척 가능';
+          }
+          if (job.mainItemKey === 'Cl' && itemName === '검출장치') {
+            updatedChecklistData[itemName].specialNotes = '(전극식/시약식)에 따른 구성요소 확인 및 내식성 재질 사용, 세척 가능';
           }
         }
       });
