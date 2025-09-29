@@ -56,16 +56,26 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
   const isCertificateItem = itemName === "정도검사 증명서";
   const isMarkingCheckItem = itemName === "표시사항확인";
   const isDeviceNumberItem = itemName === "기기번호 확인";
+  const isNotApplicableVersionItem = (mainItemKey === 'TU' || mainItemKey === 'Cl') && itemName === "운용프로그램확인";
+  
+  const canHaveSpecialNotes = onSpecialNotesChange && (
+      isMarkingCheckItem ||
+      isCertificateItem ||
+      itemName === '세척 기능' ||
+      itemName === '검출장치'
+  );
+
+  // FIX: Ensure the generic textarea does not render if a specific `specialNotes` textarea is present.
+  const showGenericTextarea = !isDeviceNumberItem && !isSpecialTocItem && !usesOptionDropdownUi && !isCertificateItem && !isMarkingCheckItem && !isNotApplicableVersionItem && !canHaveSpecialNotes;
 
   const hasAiAnalysisButton = !isSpecialTocItem && onAnalyzeDetail &&
     (usesOptionDropdownUi || isMarkingCheckItem || itemName === "운용프로그램확인" || isCertificateItem);
   
-  const isNotApplicableVersionItem = (mainItemKey === 'TU' || mainItemKey === 'Cl') && itemName === "운용프로그램확인";
 
   const [selectedAnalyzableItemOption, setSelectedAnalyzableItemOption] = useState<string>('');
   const [directInputValue, setDirectInputValue] = useState<string>('');
 
-  const initialCertDetailsState: CertificateDetails = {
+  const initialCertDetailsState: Omit<CertificateDetails, 'specialNotes'> = {
     presence: 'not_selected',
     productName: '',
     manufacturer: '',
@@ -74,15 +84,13 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
     inspectionDate: '',
     validity: '',
     previousReceiptNumber: '',
-    specialNotes: ''
   };
 
-  const [certDetails, setCertDetails] = useState<CertificateDetails>(initialCertDetailsState);
+  const [certDetails, setCertDetails] = useState<Omit<CertificateDetails, 'specialNotes'>>(initialCertDetailsState);
   const [parsedMarkingCheckJson, setParsedMarkingCheckJson] = useState<Record<string, string> | null>(null);
 
   useEffect(() => {
     if (isSpecialTocItem || isDeviceNumberItem) {
-        // No complex state to manage, notes are handled directly by input
         setParsedMarkingCheckJson(null);
         setCertDetails(initialCertDetailsState);
         setSelectedAnalyzableItemOption('');
@@ -90,17 +98,10 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
     } else if (isCertificateItem) {
       try {
         if (notes && notes.trim().startsWith("{")) {
-          const parsedNotes = JSON.parse(notes) as CertificateDetails;
+          const { specialNotes, ...parsedDetails } = JSON.parse(notes) as CertificateDetails;
           setCertDetails({
-            presence: parsedNotes.presence || 'not_selected',
-            productName: parsedNotes.productName || '',
-            manufacturer: parsedNotes.manufacturer || '',
-            serialNumber: parsedNotes.serialNumber || '',
-            typeApprovalNumber: parsedNotes.typeApprovalNumber || '',
-            inspectionDate: parsedNotes.inspectionDate || '',
-            validity: parsedNotes.validity || '',
-            previousReceiptNumber: parsedNotes.previousReceiptNumber || '',
-            specialNotes: parsedNotes.specialNotes || '',
+            ...initialCertDetailsState,
+            ...parsedDetails
           });
         } else {
           setCertDetails(initialCertDetailsState);
@@ -181,7 +182,7 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
     }
   };
 
-  const handleCertificateDetailChange = useCallback((field: keyof CertificateDetails, value: string) => {
+  const handleCertificateDetailChange = useCallback((field: keyof Omit<CertificateDetails, 'specialNotes'>, value: string) => {
     setCertDetails(prevDetails => {
       const newDetails = { ...prevDetails, [field]: value };
       if (field === 'presence' && value !== 'present') {
@@ -192,7 +193,6 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
         newDetails.inspectionDate = '';
         newDetails.validity = '';
         newDetails.previousReceiptNumber = '';
-        newDetails.specialNotes = ''; 
       }
       onNotesChange(JSON.stringify(newDetails));
       return newDetails;
@@ -230,8 +230,6 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
     { label: "분실 후 재발행", value: 'reissued_lost'},
   ];
   
-  const showGenericTextarea = !isDeviceNumberItem && !isSpecialTocItem && !usesOptionDropdownUi && !isCertificateItem && !isMarkingCheckItem && !isNotApplicableVersionItem;
-
   const getDisplayItemNumber = () => {
     if (isSpecialTocItem) return null; // No number for special TOC items
     const tocSpecialItemCount = mainItemKey === 'TOC' ? 2 : 0;
@@ -313,8 +311,7 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
         )}
       </div>
 
-      {!isSpecialTocItem && !isDeviceNumberItem && (
-        <div className="mt-2.5 md:ml-[calc(theme(spacing.2)_+_1em)] space-y-2">
+      <div className="mt-2.5 md:ml-[calc(theme(spacing.2)_+_1em)] space-y-2">
             {usesOptionDropdownUi && (
             <>
                 <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
@@ -457,20 +454,6 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
                         />
                     </div>
                     </div>
-                    
-                    <div className="mt-2">
-                    <label htmlFor={`cert-specialNotes-${itemIndex}`} className="text-xs text-slate-400 mb-0.5 block">특이사항 (선택):</label>
-                    <textarea
-                        id={`cert-specialNotes-${itemIndex}`}
-                        value={certDetails.specialNotes || ''}
-                        onChange={(e) => handleCertificateDetailChange('specialNotes', e.target.value)}
-                        placeholder="증명서 관련 특이사항 입력"
-                        rows={2}
-                        className="w-full text-xs bg-slate-700 border border-slate-600 rounded-md p-1.5 focus:ring-sky-500 focus:border-sky-500 text-slate-100 placeholder-slate-400 disabled:opacity-70"
-                        disabled={disabled || isAnalyzingDetail}
-                        aria-label="정도검사 증명서 특이사항"
-                    />
-                    </div>
                 </>
                 )}
                 {comparisonNote && (
@@ -502,22 +485,35 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
                     ))}
                 </div>
                 )}
-                {onSpecialNotesChange && (
-                <div className="mt-2"> 
-                    <label htmlFor={`marking-specialNotes-${itemIndex}`} className="text-xs text-slate-400 mb-0.5 block">특이사항 (선택):</label>
+            </>
+            )}
+
+            {showGenericTextarea && onNotesChange && (
+            <textarea
+                value={notes || ''}
+                onChange={(e) => onNotesChange(e.target.value)}
+                placeholder={itemName === "운용프로그램확인" ? "판별된 버전 정보 또는 특이사항" : "특이사항 (선택)"}
+                rows={1}
+                className="w-full text-xs bg-slate-700 border border-slate-600 rounded-md p-1.5 focus:ring-sky-500 focus:border-sky-500 text-slate-200 placeholder-slate-400 disabled:opacity-70"
+                disabled={disabled}
+                aria-label={`${itemName} 특이사항`}
+            />
+            )}
+            
+            {canHaveSpecialNotes && (
+                <div className="mt-2">
+                    <label htmlFor={`specialNotes-${itemIndex}`} className="text-xs text-slate-400 mb-0.5 block">특이사항 (선택):</label>
                     <textarea
-                    id={`marking-specialNotes-${itemIndex}`}
-                    value={specialNotes || ''}
-                    onChange={(e) => onSpecialNotesChange(e.target.value)}
-                    placeholder="표시사항 관련 특이사항 입력"
-                    rows={2}
-                    className="w-full text-xs bg-slate-700 border border-slate-600 rounded-md p-1.5 focus:ring-sky-500 focus:border-sky-500 text-slate-200 placeholder-slate-400 disabled:opacity-70"
-                    disabled={disabled || isAnalyzingDetail}
-                    aria-label={`${itemName} 특이사항`}
+                        id={`specialNotes-${itemIndex}`}
+                        value={specialNotes || ''}
+                        onChange={(e) => onSpecialNotesChange!(e.target.value)}
+                        placeholder={`${itemName} 관련 특이사항 입력`}
+                        rows={2}
+                        className="w-full text-xs bg-slate-700 border border-slate-600 rounded-md p-1.5 focus:ring-sky-500 focus:border-sky-500 text-slate-200 placeholder-slate-400 disabled:opacity-70"
+                        disabled={disabled || isAnalyzingDetail}
+                        aria-label={`${itemName} 특이사항`}
                     />
                 </div>
-                )}
-            </>
             )}
             
             {hasAiAnalysisButton && (
@@ -535,20 +531,7 @@ export const ChecklistItemRow: React.FC<ChecklistItemRowProps> = ({
             {detailAnalysisError && (
             <p className="text-xs text-red-400 mt-1">{detailAnalysisError}</p>
             )}
-            
-            {showGenericTextarea && onNotesChange && (
-            <textarea
-                value={notes || ''}
-                onChange={(e) => onNotesChange(e.target.value)}
-                placeholder={itemName === "운용프로그램확인" ? "판별된 버전 정보 또는 특이사항" : "특이사항 (선택)"}
-                rows={1}
-                className="w-full text-xs bg-slate-700 border border-slate-600 rounded-md p-1.5 focus:ring-sky-500 focus:border-sky-500 text-slate-200 placeholder-slate-400 disabled:opacity-70"
-                disabled={disabled}
-                aria-label={`${itemName} 특이사항`}
-            />
-            )}
-        </div>
-      )}
+      </div>
     </div>
   );
 };
