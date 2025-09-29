@@ -109,8 +109,7 @@ const tuSpecific = [
 ];
 
 const clSpecific = [
-    "이물질 방지",
-    "세척 기능",
+    "검출장치",
     "지시출력장치확인",
 ];
 
