@@ -33,7 +33,6 @@ export const ImageInput = forwardRef<HTMLInputElement, ImageInputProps>(
       const files = event.target.files;
       if (files && files.length > 0) {
         const imageInfos: ImageInfo[] = [];
-        const fileList = Array.from(files);
 
         const processFile = (file: File): Promise<ImageInfo> => {
           return new Promise((resolve, reject) => {
@@ -62,10 +61,14 @@ export const ImageInput = forwardRef<HTMLInputElement, ImageInputProps>(
         };
 
         try {
-          for (const file of fileList) {
-            const info = await processFile(file);
-            imageInfos.push(info);
+          // FIX: Directly iterate over the FileList object, which is iterable and yields File objects.
+          // This simplifies the code and ensures correct type inference, resolving the TS error.
+          const fileProcessingPromises = [];
+          for (const file of files) {
+            fileProcessingPromises.push(processFile(file));
           }
+          const infos = await Promise.all(fileProcessingPromises);
+          imageInfos.push(...infos);
           onImagesSet(imageInfos);
         } catch (error) {
           console.error("Error processing one or more files:", error);
