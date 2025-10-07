@@ -120,9 +120,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   const [dragStart, setDragStart] = useState<{ x: number; timestamp: number } | null>(null);
   const [dragEnd, setDragEnd] = useState<{ x: number } | null>(null);
-  // FIX: Change React.Touch[] to Touch[] to match the type returned by Array.from(event.touches)
-  // which resolves type errors when accessing properties like clientX/clientY.
-  const touchState = useRef<{ lastTouches: Touch[] }>({ lastTouches: [] });
+  const touchState = useRef<{ lastTouches: React.Touch[] }>({ lastTouches: [] });
   const longPressTimer = useRef<number | null>(null);
   const touchStartPos = useRef<{ x: number; y: number; time: number } | null>(null);
 
