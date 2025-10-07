@@ -1,10 +1,7 @@
 // src/api/gemini-analyze.ts
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// ✅ Edge 환경 아님! Node.js 환경에서 실행
-export const config = {
-  runtime: "nodejs", // Vercel은 자동으로 Serverless Function으로 처리
-};
+export const runtime = "nodejs"; // ✅ 이것만 바꿔줘
 
 export default async function handler(req: Request): Promise<Response> {
   try {
@@ -23,11 +20,9 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response(JSON.stringify({ error: "Missing GEMINI_API_KEY" }), { status: 500 });
     }
 
-    // ✅ Gemini SDK 초기화
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // ✅ Gemini 호출
     const result = await model.generateContent([prompt]);
     const text = result.response?.text();
 
@@ -47,3 +42,4 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 }
+
