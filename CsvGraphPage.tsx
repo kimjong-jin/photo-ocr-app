@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
-import { CsvDisplay } from './components/csv/CsvDisplay';
+import { CsvDisplay } from './components/csv/csvDisplay';
 import { parseGraphtecCsv } from './utils/parseGraphtecCsv';
 import { runPhaseAnalysis } from './ai/phaseAnalysis';
 import { runPatternAnalysis } from './ai/patternAnalysis';
