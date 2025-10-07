@@ -1,10 +1,10 @@
-// ✅ Colab + ngrok 프록시 주소 (vLLM 서버 내부망 우회)
-const VLLM_BASE_URL = "https://8dd5bd58cb0c.ngrok-free.app/proxy/vllm";
+// ✅ vLLM 서버 정식 주소 (직접 호출)
+const VLLM_BASE_URL = "https://mobile.ktl.re.kr/genai/v1";
 
-const API_KEY = "EMPTY"; // vLLM 기본 설정
-const MODEL = "/root/.cache/huggingface/Qwen72B-AWQ"; // vLLM 서버 모델 경로
+const API_KEY = "EMPTY"; // vLLM 서버 기본값
+const MODEL = "/root/.cache/huggingface/Qwen72B-AWQ"; // 모델 경로
 
-// ✅ 응답 타입 정의
+// ✅ vLLM 응답 타입 정의
 interface VllmChatCompletionResponse {
   choices: {
     message: {
@@ -13,7 +13,7 @@ interface VllmChatCompletionResponse {
   }[];
 }
 
-// ✅ 멀티모달 콘텐츠 타입 (텍스트 + 이미지)
+// ✅ 멀티모달 콘텐츠 정의 (텍스트 + 이미지)
 interface VllmContentPart {
   type: "text" | "image_url";
   text?: string;
@@ -26,7 +26,7 @@ export interface VllmMessage {
   content: string | VllmContentPart[];
 }
 
-// ✅ 요청 Payload 구조
+// ✅ 요청 Payload 정의
 interface VllmPayload {
   model: string;
   messages: VllmMessage[];
@@ -38,7 +38,6 @@ interface VllmPayload {
  * ✅ vLLM API 호출 함수
  * @param messages - 대화 메시지 배열
  * @param config - JSON 응답 모드 여부 설정
- * @returns 모델 응답 텍스트
  */
 export const callVllmApi = async (
   messages: VllmMessage[],
@@ -50,13 +49,14 @@ export const callVllmApi = async (
     stream: false,
   };
 
+  // ✅ JSON 모드 설정 시 응답 형식 지정
   if (config?.json_mode) {
     payload.response_format = { type: "json_object" };
   }
 
   try {
-    console.log("[vllmService] Sending request to:", `${VLLM_BASE_URL}/chat/completions`);
-    console.log("[vllmService] Payload:", payload);
+    console.log("[vllmService] Request →", `${VLLM_BASE_URL}/chat/completions`);
+    console.log("[vllmService] Payload →", payload);
 
     const response = await fetch(`${VLLM_BASE_URL}/chat/completions`, {
       method: "POST",
@@ -67,6 +67,7 @@ export const callVllmApi = async (
       body: JSON.stringify(payload),
     });
 
+    // ✅ 응답 검증
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(
@@ -74,18 +75,21 @@ export const callVllmApi = async (
       );
     }
 
+    // ✅ 정상 응답 파싱
     const data: VllmChatCompletionResponse = await response.json();
     const content = data.choices[0]?.message?.content || "";
 
-    // ✅ JSON 모드일 때 ```json ...``` 감싸진 부분 정제
+    // ✅ JSON 코드 블록 제거
     if (config?.json_mode) {
       const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})/s);
-      if (jsonMatch) return jsonMatch[1] || jsonMatch[2];
+      if (jsonMatch) {
+        return jsonMatch[1] || jsonMatch[2];
+      }
     }
 
     return content;
   } catch (error: any) {
-    console.error("[vllmService] vLLM call failed:", error);
+    console.error("[vllmService] vLLM call failed:", error.message);
     throw new Error(error.message || "vLLM API 통신 중 오류 발생");
   }
 };
