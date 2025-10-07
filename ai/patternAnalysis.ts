@@ -173,7 +173,6 @@ export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisRe
       config: {
         responseMimeType: "application/json",
         responseSchema: masterSchema,
-        thinkingConfig: { thinkingBudget: 0 },
       },
     }),
   });
