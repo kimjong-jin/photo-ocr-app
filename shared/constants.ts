@@ -1,3 +1,4 @@
+
 // shared/constants.ts
 export const TN_IDENTIFIERS = [
   "M1", "M2", "M3", "Z1", "Z2", "S1", "S2", "Z3", "Z4", "S3", "S4", 
@@ -46,6 +47,6 @@ export const DRINKING_WATER_IDENTIFIERS = [
   "드리프트 완료", "Z5", "S5", "반복성 완료", "M", "응답"
 ];
 
-// ✅ 기존 코드 호환성을 위한 alias
-export const P2_TN_IDENTIFIERS = TN_IDENTIFIERS;
-export const P2_TP_IDENTIFIERS = TP_IDENTIFIERS;
+// ✅ P2(현장계수) 페이지는 '현장' 관련 식별자만 사용하도록 제한
+export const P2_TN_IDENTIFIERS = ["현장1", "현장2"];
+export const P2_TP_IDENTIFIERS = ["현장1P", "현장2P"];
