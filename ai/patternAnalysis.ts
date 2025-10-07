@@ -1,7 +1,6 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
-
-const API_KEY = (import.meta as any).env.VITE_API_KEY; // ✅ ApiKeyChecker와 동일한 방식
+import { getGenAIClient } from "../services/geminiService"; // ✅ 공용 Gemini 클라이언트 사용
 
 function getPatternAnalysisPrompt(
   job: CsvGraphJob,
@@ -28,7 +27,10 @@ function getPatternAnalysisPrompt(
 
   const pointSchema = {
     type: Type.OBJECT,
-    properties: { timestamp: { type: Type.STRING }, value: { type: Type.NUMBER } },
+    properties: {
+      timestamp: { type: Type.STRING },
+      value: { type: Type.NUMBER },
+    },
     required: ["timestamp", "value"],
   };
 
@@ -143,7 +145,9 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
   return { masterPrompt, masterSchema };
 }
 
-export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisResult> {
+export async function runPatternAnalysis(
+  job: CsvGraphJob
+): Promise<AiAnalysisResult> {
   if (!job.parsedData || !job.selectedChannelId || !job.aiPhaseAnalysisResult) {
     throw new Error(
       "Pattern analysis requires parsed data, a selected channel, and phase analysis results."
@@ -156,53 +160,67 @@ export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisRe
 
   if (selectedChannelIndex === -1) {
     console.warn("⚠️ 선택된 채널을 찾을 수 없습니다. 분석을 건너뜁니다.");
-    return Promise.reject(new Error("Selected channel not found in parsed data."));
+    return Promise.reject(
+      new Error("Selected channel not found in parsed data.")
+    );
   }
 
-  // ✅ API 키 검사
-  if (!API_KEY) {
-    console.error("❌ VITE_API_KEY가 설정되어 있지 않습니다. .env 파일을 확인하세요.");
-    throw new Error("Gemini API 키 누락");
-  }
-
-  // ✅ Gemini 초기화
-  const ai = new GoogleGenAI({ apiKey: API_KEY });
+  // ✅ Gemini 클라이언트 가져오기 (API 키 자동 포함, 재시도 포함)
+  const ai = getGenAIClient();
 
   const allDataPoints = job.parsedData.data
-    .map((d) => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
-    .filter((d) => d.v !== null && typeof d.v === "number") as { t: string; v: number }[];
+    .map((d) => ({
+      t: d.timestamp.toISOString(),
+      v: d.values[selectedChannelIndex],
+    }))
+    .filter(
+      (d) => d.v !== null && typeof d.v === "number"
+    ) as { t: string; v: number }[];
 
   const phaseMap = new Map(job.aiPhaseAnalysisResult.map((p) => [p.name, p]));
 
   console.log("Detected Phases:", Array.from(phaseMap.keys()));
 
-  const { masterPrompt, masterSchema } = getPatternAnalysisPrompt(job, allDataPoints, phaseMap);
+  const { masterPrompt, masterSchema } = getPatternAnalysisPrompt(
+    job,
+    allDataPoints,
+    phaseMap
+  );
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: masterPrompt }] }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: masterSchema,
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: masterPrompt }] }],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: masterSchema,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
 
-  const jsonText =
-    (response as any).output_text ||
-    (response as any).output?.[0]?.content?.parts?.[0]?.text ||
-    (response as any).text;
+    const jsonText =
+      (response as any).output_text ||
+      (response as any).output?.[0]?.content?.parts?.[0]?.text ||
+      (response as any).text;
 
-  if (!jsonText) throw new Error("No JSON response from Gemini model.");
+    if (!jsonText)
+      throw new Error("No JSON response from Gemini model.");
 
-  const result = JSON.parse(jsonText) as AiAnalysisResult;
+    const result = JSON.parse(jsonText) as AiAnalysisResult;
 
-  // ✅ 응답 시간 계산
-  if (result.responseStartPoint && result.responseEndPoint) {
-    const start = new Date(result.responseStartPoint.timestamp).getTime();
-    const end = new Date(result.responseEndPoint.timestamp).getTime();
-    if (end >= start) result.responseTimeInSeconds = (end - start) / 1000;
+    // ✅ 응답 시간 계산
+    if (result.responseStartPoint && result.responseEndPoint) {
+      const start = new Date(result.responseStartPoint.timestamp).getTime();
+      const end = new Date(result.responseEndPoint.timestamp).getTime();
+      if (end >= start)
+        result.responseTimeInSeconds = (end - start) / 1000;
+    }
+
+    return result;
+  } catch (err: any) {
+    console.error("❌ Gemini Pattern Analysis failed:", err.message);
+    throw new Error(
+      `Gemini 분석 실패: ${err.message || "알 수 없는 오류가 발생했습니다."}`
+    );
   }
-
-  return result;
 }
