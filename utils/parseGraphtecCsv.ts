@@ -1,4 +1,4 @@
-import type { ParsedCsvData, ChannelInfo, DataPoint } from '../types/CsvGraph';
+import type { ParsedCsvData, ChannelInfo, DataPoint } from '../types/csvGraph';
 
 // ---------- small CSV helper (handles quoted commas) ----------
 const splitCsvLine = (line: string): string[] => {
