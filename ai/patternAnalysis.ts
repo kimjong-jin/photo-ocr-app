@@ -226,29 +226,38 @@ export async function runPatternAnalysis(
 
   if (!response.ok) {
     const err = await response.text();
-    console.error("❌ Gemini API Error:", err);
-    throw new Error("Gemini API request failed");
+    console.error("❌ Gemini API Error:", response.status, err);
+    throw new Error(`Gemini API request failed (${response.status})`);
   }
 
   const data = await response.json();
-  const text =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
 
   if (!text) throw new Error("Empty response from Gemini");
 
   let result: AiAnalysisResult;
   try {
-    result = JSON.parse(text);
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("No valid JSON found in response");
+    result = JSON.parse(match[0]);
   } catch (e) {
     console.error("❌ JSON Parse Error:", text);
     throw new Error("Invalid JSON format returned by Gemini.");
   }
 
+  // ✅ 기본 필드 보강
+  result = {
+    responseError: null,
+    ...result,
+  };
+
+  // ✅ 응답시간 계산
   if (result.responseStartPoint && result.responseEndPoint) {
     const start = new Date(result.responseStartPoint.timestamp).getTime();
     const end = new Date(result.responseEndPoint.timestamp).getTime();
-    if (end >= start)
+    if (end >= start) {
       result.responseTimeInSeconds = (end - start) / 1000;
+    }
   }
 
   return result;
