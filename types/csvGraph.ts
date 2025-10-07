@@ -1,4 +1,3 @@
-// Interfaces for parsed data
 export interface ChannelInfo {
   id: string;
   name: string;
