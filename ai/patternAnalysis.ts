@@ -4,11 +4,11 @@ import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
 /**
  * ✅ 이름 정규화
  */
-const normalizeName = (name: string) =>
-  name.replace(/\s+/g, "").replace(/_/g, "").toLowerCase();
+const normalizeName = (n: string) =>
+  n.replace(/\s+/g, "").replace(/_/g, "").toLowerCase();
 
 /**
- * ✅ 특정 Phase 범위 데이터 필터링
+ * ✅ Phase 데이터 필터링
  */
 const filterDataForPhase = (
   all: { t: string; v: number }[],
@@ -24,13 +24,13 @@ const filterDataForPhase = (
 };
 
 /**
- * ✅ 패턴 분석 프롬프트 생성기
+ * ✅ 패턴 분석 프롬프트 (절대 수정 금지)
  */
 function getPatternAnalysisPrompt(
   job: CsvGraphJob,
   all: { t: string; v: number }[],
   phaseMap: Map<string, AiPhase>
-): { prompt: string; schema: any } {
+): { masterPrompt: string; masterSchema: any } {
   const ch = job.parsedData!.channels.find((c) => c.id === job.selectedChannelId)!;
   const range = job.parsedData!.measurementRange;
 
@@ -50,7 +50,7 @@ function getPatternAnalysisPrompt(
       ? range * 0.03
       : 0.3;
 
-  const schema = {
+  const masterSchema = {
     type: Type.OBJECT,
     properties: {
       z1: pointSchema,
@@ -70,32 +70,34 @@ function getPatternAnalysisPrompt(
     },
   };
 
-  const prompt = `
+  const masterPrompt = `
 You are a highly precise data analysis system for '먹는물 (TU/Cl)' sensor data.
-Use the phase boundaries below to find measurement points.
+Use the already defined phase data boundaries from concentration analysis.
+Do NOT re-interpret stability or noise — assume each provided phase dataset is clean and valid.
 
 CRITICAL RULES:
-1. Do not modify or interpret stability/noise.
-2. Only return valid {timestamp, value} pairs found in the datasets.
-3. Skip missing data.
+1. Each task below must be attempted independently. Missing one does not stop the rest.
+2. Return only valid {timestamp, value} pairs found inside the given phase datasets.
+3. Do NOT apply spike or noise filtering.
 
 TASKS:
-1. Z1,Z2 → Low Phase 1: ${JSON.stringify(ps("Low Phase 1"))}
-2. S1,S2 → High Phase 1: ${JSON.stringify(ps("High Phase 1"))}
-3. Z3,Z4 → Low Phase 2: ${JSON.stringify(ps("Low Phase 2"))}
-4. S3,S4 → High Phase 2: ${JSON.stringify(ps("High Phase 2"))}
-5. Z5 → Low Phase 3: ${JSON.stringify(ps("Low Phase 3"))}
-6. S5 → High Phase 3: ${JSON.stringify(ps("High Phase 3"))}
-7. M1 → Medium Phase 1: ${JSON.stringify(ps("Medium Phase 1"))}
+1. Z1,Z2 (Low Phase 1): ${JSON.stringify(ps("Low Phase 1"))}
+2. S1,S2 (High Phase 1): ${JSON.stringify(ps("High Phase 1"))}
+3. Z3,Z4 (Low Phase 2): ${JSON.stringify(ps("Low Phase 2"))}
+4. S3,S4 (High Phase 2): ${JSON.stringify(ps("High Phase 2"))}
+5. Z5 (Low Phase 3): ${JSON.stringify(ps("Low Phase 3"))}
+6. S5 (High Phase 3): ${JSON.stringify(ps("High Phase 3"))}
+7. M1 (Medium Phase 1): ${JSON.stringify(ps("Medium Phase 1"))}
 
-FINAL TASK: Response Time Analysis
-Use all data: ${JSON.stringify(all)}
-- responseStartPoint = first between Z5→S5 where v ≥ ${threshold}
-- responseEndPoint = first after start where v ≥ S1.value × 0.9
-- If missing → responseError
+FINAL TASK (Response Time Analysis):
+Full Data: ${JSON.stringify(all)}
+Prerequisites: S1, Z5, S5 must exist.
+responseStartPoint = first point between Z5 and S5 where v ≥ ${threshold}
+responseEndPoint = first point after start where v ≥ S1.value × 0.9
+If missing → responseError
 `;
 
-  return { prompt, schema };
+  return { masterPrompt, masterSchema };
 }
 
 /**
@@ -103,7 +105,7 @@ Use all data: ${JSON.stringify(all)}
  */
 export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisResult> {
   if (!job.parsedData || !job.selectedChannelId || !job.aiPhaseAnalysisResult)
-    throw new Error("Pattern analysis requires phase analysis results.");
+    throw new Error("Pattern analysis requires parsed data and phase results.");
 
   const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
@@ -116,23 +118,23 @@ export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisRe
     job.aiPhaseAnalysisResult.map((p) => [normalizeName(p.name), p])
   );
 
-  const { prompt, schema } = getPatternAnalysisPrompt(job, all, phaseMap);
+  const { masterPrompt, masterSchema } = getPatternAnalysisPrompt(job, all, phaseMap);
 
   const r = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: { responseMimeType: "application/json", responseSchema: schema },
+    contents: [{ role: "user", parts: [{ text: masterPrompt }] }],
+    config: { responseMimeType: "application/json", responseSchema: masterSchema },
   });
 
-  const resultText =
+  const text =
     (r as any).output_text ||
     (r as any).text ||
     (r as any).output?.[0]?.content?.parts?.[0]?.text ||
     "";
 
-  if (!resultText.trim()) throw new Error("Empty response from Gemini model");
+  if (!text.trim()) throw new Error("Empty response from Gemini model");
 
-  const result = JSON.parse(resultText) as AiAnalysisResult;
+  const result = JSON.parse(text) as AiAnalysisResult;
 
   if (result.responseStartPoint && result.responseEndPoint) {
     const s = new Date(result.responseStartPoint.timestamp).getTime();
