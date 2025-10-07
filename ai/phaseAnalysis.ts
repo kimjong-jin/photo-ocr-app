@@ -1,6 +1,6 @@
 import { Type } from "@google/genai";
 import type { CsvGraphJob, AiPhase } from "../types/csvGraph";
-import { getGenAIClient } from "../services/geminiService"; // ✅ 공용 Gemini 클라이언트
+import { getGenAIClient } from "../services/geminiService";
 
 function getPhaseAnalysisPrompt(
   dataPoints: { t: string; v: number | null }[],
