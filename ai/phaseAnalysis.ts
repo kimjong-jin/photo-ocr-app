@@ -1,5 +1,5 @@
 import { Type } from "@google/genai";
-import type { CsvGraphJob, AiPhase } from "../types/csvGraph";
+import type { CsvGraphJob, AiPhase } from "../types/CsvGraph";
 import { getGenAIClient } from "../services/geminiService";
 
 function getPhaseAnalysisPrompt(
