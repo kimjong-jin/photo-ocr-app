@@ -137,7 +137,7 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
         throw new Error("Selected channel not found in parsed data.");
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
             
     const dataPoints = job.parsedData.data
         .map(d => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
