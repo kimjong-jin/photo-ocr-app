@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import MapView from './components/MapView';
 import PhotoLogPage from './PhotoLogPage';
@@ -7,7 +6,9 @@ import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
 import FieldCountPage from './FieldCountPage';
 import StructuralCheckPage, { type StructuralJob } from './StructuralCheckPage';
 import { KakaoTalkPage } from './KakaoTalkPage';
-import CsvGraphPage, { type CsvGraphJob } from './CsvGraphPage';
+// FIX: Import CsvGraphJob and SensorType from their source file `types/csvGraph.ts`
+import CsvGraphPage from './CsvGraphPage';
+import type { CsvGraphJob, SensorType } from './types/csvGraph';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { ActionButton } from './components/ActionButton';
@@ -79,6 +80,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [draftMessage, setDraftMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   const [newItemKey, setNewItemKey] = useState<string>('');
+  const [newSensorType, setNewSensorType] = useState<SensorType>('먹는물 (TU/Cl)');
 
   const [photoLogJobs, setPhotoLogJobs] = useState<PhotoLogJob[]>([]);
   const [activePhotoLogJobId, setActivePhotoLogJobId] = useState<string | null>(null);
@@ -310,6 +312,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 selectedChannelId: job.selectedChannelId,
                 timeRangeInMs: job.timeRangeInMs,
                 viewEndTimestamp: job.viewEndTimestamp,
+                sensorType: job.sensorType,
             };
             apiPayload[key] = {
                 '_data': { val: JSON.stringify(dataToSave), time: new Date().toISOString() }
@@ -652,10 +655,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             fileName: null,
             parsedData: null,
             channelAnalysis: {},
+            autoMinMaxResults: null,
             selectedChannelId: null,
             timeRangeInMs: 'all',
             viewEndTimestamp: null,
             submissionStatus: 'idle',
+            sensorType: newSensorType,
         };
         setCsvGraphJobs(prev => [...prev, newJob]);
         setActiveCsvGraphJobId(newJob.id);
@@ -666,7 +671,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       setReceiptNumberDetail(String(currentDetailNum + 1).padStart(receiptNumberDetail.length, '0'));
     }
     setNewItemKey('');
-  }, [newItemKey, receiptNumber, receiptNumberCommon, receiptNumberDetail, activePage, finalSiteLocation]);
+  }, [newItemKey, receiptNumber, receiptNumberCommon, receiptNumberDetail, activePage, finalSiteLocation, newSensorType]);
 
   const handleFetchGpsAddress = useCallback(() => {
     setIsFetchingAddress(true);
@@ -732,6 +737,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const inactiveNavButtonStyle = "bg-slate-700 hover:bg-slate-600 text-slate-300";
 
   const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
+  const isCsvPage = activePage === 'csvGraph';
 
   const renderActivePage = () => {
     switch(activePage) {
@@ -762,10 +768,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   };
 
   const showTaskManagement = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck', 'csvGraph'].includes(activePage);
-  const isCsvPage = activePage === 'csvGraph';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center p-4 sm:p-8 font-[Inter]">
+    <div className="w-full min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-4 sm:px-8 py-4 sm:py-8 font-[Inter]">
       <Header />
 
       <div className="w-full max-w-3xl mb-4 flex flex-col sm:flex-row justify-between items-center bg-slate-800/50 p-3 rounded-lg shadow">
@@ -898,6 +903,22 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                                 {item}
                               </option>
                             ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {isCsvPage && (
+                    <div className="sm:col-span-12">
+                      <label htmlFor="new-task-sensor-type" className="block text-sm font-medium text-slate-300 mb-1">센서 타입</label>
+                      <select
+                        id="new-task-sensor-type"
+                        value={newSensorType}
+                        onChange={(e) => setNewSensorType(e.target.value as SensorType)}
+                        className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]"
+                      >
+                        <option value="먹는물 (TU/Cl)">먹는물 (TU/Cl)</option>
+                        <option value="수질 (SS)">수질 (SS)</option>
+                        <option value="수질 (PH)">수질 (PH)</option>
                       </select>
                     </div>
                   )}
