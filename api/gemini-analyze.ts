@@ -1,37 +1,35 @@
 import { GoogleGenAI } from "@google/genai";
 
+export const config = { runtime: "nodejs" }; // ✅ Edge 환경에서 느림 방지
+
 export async function POST(req: Request): Promise<Response> {
+  const t0 = Date.now();
   try {
     const { prompt, config } = await req.json();
 
     if (!prompt || !config) {
-      return new Response(
-        JSON.stringify({
-          error: "Missing 'prompt' or 'config' in request body",
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Missing 'prompt' or 'config'" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     if (!process.env.GEMINI_API_KEY) {
-      return new Response(
-        JSON.stringify({
-          error: "Missing GEMINI_API_KEY in environment variables.",
-        }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Missing GEMINI_API_KEY" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    // ✅ Gemini 인스턴스 초기화
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+    // ⚡ 속도 최적화 모델로 교체해볼 수 있음
     const r = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash-lite", // ⚡ 속도 버전 (1~3초)
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config,
     });
 
-    // ✅ 다양한 필드에서 결과 추출 (모델별 차이 대응)
     const resultText =
       (r as any).output_text ||
       (r as any).text ||
@@ -39,44 +37,35 @@ export async function POST(req: Request): Promise<Response> {
       "";
 
     if (!resultText.trim()) {
-      console.warn("⚠️ Gemini returned an empty result");
-      return new Response(
-        JSON.stringify({
-          error: "Empty response from Gemini model",
-          raw: r,
-        }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Empty response from Gemini" }), {
+        status: 502,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    // ✅ 안전한 JSON 파싱 (잘못된 형식 처리)
     let parsed;
     try {
       parsed = JSON.parse(resultText);
-    } catch (err) {
-      console.error("❌ JSON parsing failed. Raw text:", resultText);
-      return new Response(
-        JSON.stringify({
-          error: "Invalid JSON from Gemini model",
-          raw: resultText,
-        }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON", raw: resultText }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
     }
+
+    const t1 = Date.now();
+    console.log(`✅ Gemini request completed in ${(t1 - t0) / 1000}s`);
 
     return new Response(JSON.stringify(parsed), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error: any) {
     console.error("[api/gemini-analyze] Fatal Error:", error);
-    return new Response(
-      JSON.stringify({
-        error: error.message || "Unexpected server error",
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
 
-// 실행 환경 점검 로그
 console.log("🔍 GEMINI_API_KEY exists?", !!process.env.GEMINI_API_KEY);
