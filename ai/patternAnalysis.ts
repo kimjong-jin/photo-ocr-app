@@ -1,5 +1,5 @@
 // src/ai/patternAnalysis.ts
-import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/CsvGraph";
+import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
 import { getGenAIClient } from "../services/geminiService";
 
 function getPatternAnalysisPrompt(
