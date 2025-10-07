@@ -237,7 +237,13 @@ export async function runPatternAnalysis(
 
   let result: AiAnalysisResult;
   try {
-    const match = text.match(/\{[\s\S]*\}/);
+    // ✅ Markdown 코드블록(````json ... ````) 제거
+    const cleanText = text
+      .replace(/```json/i, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const match = cleanText.match(/\{[\s\S]*\}/);
     if (!match) throw new Error("No valid JSON found in response");
     result = JSON.parse(match[0]);
   } catch (e) {
