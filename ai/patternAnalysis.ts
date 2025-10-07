@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
 
+const API_KEY = (import.meta as any).env.VITE_API_KEY; // ✅ ApiKeyChecker와 동일한 방식
+
 function getPatternAnalysisPrompt(
   job: CsvGraphJob,
   allDataPoints: { t: string; v: number }[],
@@ -93,9 +95,8 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
 
 **TASK 3: Z3 & Z4 (Low Phase 2, includes 2-hour Rest Period Rule)**
 - Data: ${JSON.stringify(filterDataForPhase(phaseMap.get("Low Phase 2")))}
-- IMPORTANT: Use ONLY the data given above for this task. Do NOT refer to any other phase or external data.
 - Rule:
-  1. Within this dataset, find a continuous stable section where (Δv/v ≤5%) for at least 2 hours (7200 seconds). This is the rest period.
+  1. Within this dataset, find a continuous stable section where (Δv/v ≤5%) for at least 2 hours (7200 seconds).
   2. Let 'end_timestamp' be the end of that rest period.
   3. Consider only data points strictly AFTER 'end_timestamp'.
   4. From that subset, find:
@@ -152,11 +153,20 @@ export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisRe
   const selectedChannelIndex = job.parsedData.channels.findIndex(
     (c) => c.id === job.selectedChannelId
   );
-  if (selectedChannelIndex === -1)
-    throw new Error("Selected channel not found in parsed data.");
+
+  if (selectedChannelIndex === -1) {
+    console.warn("⚠️ 선택된 채널을 찾을 수 없습니다. 분석을 건너뜁니다.");
+    return Promise.reject(new Error("Selected channel not found in parsed data."));
+  }
+
+  // ✅ API 키 검사
+  if (!API_KEY) {
+    console.error("❌ VITE_API_KEY가 설정되어 있지 않습니다. .env 파일을 확인하세요.");
+    throw new Error("Gemini API 키 누락");
+  }
 
   // ✅ Gemini 초기화
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
 
   const allDataPoints = job.parsedData.data
     .map((d) => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
