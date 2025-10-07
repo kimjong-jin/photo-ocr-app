@@ -180,7 +180,6 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
       config: {
         responseMimeType: "application/json",
         responseSchema,
-        thinkingConfig: { thinkingBudget: 0 },
       },
     }),
   });
