@@ -2,13 +2,13 @@ import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
 
 /**
- * ✅ 이름 정규화
+ * ✅ 이름 정규화 (Phase 이름 불일치 방지)
  */
-const normalizeName = (n: string) =>
-  n.replace(/\s+/g, "").replace(/_/g, "").toLowerCase();
+const normalizeName = (name: string) =>
+  name.replace(/\s+/g, "").replace(/_/g, "").toLowerCase();
 
 /**
- * ✅ Phase 데이터 필터링
+ * ✅ 특정 Phase 범위 내 데이터 추출
  */
 const filterDataForPhase = (
   all: { t: string; v: number }[],
@@ -24,7 +24,7 @@ const filterDataForPhase = (
 };
 
 /**
- * ✅ 패턴 분석 프롬프트 (절대 수정 금지)
+ * ✅ 패턴 분석용 프롬프트 (Phase 결과 기반)
  */
 function getPatternAnalysisPrompt(
   job: CsvGraphJob,
@@ -34,7 +34,7 @@ function getPatternAnalysisPrompt(
   const ch = job.parsedData!.channels.find((c) => c.id === job.selectedChannelId)!;
   const range = job.parsedData!.measurementRange;
 
-  const ps = (n: string) => filterDataForPhase(all, phaseMap.get(normalizeName(n)));
+  const pd = (n: string) => filterDataForPhase(all, phaseMap.get(normalizeName(n)));
 
   const pointSchema = {
     type: Type.OBJECT,
@@ -72,40 +72,50 @@ function getPatternAnalysisPrompt(
 
   const masterPrompt = `
 You are a highly precise data analysis system for '먹는물 (TU/Cl)' sensor data.
-Use the already defined phase data boundaries from concentration analysis.
-Do NOT re-interpret stability or noise — assume each provided phase dataset is clean and valid.
+Use the already defined phase data boundaries from the previous concentration phase analysis.
+Do NOT re-interpret stability or noise — assume all given phase data are clean and valid.
 
-CRITICAL RULES:
-1. Each task below must be attempted independently. Missing one does not stop the rest.
-2. Return only valid {timestamp, value} pairs found inside the given phase datasets.
-3. Do NOT apply spike or noise filtering.
+---
 
-TASKS:
-1. Z1,Z2 (Low Phase 1): ${JSON.stringify(ps("Low Phase 1"))}
-2. S1,S2 (High Phase 1): ${JSON.stringify(ps("High Phase 1"))}
-3. Z3,Z4 (Low Phase 2): ${JSON.stringify(ps("Low Phase 2"))}
-4. S3,S4 (High Phase 2): ${JSON.stringify(ps("High Phase 2"))}
-5. Z5 (Low Phase 3): ${JSON.stringify(ps("Low Phase 3"))}
-6. S5 (High Phase 3): ${JSON.stringify(ps("High Phase 3"))}
-7. M1 (Medium Phase 1): ${JSON.stringify(ps("Medium Phase 1"))}
+**CRITICAL DIRECTIVES**
+1. Each task must be handled independently. Missing one does not block others.
+2. Use ONLY the provided data for each phase; do not infer external data.
+3. Return only valid {timestamp, value} pairs from within each phase dataset.
+4. Do NOT perform spike or noise filtering.
+5. If data is missing, omit that field.
 
-FINAL TASK (Response Time Analysis):
+---
+
+**TASKS**
+Z1,Z2 (Low Phase 1): ${JSON.stringify(pd("Low Phase 1"))}
+S1,S2 (High Phase 1): ${JSON.stringify(pd("High Phase 1"))}
+Z3,Z4 (Low Phase 2): ${JSON.stringify(pd("Low Phase 2"))}
+S3,S4 (High Phase 2): ${JSON.stringify(pd("High Phase 2"))}
+Z5 (Low Phase 3): ${JSON.stringify(pd("Low Phase 3"))}
+S5 (High Phase 3): ${JSON.stringify(pd("High Phase 3"))}
+M1 (Medium Phase 1): ${JSON.stringify(pd("Medium Phase 1"))}
+
+---
+
+**FINAL TASK: RESPONSE TIME ANALYSIS**
 Full Data: ${JSON.stringify(all)}
-Prerequisites: S1, Z5, S5 must exist.
-responseStartPoint = first point between Z5 and S5 where v ≥ ${threshold}
-responseEndPoint = first point after start where v ≥ S1.value × 0.9
-If missing → responseError
+Prerequisites: S1, Z5, and S5 must exist.
+Rule:
+1. If missing → responseError = "Prerequisites not found."
+2. responseStartPoint = first point between Z5 and S5 where v ≥ ${threshold}
+3. responseEndPoint = first point after start where v ≥ S1.value × 0.9
+4. If missing → responseError = "Response point not found."
 `;
 
   return { masterPrompt, masterSchema };
 }
 
 /**
- * ✅ 패턴 분석 실행 (Gemini 직접 호출)
+ * ✅ 패턴 분석 실행
  */
 export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisResult> {
   if (!job.parsedData || !job.selectedChannelId || !job.aiPhaseAnalysisResult)
-    throw new Error("Pattern analysis requires parsed data and phase results.");
+    throw new Error("Pattern analysis requires parsed data, a selected channel, and phase results.");
 
   const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
