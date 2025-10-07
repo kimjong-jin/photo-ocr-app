@@ -77,9 +77,15 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
   2. Let 'end_timestamp' be the end of that section (the rest period).
   3. Consider only data points strictly AFTER 'end_timestamp'.
   4. From that subset:
-     - Z3 = first data point,
-     - Z4 = first point **that occurs at least 300 seconds (5 minutes) AFTER Z3**, not sooner.
-  5. If no stable section exists, omit this task.
+-     - Z3 = first data point,
+-     - Z4 = first point **that occurs at least 300 seconds (5 minutes) AFTER Z3**, not sooner.
+-  5. If no stable section exists, omit this task.
++     - Z3 = first data point.
++     - Z4 = first point where the time difference satisfies:
++         (timestamp(Z4) - timestamp(Z3)) ≥ 300 seconds (exactly 5 minutes), not approximate.
++       If no such point exists, omit Z4.
++  5. If no stable section exists, omit this task entirely.
+
 
 ---
 
