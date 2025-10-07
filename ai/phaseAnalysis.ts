@@ -1,8 +1,6 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import type { CsvGraphJob, AiPhase } from "../types/csvGraph";
-
-// ✅ Vite 환경에서 올바른 API 키 접근 방식 (ApiKeyChecker와 동일)
-const API_KEY = (import.meta as any).env.VITE_API_KEY;
+import { getGenAIClient } from "../services/geminiService"; // ✅ 공용 Gemini 클라이언트
 
 function getPhaseAnalysisPrompt(
   dataPoints: { t: string; v: number | null }[],
@@ -16,72 +14,58 @@ function getPhaseAnalysisPrompt(
       prompt = `
 You are a hyper-precise data analysis robot. Your SOLE mission is to find broad concentration phases from '수질 (PH)' data. You MUST NOT identify individual points like Z1, S1.
 **DATA & THRESHOLDS:**
-- The data is a JSON array: \`{t: "ISO timestamp", v: numeric_value}\`.
+- The data is a JSON array: {t: "ISO timestamp", v: numeric_value}.
 - The sensor is a PH meter. Values cluster around 4, 7, and 10.
 - Define value ranges:
-  * \`ph4_range = [3.5, 5.0]\`
-  * \`ph7_range = [6.5, 8.0]\`
+  * ph4_range = [3.5, 5.0]
+  * ph7_range = [6.5, 8.0]
 **MISSION: SEQUENTIAL & ALTERNATING PHASE IDENTIFICATION**
 **CRITICAL RULES:**
-1.  **Strict Sequence & Gaps:** Find phases in order (Low Phase 1 -> High Phase 1 -> ...). A new phase MUST start after the previous one ends.
-2.  **Noise Immunity:** Prioritize stable, sustained periods. Ignore brief spikes.
-3.  **Phase Definitions:**
-    *   A **Low Phase** is a STABLE and CONTINUOUS period of at least 60 seconds where all \`v\` are within \`ph4_range\`.
-    *   A **High Phase** is a STABLE and CONTINUOUS period of at least 60 seconds where all \`v\` are within \`ph7_range\`.
-    *   **CRITICAL "Low Phase 2" RULE:** This phase MUST be a HIGH phase (in ph7_range) and contain a continuous stable pH 7 period (휴직기, rest period) of at least 2 hours (7200 seconds). If not found, you MUST NOT identify "Low Phase 2".
+1. Strict Sequence & Gaps: Find phases in order (Low Phase 1 -> High Phase 1 -> ...). A new phase MUST start after the previous one ends.
+2. Noise Immunity: Prioritize stable, sustained periods. Ignore brief spikes.
+3. Phase Definitions:
+   - Low Phase: STABLE and CONTINUOUS ≥60s where all v ∈ ph4_range
+   - High Phase: STABLE and CONTINUOUS ≥60s where all v ∈ ph7_range
+   - Low Phase 2 must contain a rest period (stable pH7) ≥2h (7200s)
 **Execution Plan:**
-1. Find "Low Phase 1".
-2. Find "High Phase 1" after "Low Phase 1".
-3. Find "Low Phase 2" (which is a High Phase at pH 7) after "High Phase 1", ensuring it meets its CRITICAL 2-hour rule.
-4. Find "High Phase 2" after "Low Phase 2".
-5. Find "Low Phase 3" after "High Phase 2".
-6. Find "High Phase 3" after "Low Phase 3".
-**FINAL OUTPUT:** Respond ONLY with a single JSON array of the phase objects you successfully identified.
+1. Low Phase 1
+2. High Phase 1
+3. Low Phase 2 (with rest period)
+4. High Phase 2
+5. Low Phase 3
+6. High Phase 3
+**FINAL OUTPUT:** Single JSON array of identified phases.
 Data:
 ${JSON.stringify(dataPoints)}
 `;
       break;
 
     case "수질 (SS)":
-      let ssThresholdDefinition: string;
-      if (typeof measurementRange === "number" && measurementRange > 0) {
-        ssThresholdDefinition = `
-- The measurement range is ${measurementRange}.
-- Define thresholds: high_threshold = ${measurementRange * 0.8}, low_threshold = ${
-          measurementRange * 0.2
-        }, medium_threshold_low = ${measurementRange * 0.4}, medium_threshold_high = ${
-          measurementRange * 0.6
-        }.
+      const rangePart =
+        typeof measurementRange === "number" && measurementRange > 0
+          ? `
+- Measurement range: ${measurementRange}.
+- Thresholds: high = ${measurementRange * 0.8}, low = ${
+              measurementRange * 0.2
+            }, medium_low = ${measurementRange * 0.4}, medium_high = ${
+              measurementRange * 0.6
+            }.
+`
+          : `
+- Find data_min and data_max.
+- Define thresholds using 0.2, 0.4, 0.6, 0.8 ratios between min and max.
 `;
-      } else {
-        ssThresholdDefinition = `
-- First, find the absolute minimum (\`data_min\`) and maximum (\`data_max\`) values in the entire dataset.
-- Define thresholds: high_threshold = data_min + (data_max - data_min) * 0.8, low_threshold = data_min + (data_max - data_min) * 0.2, medium_threshold_low = data_min + (data_max - data_min) * 0.4, medium_threshold_high = data_min + (data_max - data_min) * 0.6.
-`;
-      }
+
       prompt = `
-You are a hyper-precise data analysis robot. Your SOLE mission is to find broad concentration phases from '수질 (SS)' data based on time. You MUST NOT identify individual points like Z1, S1.
+You are a hyper-precise data analysis robot. Your mission is to find concentration phases from '수질 (SS)' data.
 **DATA & THRESHOLDS:**
-- The data is a JSON array: \`{t: "ISO timestamp", v: numeric_value}\`.
-${ssThresholdDefinition}
-**MISSION: SEQUENTIAL & ALTERNATING PHASE IDENTIFICATION**
+- JSON: {t: "ISO timestamp", v: numeric_value}.
+${rangePart}
 **CRITICAL RULES:**
-1.  **Strict Sequence & Gaps:** Find phases in order. A new phase MUST start after the previous one ends.
-2.  **Noise Immunity:** Prioritize stable, sustained periods. Ignore brief spikes.
-3.  **Phase Definitions (Time-based):**
-    *   A **Low Phase** is a STABLE and CONTINUOUS period of at least 30 minutes (1800 seconds) where all \`v\` are \`<= low_threshold\`.
-    *   A **High Phase** is a STABLE and CONTINUOUS period of at least 30 minutes (1800 seconds) where all \`v\` are \`>= high_threshold\`.
-    *   A **Medium Phase** is a period of at least 20 minutes (1200 seconds) where all \`v\` are between \`medium_threshold_low\` and \`medium_threshold_high\`.
-    *   **CRITICAL "Low Phase 2" RULE:** This phase MUST be a LOW phase and contain a continuous stable low period (휴직기, rest period) of at least 2 hours (7200 seconds). If not found, you MUST NOT identify "Low Phase 2".
-**Execution Plan:**
-1. Find "Low Phase 1".
-2. Find "High Phase 1" after "Low Phase 1".
-3. Find "Low Phase 2" after "High Phase 1", ensuring it meets its CRITICAL 2-hour rule.
-4. Find "High Phase 2" after "Low Phase 2".
-5. Find "Low Phase 3" after "High Phase 2".
-6. Find "High Phase 3" after "Low Phase 3".
-7. Find one "Medium Phase 1" in the remaining data.
-**FINAL OUTPUT:** Respond ONLY with a single JSON array of the phase objects you successfully identified.
+1. Sequential: Low → High → Low → High → Low → High (+ Medium)
+2. Stable periods only (ignore spikes).
+3. Low Phase 2 must include ≥2h rest period (7200s).
+**FINAL OUTPUT:** JSON array of identified phases.
 Data:
 ${JSON.stringify(dataPoints)}
 `;
@@ -89,59 +73,39 @@ ${JSON.stringify(dataPoints)}
 
     case "먹는물 (TU/Cl)":
     default:
-      let drinkingWaterThresholdDefinition: string;
-      let highPhaseUpperBoundRule = "";
-      if (typeof measurementRange === "number" && measurementRange > 0) {
-        drinkingWaterThresholdDefinition = `
-- The measurement range for this instrument is ${measurementRange}.
-- Define thresholds based on this range: high_threshold = ${
-          measurementRange * 0.8
-        }, low_threshold = ${measurementRange * 0.2}, medium_threshold_low = ${
-          measurementRange * 0.4
-        }, medium_threshold_high = ${measurementRange * 0.6}.
+      const dynamicRange =
+        typeof measurementRange === "number" && measurementRange > 0
+          ? `
+- Measurement range: ${measurementRange}.
+- Thresholds: high=${measurementRange * 0.8}, low=${measurementRange * 0.2},
+  medium_low=${measurementRange * 0.4}, medium_high=${measurementRange * 0.6}.
+`
+          : `
+- Auto-derive thresholds from min/max values (0.2–0.8 fractions).
 `;
-        highPhaseUpperBoundRule = `AND \`v\` <= \`${measurementRange}\``;
-      } else {
-        drinkingWaterThresholdDefinition = `
-- First, find the absolute minimum (\`data_min\`) and maximum (\`data_max\`) values in the entire dataset.
-- Define thresholds: high_threshold = data_min + (data_max - data_min) * 0.8, low_threshold = data_min + (data_max - data_min) * 0.2, medium_threshold_low = data_min + (data_max - data_min) * 0.4, medium_threshold_high = data_min + (data_max - data_min) * 0.6.
-`;
-      }
+
       prompt = `
-You are a hyper-precise data analysis robot. Your SOLE mission is to identify broad concentration phases from '먹는물 (TU/Cl)' data, following extremely strict rules.
+You are a strict phase detector for '먹는물 (TU/Cl)'.
+${dynamicRange}
 
-**CONTEXT & THRESHOLDS:**
-- The data is a JSON array: \`{t: "ISO timestamp", v: numeric_value}\`.
-- The sensor type is '먹는물 (TU/Cl)'.
-${drinkingWaterThresholdDefinition}
-
-**CORE DIRECTIVE: ABSOLUTE VALUE RANGE COMPLIANCE**
-This is your most important rule. A phase is a continuous segment of time where **EVERY SINGLE data point** strictly fits within a value range. If even one point in a potential phase goes outside its range, that phase is immediately considered terminated *before* that point. Do not include outlier points inside a phase. They are boundaries.
-
-**MISSION: Find non-overlapping phases in this EXACT order:**
-1.  **Find "Low Phase 1"**: A continuous period of at least 60 seconds where ALL points satisfy \`v <= low_threshold\`.
-2.  **Find "High Phase 1"**: Starting strictly after "Low Phase 1" ends, find a continuous period of at least 60 seconds where ALL points satisfy \`v >= high_threshold\` ${highPhaseUpperBoundRule}.
-3.  **Find "Low Phase 2" (Special Rule)**: Starting strictly after "High Phase 1" ends, find a low phase (\`v <= low_threshold\`) that is at least 60 seconds long AND also contains a continuous stable low period (휴직기, rest period) of at least 2 hours (7200 seconds). If you cannot find a phase that meets this exact 2-hour criteria, you MUST NOT identify "Low Phase 2".
-4.  **Find "High Phase 2"**: Starting strictly after "Low Phase 2" ends, find a continuous period of at least 60 seconds where ALL points satisfy \`v >= high_threshold\` ${highPhaseUpperBoundRule}.
-5.  **Find "Low Phase 3"**: Starting strictly after "High Phase 2" ends, find a continuous period of at least 60 seconds where ALL points satisfy \`v <= low_threshold\`.
-6.  **Find "High Phase 3"**: Starting strictly after "Low Phase 3" ends, find a continuous period of at least 60 seconds where ALL points satisfy \`v >= high_threshold\` ${highPhaseUpperBoundRule}.
-7.  **Find "Medium Phase 1"**: Search the remaining data for one continuous period of at least 60 seconds where ALL points satisfy \`medium_threshold_low <= v AND v <= medium_threshold_high\`.
-
-**FINAL OUTPUT:**
-- Respond ONLY with a single JSON array of the phase objects you successfully identified.
-- Phases must not overlap and must be in chronological order.
-
+**Rules:**
+1. Each phase = continuous period where ALL points fit within thresholds.
+2. If any value breaks the threshold → terminate current phase immediately.
+3. Identify phases in exact order:
+   Low1 → High1 → Low2 (rest 2h) → High2 → Low3 → High3 → Medium1
+**FINAL OUTPUT:** JSON array of all valid phases.
 Data:
 ${JSON.stringify(dataPoints)}
 `;
       break;
   }
+
   return prompt;
 }
 
 export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
   if (!job.parsedData || !job.selectedChannelId) {
-    console.error("❌ Phase analysis requires parsed data and a selected channel.");
+    console.error("❌ Missing parsed data or selected channel.");
     return [];
   }
 
@@ -150,81 +114,83 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
   );
 
   if (selectedChannelIndex === -1) {
-    console.warn("⚠️ 선택된 채널을 찾을 수 없습니다. 분석을 건너뜁니다.");
+    console.warn("⚠️ Selected channel not found. Skipping.");
     return [];
   }
 
-  // ✅ API 키 확인
-  if (!API_KEY) {
-    console.error("❌ VITE_API_KEY가 누락되었습니다. .env 파일에 추가하세요.");
-    return [];
-  }
-
-  // ✅ Gemini 초기화
-  const ai = new GoogleGenAI({ apiKey: API_KEY });
+  // ✅ Gemini 클라이언트 불러오기 (자동 키 포함, 재시도 적용)
+  const ai = getGenAIClient();
 
   const dataPoints = job.parsedData.data
-    .map((d) => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
+    .map((d) => ({
+      t: d.timestamp.toISOString(),
+      v: d.values[selectedChannelIndex],
+    }))
     .filter((d) => d.v !== null);
 
-  const measurementRange = job.parsedData.measurementRange;
-  const prompt = getPhaseAnalysisPrompt(dataPoints, job.sensorType, measurementRange);
-
-  const phaseSchema = {
-    type: Type.OBJECT,
-    properties: {
-      name: { type: Type.STRING },
-      startTime: { type: Type.STRING },
-      endTime: { type: Type.STRING },
-    },
-    required: ["name", "startTime", "endTime"],
-  };
+  const prompt = getPhaseAnalysisPrompt(
+    dataPoints,
+    job.sensorType,
+    job.parsedData.measurementRange
+  );
 
   const responseSchema = {
     type: Type.ARRAY,
-    items: phaseSchema,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING },
+        startTime: { type: Type.STRING },
+        endTime: { type: Type.STRING },
+      },
+      required: ["name", "startTime", "endTime"],
+    },
   };
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema,
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
 
-  const jsonText =
-    (response as any).output_text ||
-    (response as any).output?.[0]?.content?.parts?.[0]?.text ||
-    (response as any).text;
+    const jsonText =
+      (response as any).output_text ||
+      (response as any).output?.[0]?.content?.parts?.[0]?.text ||
+      (response as any).text;
 
-  if (!jsonText) {
-    console.error("⚠️ Gemini 모델에서 응답이 없습니다.");
-    return [];
+    if (!jsonText) throw new Error("Gemini returned empty response.");
+
+    const parsed = JSON.parse(jsonText) as AiPhase[];
+
+    // ✅ 결과 순서 정렬
+    const phaseOrder = [
+      "Low Phase 1",
+      "High Phase 1",
+      "Low Phase 2",
+      "High Phase 2",
+      "Low Phase 3",
+      "High Phase 3",
+      "Medium Phase 1",
+    ];
+
+    parsed.sort((a, b) => {
+      const idxA = phaseOrder.indexOf(a.name);
+      const idxB = phaseOrder.indexOf(b.name);
+      if (idxA === -1) return 1;
+      if (idxB === -1) return -1;
+      return idxA - idxB;
+    });
+
+    return parsed;
+  } catch (err: any) {
+    console.error("❌ Gemini Phase Analysis failed:", err.message);
+    throw new Error(
+      `Gemini Phase Analysis Error: ${err.message || "Unknown error."}`
+    );
   }
-
-  const parsedResult = JSON.parse(jsonText) as AiPhase[];
-
-  // ✅ 정렬 순서 고정
-  const phaseOrder = [
-    "Low Phase 1",
-    "High Phase 1",
-    "Low Phase 2",
-    "High Phase 2",
-    "Low Phase 3",
-    "High Phase 3",
-    "Medium Phase 1",
-  ];
-
-  parsedResult.sort((a, b) => {
-    const indexA = phaseOrder.indexOf(a.name);
-    const indexB = phaseOrder.indexOf(b.name);
-    if (indexA === -1) return 1;
-    if (indexB === -1) return -1;
-    return indexA - indexB;
-  });
-
-  return parsedResult;
 }
