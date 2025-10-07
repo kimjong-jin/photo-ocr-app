@@ -1,5 +1,5 @@
 // src/ai/patternAnalysis.ts
-import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/CsvGraph";
+import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
 
 /**
  * 패턴 분석용 프롬프트를 구성
