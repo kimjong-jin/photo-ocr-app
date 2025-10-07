@@ -1,5 +1,5 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
+import { Type } from "@google/genai";
 
 function getPatternAnalysisPrompt(
   job: CsvGraphJob,
@@ -102,6 +102,7 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
      - Z3 = first data point,
      - Z4 = first point ≥300s after Z3.
   5. If no stable section exists, omit this task.
+
 ---
 
 **TASK 4: S3 & S4 (High Phase 2)**
@@ -144,9 +145,7 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
 
 export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisResult> {
   if (!job.parsedData || !job.selectedChannelId || !job.aiPhaseAnalysisResult) {
-    throw new Error(
-      "Pattern analysis requires parsed data, a selected channel, and phase analysis results."
-    );
+    throw new Error("Pattern analysis requires parsed data, a selected channel, and phase analysis results.");
   }
 
   const selectedChannelIndex = job.parsedData.channels.findIndex(
@@ -154,9 +153,6 @@ export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisRe
   );
   if (selectedChannelIndex === -1)
     throw new Error("Selected channel not found in parsed data.");
-
-  // ✅ Gemini 초기화 (환경 변수명 수정)
-  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
   const allDataPoints = job.parsedData.data
     .map((d) => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
@@ -168,22 +164,26 @@ export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisRe
 
   const { masterPrompt, masterSchema } = getPatternAnalysisPrompt(job, allDataPoints, phaseMap);
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: masterPrompt }] }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: masterSchema,
-      thinkingConfig: { thinkingBudget: 0 },
-    },
+  // ✅ Gemini API를 서버 라우트 통해 호출
+  const response = await fetch("/api/gemini-analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: masterPrompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: masterSchema,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    }),
   });
 
-  const jsonText =
-    (response as any).output_text ||
-    (response as any).output?.[0]?.content?.parts?.[0]?.text ||
-    (response as any).text;
+  if (!response.ok) {
+    throw new Error(`Server error: ${response.status} ${response.statusText}`);
+  }
 
-  if (!jsonText) throw new Error("No JSON response from Gemini model.");
+  const jsonText = await response.text();
+  if (!jsonText) throw new Error("No JSON response from Gemini API server.");
 
   const result = JSON.parse(jsonText) as AiAnalysisResult;
 
