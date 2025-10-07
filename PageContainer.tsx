@@ -6,6 +6,7 @@ import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
 import FieldCountPage from './FieldCountPage';
 import StructuralCheckPage, { type StructuralJob } from './StructuralCheckPage';
 import { KakaoTalkPage } from './KakaoTalkPage';
+// FIX: Import CsvGraphJob and SensorType from their source file `types/csvGraph.ts`
 import CsvGraphPage from './CsvGraphPage';
 import type { CsvGraphJob, SensorType } from './types/csvGraph';
 import { Header } from './components/Header';
@@ -29,6 +30,7 @@ import { getKakaoAddress } from './services/kakaoService';
 
 
 type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
+export type ApiMode = 'gemini' | 'vllm';
 
 interface PageContainerProps {
   userName: string;
@@ -80,6 +82,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [newItemKey, setNewItemKey] = useState<string>('');
   const [newSensorType, setNewSensorType] = useState<SensorType>('먹는물 (TU/Cl)');
+  const [apiMode, setApiMode] = useState<ApiMode>('gemini');
 
   const [photoLogJobs, setPhotoLogJobs] = useState<PhotoLogJob[]>([]);
   const [activePhotoLogJobId, setActivePhotoLogJobId] = useState<string | null>(null);
@@ -102,6 +105,18 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const [openSections, setOpenSections] = useState<string[]>(['addTask']);
+
+  useEffect(() => {
+    const savedMode = localStorage.getItem('apiMode') as ApiMode;
+    if (savedMode && (savedMode === 'gemini' || savedMode === 'vllm')) {
+      setApiMode(savedMode);
+    }
+  }, []);
+
+  const handleApiModeChange = (mode: ApiMode) => {
+    setApiMode(mode);
+    localStorage.setItem('apiMode', mode);
+  };
 
   const finalSiteLocation = useMemo(() => {
     const site = siteName.trim();
@@ -776,14 +791,24 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         <div className="text-sm text-sky-300 mb-2 sm:mb-0">
           환영합니다, <span className="font-semibold">{userName}</span>님!
         </div>
-        <ActionButton
-          onClick={onLogout}
-          variant="secondary"
-          className="bg-red-600 hover:bg-red-700 focus:ring-red-500 text-white text-xs px-3 py-1.5 h-auto"
-          icon={<LogoutIcon />}
-        >
-          로그아웃
-        </ActionButton>
+        <div className="flex items-center space-x-2">
+            <div className="flex items-center p-1 bg-slate-700 rounded-lg">
+                <button onClick={() => handleApiModeChange('gemini')} className={`px-3 py-1 text-xs rounded-md transition-colors ${apiMode === 'gemini' ? 'bg-sky-500 text-white' : 'text-slate-300 hover:bg-slate-600'}`}>
+                    외부(AI)
+                </button>
+                <button onClick={() => handleApiModeChange('vllm')} className={`px-3 py-1 text-xs rounded-md transition-colors ${apiMode === 'vllm' ? 'bg-indigo-500 text-white' : 'text-slate-300 hover:bg-slate-600'}`}>
+                    내부(vLLM)
+                </button>
+            </div>
+            <ActionButton
+              onClick={onLogout}
+              variant="secondary"
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-500 text-white text-xs px-3 py-1.5 h-auto"
+              icon={<LogoutIcon />}
+            >
+              로그아웃
+            </ActionButton>
+        </div>
       </div>
 
       {activePage !== 'kakaoTalk' && (
