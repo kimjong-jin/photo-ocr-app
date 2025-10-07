@@ -25,7 +25,7 @@ export async function POST(req: Request): Promise<Response> {
 
     // ⚡ 속도 최적화 모델로 교체해볼 수 있음
     const r = await ai.models.generateContent({
-      model: "gemini-2.5-flash,
+      model: "gemini-2.5-flash",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config,
     });
