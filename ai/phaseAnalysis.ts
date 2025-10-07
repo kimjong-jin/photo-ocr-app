@@ -172,6 +172,7 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
         },
     });
 
+    const resultJson = response.text;
     const match = resultJson.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
     if (!match) throw new Error("No valid JSON found in response");
     const parsedResult = JSON.parse(match[0]) as AiPhase[];
