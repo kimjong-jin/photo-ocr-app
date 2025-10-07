@@ -6,7 +6,6 @@ import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
 import FieldCountPage from './FieldCountPage';
 import StructuralCheckPage, { type StructuralJob } from './StructuralCheckPage';
 import { KakaoTalkPage } from './KakaoTalkPage';
-// FIX: Import CsvGraphJob and SensorType from their source file `types/csvGraph.ts`
 import CsvGraphPage from './CsvGraphPage';
 import type { CsvGraphJob, SensorType } from './types/csvGraph';
 import { Header } from './components/Header';
