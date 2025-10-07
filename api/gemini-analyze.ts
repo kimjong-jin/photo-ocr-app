@@ -1,96 +1,78 @@
 import { GoogleGenAI } from "@google/genai";
 
-// ✅ Node 런타임 고정 (Edge 환경에서 실행 시 오히려 느려짐)
-export const config = { runtime: "nodejs" };
+export const config = {
+  runtime: "nodejs",
+  regions: ["icn1", "hkg1"], // ✅ 한국/홍콩 우선
+  maxDuration: 30,
+};
 
 export async function POST(req: Request): Promise<Response> {
-  const t0 = Date.now(); // 성능 측정용 타이머
+  const t0 = Date.now();
 
   try {
-    // ✅ 빠른 요청 파싱 (req.json() 대신)
     const bodyText = await req.text();
-    const { prompt, config: userConfig } = JSON.parse(bodyText); // ✅ 이름 충돌 방지
+    const { prompt: encodedPrompt, config: userConfig } = JSON.parse(bodyText);
 
-    // ✅ 요청 유효성 검사
-    if (!prompt || !userConfig) {
+    if (!encodedPrompt || !userConfig) {
       return new Response(
         JSON.stringify({ error: "Missing 'prompt' or 'config' in request body" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // ✅ API 키 검증
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      console.error("❌ Missing GEMINI_API_KEY in environment");
       return new Response(
-        JSON.stringify({ error: "Missing GEMINI_API_KEY in environment variables." }),
+        JSON.stringify({ error: "Missing GEMINI_API_KEY in environment" }),
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // ✅ Gemini 인스턴스 생성
+    const prompt = decodeURIComponent(escape(atob(encodedPrompt)));
     const ai = new GoogleGenAI({ apiKey });
 
-    // ✅ 모델 호출 (timeout 옵션 포함)
-    const r = await ai.models.generateContent(
-      {
-        model: "gemini-2.5-flash", // 🧠 정확도 + 속도 밸런스 최적
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        config: userConfig,
-      },
-      { timeout: 15000 } // ⏱️ 15초 초과 시 강제 중단
-    );
+    // ✅ Streaming 호출 (속도 개선)
+    const stream = await ai.models.streamGenerateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: userConfig,
+    });
 
-    // ✅ 다양한 응답 포맷에 대응
-    const resultText =
-      (r as any).output_text ||
-      (r as any).text ||
-      (r as any).output?.[0]?.content?.parts?.[0]?.text ||
-      "";
-
-    if (!resultText.trim()) {
-      console.warn("⚠️ Gemini returned an empty result");
-      return new Response(
-        JSON.stringify({ error: "Empty response from Gemini model", raw: r }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
+    let resultText = "";
+    for await (const chunk of stream.stream) {
+      resultText += chunk.text();
     }
 
-    // ✅ JSON 파싱 (실패 시 원본 반환)
+    if (!resultText.trim()) {
+      return new Response(JSON.stringify({ error: "Empty response from Gemini" }), {
+        status: 502,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     let parsed;
     try {
       parsed = JSON.parse(resultText);
-    } catch (err) {
-      console.error("❌ JSON parsing failed. Raw text:", resultText);
-      return new Response(
-        JSON.stringify({
-          error: "Invalid JSON from Gemini model",
-          raw: resultText,
-        }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON", raw: resultText }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    // ✅ 처리 시간 로깅
     const t1 = Date.now();
     console.log(`✅ Gemini request completed in ${(t1 - t0) / 1000}s`);
 
-    // ✅ 최종 응답 반환
     return new Response(JSON.stringify(parsed), {
       headers: { "Content-Type": "application/json" },
     });
-
-  } catch (error: any) {
-    console.error("[api/gemini-analyze] Fatal Error:", error);
+  } catch (err: any) {
+    console.error("[api/gemini-analyze] Fatal Error:", err);
     return new Response(
-      JSON.stringify({
-        error: error.message || "Unexpected server error",
-      }),
+      JSON.stringify({ error: err.message || "Unexpected server error" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }
 
-// ✅ 환경 변수 존재 확인 로그
 console.log("🔍 GEMINI_API_KEY exists?", !!process.env.GEMINI_API_KEY);
