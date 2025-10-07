@@ -119,8 +119,18 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
 - Rule:
   1. If missing, set responseError = "Prerequisites not found."
   2. responseStartPoint = first point between Z5 and S5 with v ≥ ${responseStartThresholdValue}.
-  3. responseEndPoint = first point after responseStartPoint where v ≥ S1.value × 0.9.
-  4. If not found, set appropriate responseError.
+- 3. responseEndPoint = first point after responseStartPoint where v ≥ S1.value × 0.9.
+- 4. If not found, set appropriate responseError.
++ 3. responseEndPoint = the **exact intersection point** between:
++      - the rising curve of sensor values (v) after responseStartPoint, and
++      - the horizontal line defined by y = (S1.value × 0.9).
++    To estimate this point:
++      a. Find the first interval [p1, p2] where v(p1) < (S1.value × 0.9) and v(p2) ≥ (S1.value × 0.9).
++      b. Use **linear interpolation** to estimate the timestamp at which the curve crosses this line:
++         t_interpolated = t1 + (t2 - t1) × ((S1.value × 0.9 - v1) / (v2 - v1))
++      c. Set responseEndPoint.timestamp = t_interpolated, and responseEndPoint.value = S1.value × 0.9.
++ 4. If the intersection cannot be found before S5, set responseError = "Response end not detected."
+
 
 ---
 
