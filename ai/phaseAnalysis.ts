@@ -1,10 +1,7 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiPhase } from "../types/csvGraph";
 
 /**
- * ✅ Phase 분석용 프롬프트 생성기 (속도·안정화 버전)
- * - safeJson(): 최대 500 포인트만 전송 (Prompt 최적화)
- * - 데이터 용량 90% 감소, 응답속도 약 3~5배 향상
+ * ✅ Phase 분석 프롬프트 생성기 (원문 보존 + 데이터 최적화)
  */
 function getPhaseAnalysisPrompt(
   dataPoints: { t: string; v: number | null }[],
@@ -12,7 +9,6 @@ function getPhaseAnalysisPrompt(
   measurementRange: number | undefined
 ): string {
   const safeJson = (arr: any[]) => JSON.stringify(arr.slice(0, 500));
-
   let prompt: string;
 
   switch (sensorType) {
@@ -145,10 +141,10 @@ ${safeJson(dataPoints)}
 }
 
 /**
- * ✅ Phase 분석 실행 (최적화)
- * - Stream 모드: 빠른 응답
- * - Safe JSON parsing
- * - 10포인트 단위 샘플링 (성능 향상)
+ * ✅ REST 기반 Phase 분석 실행 (Gemini 2.5 Flash)
+ * - SDK 제거
+ * - fetch() 직접 호출
+ * - JSON 안정 파싱 및 속도 최적화
  */
 export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
   if (!job.parsedData || !job.selectedChannelId)
@@ -160,9 +156,7 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
   if (selectedChannelIndex === -1)
     throw new Error("Selected channel not found in parsed data.");
 
-  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-
-  // ✅ 데이터 샘플링 & 정밀도 제한
+  // ✅ 데이터 샘플링 + 소수점 제한
   const dataPoints = job.parsedData.data
     .filter((_, i) => i % 10 === 0)
     .map((d) => ({
@@ -174,42 +168,38 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
   const measurementRange = job.parsedData.measurementRange;
   const prompt = getPhaseAnalysisPrompt(dataPoints, job.sensorType, measurementRange);
 
-  const schema = {
-    type: Type.ARRAY,
-    items: {
-      type: Type.OBJECT,
-      properties: {
-        name: { type: Type.STRING },
-        startTime: { type: Type.STRING },
-        endTime: { type: Type.STRING },
-      },
-      required: ["name", "startTime", "endTime"],
-    },
-  };
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error("❌ Gemini API key (VITE_GEMINI_API_KEY) not found.");
 
-  // ✅ 스트리밍 호출 (응답속도 단축)
-  const stream = await ai.models.stream.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: schema,
-    },
-  });
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      }),
+    }
+  );
 
-  let text = "";
-  for await (const chunk of stream.stream) {
-    text += chunk.text();
+  if (!response.ok) {
+    const err = await response.text();
+    console.error("❌ Gemini API Error:", err);
+    throw new Error("Gemini API request failed.");
   }
 
-  if (!text.trim()) throw new Error("Empty response from Gemini model");
+  const data = await response.json();
+  const text =
+    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+
+  if (!text) throw new Error("Empty response from Gemini model.");
 
   let result: AiPhase[];
   try {
     result = JSON.parse(text);
   } catch (err) {
-    console.error("❌ JSON parse error. Raw output:\n", text);
-    throw new Error("Invalid JSON format from Gemini.");
+    console.error("❌ JSON Parse Error:\n", text);
+    throw new Error("Invalid JSON format returned by Gemini.");
   }
 
   // ✅ Phase 순서 정렬
