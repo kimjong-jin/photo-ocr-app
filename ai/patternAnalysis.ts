@@ -156,7 +156,7 @@ export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisRe
     throw new Error("Selected channel not found in parsed data.");
 
   // ✅ Gemini 초기화 (환경 변수명 수정)
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
   const allDataPoints = job.parsedData.data
     .map((d) => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
