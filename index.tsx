@@ -1,30 +1,29 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
 import ApiKeyChecker from './components/ApiKeyChecker';
 import PageContainer from './PageContainer';
-import UserNameInput, { UserRole, USER_CREDENTIALS } from './components/UserNameInput';
+import UserNameInput, { UserRole } from './components/UserNameInput';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-const LOGGED_IN_USER_DATA_KEY = 'photoLogAppUserData_CurrentTab'; // For current tab's session
-const ACTIVE_SESSIONS_KEY = 'photoLogApp_ActiveSessions'; // Global list of active sessions
-const SESSION_VALIDATION_INTERVAL = 5000; // 5 seconds
-const ACTIVE_SESSION_HEARTBEAT_INTERVAL = 30000; // 30 seconds to update lastSeen
+const LOGGED_IN_USER_DATA_KEY = 'photoLogAppUserData_CurrentTab';
+const ACTIVE_SESSIONS_KEY = 'photoLogApp_ActiveSessions';
+const SESSION_VALIDATION_INTERVAL = 5000;
+const ACTIVE_SESSION_HEARTBEAT_INTERVAL = 30000;
 
 interface StoredUserData {
   name: string;
   role: UserRole;
   contact: string;
-  sessionId: string; // Session ID for this specific tab/instance
+  sessionId: string;
 }
 
 interface ActiveSessionEntry {
   role: UserRole;
-  sessionId: string; // The "master" session ID for this user
+  sessionId: string;
   lastSeen: number;
   forceLogoutReason?: string;
 }
@@ -34,22 +33,31 @@ type ActiveSessions = Record<string, ActiveSessionEntry>;
 const AppWrapper: React.FC = () => {
   const [currentUserData, setCurrentUserData] = useState<StoredUserData | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState<boolean>(true);
+  const [aiMode, setAiMode] = useState<'gemini' | 'vllm'>(() => {
+    return (localStorage.getItem('apiMode') as 'gemini' | 'vllm') || 'gemini';
+  });
 
-  // Load current tab's session data on initial mount
+  // ✅ AI 모드 토글 핸들러
+  const handleToggleAiMode = () => {
+    const newMode = aiMode === 'gemini' ? 'vllm' : 'gemini';
+    setAiMode(newMode);
+    localStorage.setItem('apiMode', newMode);
+  };
+
+  // Load session data
   useEffect(() => {
-    const savedUserDataRaw = sessionStorage.getItem(LOGGED_IN_USER_DATA_KEY); // Changed to sessionStorage
+    const savedUserDataRaw = sessionStorage.getItem(LOGGED_IN_USER_DATA_KEY);
     if (savedUserDataRaw) {
       try {
         const savedUserData = JSON.parse(savedUserDataRaw) as StoredUserData;
-        // Basic validation of stored data
         if (savedUserData.name && savedUserData.role && savedUserData.sessionId && savedUserData.contact) {
           setCurrentUserData(savedUserData);
         } else {
-          sessionStorage.removeItem(LOGGED_IN_USER_DATA_KEY); // Changed to sessionStorage
+          sessionStorage.removeItem(LOGGED_IN_USER_DATA_KEY);
         }
       } catch (error) {
         console.error("Error parsing saved user data for current tab:", error);
-        sessionStorage.removeItem(LOGGED_IN_USER_DATA_KEY); // Changed to sessionStorage
+        sessionStorage.removeItem(LOGGED_IN_USER_DATA_KEY);
       }
     }
     setIsLoadingSession(false);
@@ -58,49 +66,39 @@ const AppWrapper: React.FC = () => {
   const handleLoginSuccess = useCallback((name: string, role: UserRole, contact: string) => {
     const newSessionId = self.crypto.randomUUID();
     const userDataForTab: StoredUserData = { name, role, contact, sessionId: newSessionId };
-
     setCurrentUserData(userDataForTab);
-    sessionStorage.setItem(LOGGED_IN_USER_DATA_KEY, JSON.stringify(userDataForTab)); // Changed to sessionStorage
+    sessionStorage.setItem(LOGGED_IN_USER_DATA_KEY, JSON.stringify(userDataForTab));
 
-    // Update global active sessions list (still uses localStorage for cross-tab awareness)
     const activeSessionsRaw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
     const activeSessions: ActiveSessions = activeSessionsRaw ? JSON.parse(activeSessionsRaw) : {};
-    
     activeSessions[name] = { 
       role, 
-      sessionId: newSessionId, // This new login defines the current valid sessionId for this user
+      sessionId: newSessionId, 
       lastSeen: Date.now(),
-      forceLogoutReason: undefined // Clear any previous force logout reason
+      forceLogoutReason: undefined
     };
     localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(activeSessions));
   }, []);
 
   const handleLogout = useCallback((isForced: boolean = false, reason?: string) => {
     const nameToLogout = currentUserData?.name;
-
     setCurrentUserData(null);
-    sessionStorage.removeItem(LOGGED_IN_USER_DATA_KEY); // Changed to sessionStorage
+    sessionStorage.removeItem(LOGGED_IN_USER_DATA_KEY);
 
     if (nameToLogout) {
       const activeSessionsRaw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
       if (activeSessionsRaw) {
         const activeSessions: ActiveSessions = JSON.parse(activeSessionsRaw);
-        // Only remove if this logout is not forced by admin invalidating the session ID
-        // If it was forced, the admin already changed the sessionId in ACTIVE_SESSIONS_KEY
-        // and this logout is a consequence. If it's a self-logout, then remove.
         if (!isForced) {
-            delete activeSessions[nameToLogout];
-            localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(activeSessions));
+          delete activeSessions[nameToLogout];
+          localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(activeSessions));
         }
       }
     }
-    if (isForced && reason) {
-      alert(reason);
-    }
+    if (isForced && reason) alert(reason);
   }, [currentUserData?.name]);
 
-
-  // Session Validation and Heartbeat Effect
+  // Session validation + heartbeat
   useEffect(() => {
     let validationIntervalId: number | undefined;
     let heartbeatIntervalId: number | undefined;
@@ -133,15 +131,15 @@ const AppWrapper: React.FC = () => {
       heartbeatIntervalId = window.setInterval(() => {
         const activeSessionsRaw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
         if (activeSessionsRaw) {
-            try {
-                const activeSessions: ActiveSessions = JSON.parse(activeSessionsRaw);
-                if (activeSessions[currentUserName]) {
-                    activeSessions[currentUserName].lastSeen = Date.now();
-                    localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(activeSessions));
-                }
-            } catch (e) {
-                console.error("Error updating lastSeen in heartbeat:", e);
+          try {
+            const activeSessions: ActiveSessions = JSON.parse(activeSessionsRaw);
+            if (activeSessions[currentUserName]) {
+              activeSessions[currentUserName].lastSeen = Date.now();
+              localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(activeSessions));
             }
+          } catch (e) {
+            console.error("Error updating lastSeen in heartbeat:", e);
+          }
         }
       }, ACTIVE_SESSION_HEARTBEAT_INTERVAL);
     }
@@ -152,13 +150,8 @@ const AppWrapper: React.FC = () => {
     };
   }, [currentUserData, handleLogout]);
 
-
   if (isLoadingSession) {
-    return (
-      <div className="fixed inset-0 bg-slate-900 flex items-center justify-center">
-        {/* Placeholder for a loading indicator if needed */}
-      </div>
-    );
+    return <div className="fixed inset-0 bg-slate-900 flex items-center justify-center" />;
   }
 
   if (!currentUserData) {
@@ -166,14 +159,33 @@ const AppWrapper: React.FC = () => {
   }
 
   return (
-    <ApiKeyChecker>
-      <PageContainer 
-        userName={currentUserData.name} 
-        userRole={currentUserData.role}
-        userContact={currentUserData.contact} 
-        onLogout={() => handleLogout(false)} 
-       />
-    </ApiKeyChecker>
+    <div className="relative">
+      {/* ✅ 우측 상단 AI 모드 토글 버튼 */}
+      <div className="absolute top-3 right-5 flex items-center gap-3 text-sm">
+        <span className="text-gray-300 font-medium">
+          {aiMode === 'gemini' ? '외부 AI (Gemini)' : '내부 AI (vLLM)'}
+        </span>
+        <button
+          onClick={handleToggleAiMode}
+          className={`px-3 py-1 rounded-lg transition ${
+            aiMode === 'gemini'
+              ? 'bg-emerald-600 hover:bg-emerald-700'
+              : 'bg-blue-600 hover:bg-blue-700'
+          } text-white`}
+        >
+          {aiMode === 'gemini' ? '전환 → vLLM' : '전환 → Gemini'}
+        </button>
+      </div>
+
+      <ApiKeyChecker>
+        <PageContainer
+          userName={currentUserData.name}
+          userRole={currentUserData.role}
+          userContact={currentUserData.contact}
+          onLogout={() => handleLogout(false)}
+        />
+      </ApiKeyChecker>
+    </div>
   );
 };
 
