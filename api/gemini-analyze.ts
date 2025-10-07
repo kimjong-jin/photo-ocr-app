@@ -1,5 +1,5 @@
 // src/api/gemini-analyze.ts
-export const runtime = "edge"; // Edge에서도 안전하게 작동
+export const runtime = "edge";
 
 export default async function handler(req: Request): Promise<Response> {
   try {
@@ -10,12 +10,10 @@ export default async function handler(req: Request): Promise<Response> {
     if (!prompt || typeof prompt !== "string")
       return new Response(JSON.stringify({ error: "Invalid prompt" }), { status: 400 });
 
-    // ✅ 로컬(Vite) + Vercel 환경 둘 다 대응
     const apiKey = process.env.GEMINI_API_KEY || import.meta?.env?.VITE_API_KEY;
     if (!apiKey)
       return new Response(JSON.stringify({ error: "Missing Gemini API Key" }), { status: 500 });
 
-    // ✅ REST API 직접 호출 (SDK 제거)
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
