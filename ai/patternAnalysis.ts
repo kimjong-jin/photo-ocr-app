@@ -1,18 +1,15 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
 
 /**
- * ✅ 패턴 분석용 프롬프트 생성기 (먹는물 TU/Cl 전용)
- * - safeJson() 으로 각 Phase 데이터 샘플링
- * - JSON 데이터 크기 최소화 → 속도 5~10배 향상
+ * ✅ Phase별 데이터 샘플링 및 프롬프트 구성
+ * - 원본 프롬프트(240줄 이상) 완전 유지
+ * - Gemini REST API 전용
  */
 function getPatternAnalysisPrompt(
   job: CsvGraphJob,
   allDataPoints: { t: string; v: number }[],
   phaseMap: Map<string, AiPhase>
 ): { masterPrompt: string; masterSchema: any } {
-  
-  // ✅ 데이터 500포인트까지만 전달 (Gemini 효율 최적화)
   const safeJson = (arr: any[]) => JSON.stringify(arr.slice(0, 500));
 
   const selectedChannel = job.parsedData!.channels.find(
@@ -34,15 +31,14 @@ function getPatternAnalysisPrompt(
   let masterSchema: any;
 
   const pointSchema = {
-    type: Type.OBJECT,
+    type: "object",
     properties: {
-      timestamp: { type: Type.STRING },
-      value: { type: Type.NUMBER },
+      timestamp: { type: "string" },
+      value: { type: "number" },
     },
     required: ["timestamp", "value"],
   };
 
-  // ✅ 먹는물 (TU/Cl) 센서용 패턴 분석
   if (job.sensorType === "먹는물 (TU/Cl)") {
     let responseStartThresholdValue: number;
     if (
@@ -57,7 +53,7 @@ function getPatternAnalysisPrompt(
     }
 
     masterSchema = {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
         z1: pointSchema,
         z2: pointSchema,
@@ -72,7 +68,7 @@ function getPatternAnalysisPrompt(
         m1: pointSchema,
         responseStartPoint: pointSchema,
         responseEndPoint: pointSchema,
-        responseError: { type: Type.STRING },
+        responseError: { type: "string" },
       },
     };
 
@@ -114,6 +110,7 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
      - Z3 = first data point,
      - Z4 = first point ≥300s after Z3.
   5. If no stable section exists, omit this task.
+
 ---
 
 **TASK 4: S3 & S4 (High Phase 2)**
@@ -148,19 +145,44 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
   2. responseStartPoint = first point between Z5 and S5 with v ≥ ${responseStartThresholdValue}.
   3. responseEndPoint = first point after responseStartPoint where v ≥ S1.value × 0.9.
   4. If not found, set appropriate responseError.
+
+---
+
+**OUTPUT FORMAT**
+You must respond ONLY with a valid JSON object that matches this schema:
+{
+  "z1": { "timestamp": "...", "value": ... },
+  "z2": { "timestamp": "...", "value": ... },
+  "s1": { "timestamp": "...", "value": ... },
+  "s2": { "timestamp": "...", "value": ... },
+  "z3": { "timestamp": "...", "value": ... },
+  "z4": { "timestamp": "...", "value": ... },
+  "s3": { "timestamp": "...", "value": ... },
+  "s4": { "timestamp": "...", "value": ... },
+  "z5": { "timestamp": "...", "value": ... },
+  "s5": { "timestamp": "...", "value": ... },
+  "m1": { "timestamp": "...", "value": ... },
+  "responseStartPoint": { "timestamp": "...", "value": ... },
+  "responseEndPoint": { "timestamp": "...", "value": ... },
+  "responseError": "..."
+}
+
+Ensure all timestamps are ISO strings and numeric values have 4 decimal places.
+DO NOT include explanations, notes, or comments.
 `;
   } else {
-    masterSchema = { type: Type.OBJECT, properties: {} };
     masterPrompt = "No specific pattern analysis defined for this sensor type.";
+    masterSchema = {};
   }
 
   return { masterPrompt, masterSchema };
 }
 
 /**
- * ✅ AI 패턴 분석 실행 (Gemini 2.5 Flash)
- * - Stream 모드로 처리 속도 2~3배 향상
- * - 안전한 JSON 파싱 및 예외 처리 추가
+ * ✅ Gemini REST API 버전
+ * - SDK 없이 fetch() 직접 호출
+ * - 프롬프트 그대로 유지
+ * - 브라우저/Vercel 완전 호환
  */
 export async function runPatternAnalysis(
   job: CsvGraphJob
@@ -177,11 +199,6 @@ export async function runPatternAnalysis(
   if (selectedChannelIndex === -1)
     throw new Error("Selected channel not found in parsed data.");
 
-  const ai = new GoogleGenAI({
-    apiKey: import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY,
-  });
-
-  // ✅ 샘플링 + 소수점 제한
   const allDataPoints = job.parsedData.data
     .filter((_, i) => i % 10 === 0)
     .map((d) => ({
@@ -191,45 +208,42 @@ export async function runPatternAnalysis(
     .filter((d) => d.v !== null && !isNaN(d.v));
 
   const phaseMap = new Map(job.aiPhaseAnalysisResult.map((p) => [p.name, p]));
+  const { masterPrompt } = getPatternAnalysisPrompt(job, allDataPoints, phaseMap);
 
-  if (import.meta.env.MODE === "development") {
-    console.log("Detected Phases:", Array.from(phaseMap.keys()));
-  }
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error("❌ Gemini API key (VITE_GEMINI_API_KEY) not found");
 
-  const { masterPrompt, masterSchema } = getPatternAnalysisPrompt(
-    job,
-    allDataPoints,
-    phaseMap
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: masterPrompt }] }],
+      }),
+    }
   );
 
-  // ✅ Stream 기반 Gemini 호출
-  const stream = await ai.models.stream.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: masterPrompt }] }],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: masterSchema,
-    },
-  });
-
-  let resultText = "";
-  for await (const chunk of stream.stream) {
-    resultText += chunk.text();
+  if (!response.ok) {
+    const err = await response.text();
+    console.error("❌ Gemini API Error:", err);
+    throw new Error("Gemini API request failed");
   }
 
-  if (!resultText.trim()) {
-    throw new Error("No JSON response from Gemini model.");
-  }
+  const data = await response.json();
+  const text =
+    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+
+  if (!text) throw new Error("Empty response from Gemini");
 
   let result: AiAnalysisResult;
   try {
-    result = JSON.parse(resultText);
-  } catch (err) {
-    console.error("❌ JSON parse error. Raw response:", resultText);
-    throw new Error("Invalid JSON format from Gemini model.");
+    result = JSON.parse(text);
+  } catch (e) {
+    console.error("❌ JSON Parse Error:", text);
+    throw new Error("Invalid JSON format returned by Gemini.");
   }
 
-  // ✅ 응답 시간 계산
   if (result.responseStartPoint && result.responseEndPoint) {
     const start = new Date(result.responseStartPoint.timestamp).getTime();
     const end = new Date(result.responseEndPoint.timestamp).getTime();
