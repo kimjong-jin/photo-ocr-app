@@ -145,7 +145,7 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
     }
 
     // ✅ GEMINI_API_KEY 사용
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
     const dataPoints = job.parsedData.data
         .map((d) => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
