@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
+import { callVllmApi } from "../services/vllmService";
 
 /**
  * ✅ Phase별 데이터 샘플링 및 프롬프트 구성
@@ -159,9 +160,8 @@ DO NOT include explanations, notes, or comments.
 }
 
 /**
- * ✅ Gemini SDK 버전 (빠르고 정확)
- * - Schema 기반으로 JSON 보장
- * - 2시간 휴직기 + 5분 간격 규칙 안정적
+ * ✅ Gemini SDK + vLLM 통합 버전
+ * - 원본 코드 100% 유지 + vLLM 선택 분기 추가
  */
 export async function runPatternAnalysis(
   job: CsvGraphJob
@@ -171,8 +171,6 @@ export async function runPatternAnalysis(
       "Pattern analysis requires parsed data, a selected channel, and phase analysis results."
     );
   }
-
-  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
   const selectedChannelIndex = job.parsedData.channels.findIndex(
     (c) => c.id === job.selectedChannelId
@@ -191,47 +189,62 @@ export async function runPatternAnalysis(
   const phaseMap = new Map(job.aiPhaseAnalysisResult.map((p) => [p.name, p]));
   const prompt = getPatternAnalysisPrompt(job, allDataPoints, phaseMap);
 
-  // ✅ JSON Schema 강제 정의
-  const pointSchema = {
-    type: Type.OBJECT,
-    properties: {
-      timestamp: { type: Type.STRING },
-      value: { type: Type.NUMBER },
-    },
-    required: ["timestamp", "value"],
-  };
+  // ✅ Gemini / vLLM 선택 분기
+  const apiMode = localStorage.getItem("apiMode") || "gemini";
+  let resultJson: string;
 
-  const schema = {
-    type: Type.OBJECT,
-    properties: {
-      z1: pointSchema,
-      z2: pointSchema,
-      s1: pointSchema,
-      s2: pointSchema,
-      z3: pointSchema,
-      z4: pointSchema,
-      s3: pointSchema,
-      s4: pointSchema,
-      z5: pointSchema,
-      s5: pointSchema,
-      m1: pointSchema,
-      responseStartPoint: pointSchema,
-      responseEndPoint: pointSchema,
-      responseError: { type: Type.STRING },
-    },
-  };
+  if (apiMode === "vllm") {
+    // 내부 AI (vLLM) 호출
+    const messages = [{ role: "user" as const, content: prompt }];
+    resultJson = await callVllmApi(messages, { json_mode: true });
+  } else {
+    // 외부 AI (Gemini) 호출
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: schema,
-      thinkingConfig: { thinkingBudget: 1 },
-    },
-  });
+    // ✅ JSON Schema 강제 정의
+    const pointSchema = {
+      type: Type.OBJECT,
+      properties: {
+        timestamp: { type: Type.STRING },
+        value: { type: Type.NUMBER },
+      },
+      required: ["timestamp", "value"],
+    };
 
-  const parsed = JSON.parse(response.text) as AiAnalysisResult;
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        z1: pointSchema,
+        z2: pointSchema,
+        s1: pointSchema,
+        s2: pointSchema,
+        z3: pointSchema,
+        z4: pointSchema,
+        s3: pointSchema,
+        s4: pointSchema,
+        z5: pointSchema,
+        s5: pointSchema,
+        m1: pointSchema,
+        responseStartPoint: pointSchema,
+        responseEndPoint: pointSchema,
+        responseError: { type: Type.STRING },
+      },
+    };
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        thinkingConfig: { thinkingBudget: 1 },
+      },
+    });
+
+    resultJson = response.text;
+  }
+
+  const parsed = JSON.parse(resultJson) as AiAnalysisResult;
 
   // ✅ 응답시간 계산
   if (parsed.responseStartPoint && parsed.responseEndPoint) {
