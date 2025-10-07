@@ -1,6 +1,6 @@
 import { Type } from "@google/genai";
 import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
-import { getGenAIClient } from "../services/geminiService"; // ✅ 공용 Gemini 클라이언트 사용
+import { getGenAIClient } from "../services/geminiService";
 
 function getPatternAnalysisPrompt(
   job: CsvGraphJob,
