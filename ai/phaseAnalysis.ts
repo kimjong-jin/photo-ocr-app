@@ -1,16 +1,19 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiPhase } from "../types/csvGraph";
 
+// ✅ Vite 환경에서 올바른 API 키 접근 방식 (ApiKeyChecker와 동일)
+const API_KEY = (import.meta as any).env.VITE_API_KEY;
+
 function getPhaseAnalysisPrompt(
-    dataPoints: { t: string; v: number | null; }[],
-    sensorType: CsvGraphJob['sensorType'],
-    measurementRange: number | undefined
+  dataPoints: { t: string; v: number | null }[],
+  sensorType: CsvGraphJob["sensorType"],
+  measurementRange: number | undefined
 ): string {
-    let prompt: string;
-            
-    switch (sensorType) {
-        case '수질 (PH)':
-            prompt = `
+  let prompt: string;
+
+  switch (sensorType) {
+    case "수질 (PH)":
+      prompt = `
 You are a hyper-precise data analysis robot. Your SOLE mission is to find broad concentration phases from '수질 (PH)' data. You MUST NOT identify individual points like Z1, S1.
 **DATA & THRESHOLDS:**
 - The data is a JSON array: \`{t: "ISO timestamp", v: numeric_value}\`.
@@ -37,22 +40,26 @@ You are a hyper-precise data analysis robot. Your SOLE mission is to find broad 
 Data:
 ${JSON.stringify(dataPoints)}
 `;
-            break;
+      break;
 
-        case '수질 (SS)':
-            let ssThresholdDefinition: string;
-             if (typeof measurementRange === 'number' && measurementRange > 0) {
-                 ssThresholdDefinition = `
+    case "수질 (SS)":
+      let ssThresholdDefinition: string;
+      if (typeof measurementRange === "number" && measurementRange > 0) {
+        ssThresholdDefinition = `
 - The measurement range is ${measurementRange}.
-- Define thresholds: high_threshold = ${measurementRange * 0.8}, low_threshold = ${measurementRange * 0.2}, medium_threshold_low = ${measurementRange * 0.4}, medium_threshold_high = ${measurementRange * 0.6}.
+- Define thresholds: high_threshold = ${measurementRange * 0.8}, low_threshold = ${
+          measurementRange * 0.2
+        }, medium_threshold_low = ${measurementRange * 0.4}, medium_threshold_high = ${
+          measurementRange * 0.6
+        }.
 `;
-            } else {
-                ssThresholdDefinition = `
+      } else {
+        ssThresholdDefinition = `
 - First, find the absolute minimum (\`data_min\`) and maximum (\`data_max\`) values in the entire dataset.
 - Define thresholds: high_threshold = data_min + (data_max - data_min) * 0.8, low_threshold = data_min + (data_max - data_min) * 0.2, medium_threshold_low = data_min + (data_max - data_min) * 0.4, medium_threshold_high = data_min + (data_max - data_min) * 0.6.
 `;
-            }
-            prompt = `
+      }
+      prompt = `
 You are a hyper-precise data analysis robot. Your SOLE mission is to find broad concentration phases from '수질 (SS)' data based on time. You MUST NOT identify individual points like Z1, S1.
 **DATA & THRESHOLDS:**
 - The data is a JSON array: \`{t: "ISO timestamp", v: numeric_value}\`.
@@ -78,25 +85,29 @@ ${ssThresholdDefinition}
 Data:
 ${JSON.stringify(dataPoints)}
 `;
-            break;
-        
-        case '먹는물 (TU/Cl)':
-        default:
-            let drinkingWaterThresholdDefinition: string;
-            let highPhaseUpperBoundRule = '';
-            if (typeof measurementRange === 'number' && measurementRange > 0) {
-                drinkingWaterThresholdDefinition = `
+      break;
+
+    case "먹는물 (TU/Cl)":
+    default:
+      let drinkingWaterThresholdDefinition: string;
+      let highPhaseUpperBoundRule = "";
+      if (typeof measurementRange === "number" && measurementRange > 0) {
+        drinkingWaterThresholdDefinition = `
 - The measurement range for this instrument is ${measurementRange}.
-- Define thresholds based on this range: high_threshold = ${measurementRange * 0.8}, low_threshold = ${measurementRange * 0.2}, medium_threshold_low = ${measurementRange * 0.4}, medium_threshold_high = ${measurementRange * 0.6}.
+- Define thresholds based on this range: high_threshold = ${
+          measurementRange * 0.8
+        }, low_threshold = ${measurementRange * 0.2}, medium_threshold_low = ${
+          measurementRange * 0.4
+        }, medium_threshold_high = ${measurementRange * 0.6}.
 `;
-                highPhaseUpperBoundRule = `AND \`v\` <= \`${measurementRange}\``;
-            } else {
-                drinkingWaterThresholdDefinition = `
+        highPhaseUpperBoundRule = `AND \`v\` <= \`${measurementRange}\``;
+      } else {
+        drinkingWaterThresholdDefinition = `
 - First, find the absolute minimum (\`data_min\`) and maximum (\`data_max\`) values in the entire dataset.
 - Define thresholds: high_threshold = data_min + (data_max - data_min) * 0.8, low_threshold = data_min + (data_max - data_min) * 0.2, medium_threshold_low = data_min + (data_max - data_min) * 0.4, medium_threshold_high = data_min + (data_max - data_min) * 0.6.
 `;
-            }
-            prompt = `
+      }
+      prompt = `
 You are a hyper-precise data analysis robot. Your SOLE mission is to identify broad concentration phases from '먹는물 (TU/Cl)' data, following extremely strict rules.
 
 **CONTEXT & THRESHOLDS:**
@@ -123,67 +134,97 @@ This is your most important rule. A phase is a continuous segment of time where 
 Data:
 ${JSON.stringify(dataPoints)}
 `;
-            break;
-    }
-    return prompt;
+      break;
+  }
+  return prompt;
 }
 
 export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
-    if (!job.parsedData || !job.selectedChannelId) {
-        throw new Error("Phase analysis requires parsed data and a selected channel.");
-    }
-    const selectedChannelIndex = job.parsedData.channels.findIndex(c => c.id === job.selectedChannelId);
-    if (selectedChannelIndex === -1) {
-        throw new Error("Selected channel not found in parsed data.");
-    }
+  if (!job.parsedData || !job.selectedChannelId) {
+    console.error("❌ Phase analysis requires parsed data and a selected channel.");
+    return [];
+  }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
-    const dataPoints = job.parsedData.data
-        .map(d => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
-        .filter(d => d.v !== null);
-    
-    const measurementRange = job.parsedData.measurementRange;
+  const selectedChannelIndex = job.parsedData.channels.findIndex(
+    (c) => c.id === job.selectedChannelId
+  );
 
-    const prompt = getPhaseAnalysisPrompt(dataPoints, job.sensorType, measurementRange);
+  if (selectedChannelIndex === -1) {
+    console.warn("⚠️ 선택된 채널을 찾을 수 없습니다. 분석을 건너뜁니다.");
+    return [];
+  }
 
-    const phaseSchema = {
-        type: Type.OBJECT,
-        properties: {
-            name: { type: Type.STRING },
-            startTime: { type: Type.STRING },
-            endTime: { type: Type.STRING },
-        },
-        required: ["name", "startTime", "endTime"]
-    };
+  // ✅ API 키 확인
+  if (!API_KEY) {
+    console.error("❌ VITE_API_KEY가 누락되었습니다. .env 파일에 추가하세요.");
+    return [];
+  }
 
-    const responseSchema = {
-        type: Type.ARRAY,
-        items: phaseSchema
-    };
+  // ✅ Gemini 초기화
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-    const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: responseSchema,
-            thinkingConfig: { thinkingBudget: 0 },
-        },
-    });
+  const dataPoints = job.parsedData.data
+    .map((d) => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
+    .filter((d) => d.v !== null);
 
-    const resultJson = response.text;
-    const parsedResult = JSON.parse(resultJson) as AiPhase[];
+  const measurementRange = job.parsedData.measurementRange;
+  const prompt = getPhaseAnalysisPrompt(dataPoints, job.sensorType, measurementRange);
 
-    // Sort results into the fixed order
-    const phaseOrder = ["Low Phase 1", "High Phase 1", "Low Phase 2", "High Phase 2", "Low Phase 3", "High Phase 3", "Medium Phase 1"];
-    parsedResult.sort((a, b) => {
-        const indexA = phaseOrder.indexOf(a.name);
-        const indexB = phaseOrder.indexOf(b.name);
-        if (indexA === -1) return 1;
-        if (indexB === -1) return -1;
-        return indexA - indexB;
-    });
+  const phaseSchema = {
+    type: Type.OBJECT,
+    properties: {
+      name: { type: Type.STRING },
+      startTime: { type: Type.STRING },
+      endTime: { type: Type.STRING },
+    },
+    required: ["name", "startTime", "endTime"],
+  };
 
-    return parsedResult;
+  const responseSchema = {
+    type: Type.ARRAY,
+    items: phaseSchema,
+  };
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: {
+      responseMimeType: "application/json",
+      responseSchema,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  });
+
+  const jsonText =
+    (response as any).output_text ||
+    (response as any).output?.[0]?.content?.parts?.[0]?.text ||
+    (response as any).text;
+
+  if (!jsonText) {
+    console.error("⚠️ Gemini 모델에서 응답이 없습니다.");
+    return [];
+  }
+
+  const parsedResult = JSON.parse(jsonText) as AiPhase[];
+
+  // ✅ 정렬 순서 고정
+  const phaseOrder = [
+    "Low Phase 1",
+    "High Phase 1",
+    "Low Phase 2",
+    "High Phase 2",
+    "Low Phase 3",
+    "High Phase 3",
+    "Medium Phase 1",
+  ];
+
+  parsedResult.sort((a, b) => {
+    const indexA = phaseOrder.indexOf(a.name);
+    const indexB = phaseOrder.indexOf(b.name);
+    if (indexA === -1) return 1;
+    if (indexB === -1) return -1;
+    return indexA - indexB;
+  });
+
+  return parsedResult;
 }
