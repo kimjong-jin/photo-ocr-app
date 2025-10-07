@@ -326,7 +326,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     }
   };
 
-    const handleClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    // FIX: Refactored handleClick to accept primitive values directly, resolving potential type inference issues with event objects.
+    const handleClick = (clientX: number, currentTarget: HTMLCanvasElement) => {
         if (isAiAnalyzing || isRangeSelecting) return;
         
         const canvas = canvasRef.current;
@@ -337,8 +338,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
           .filter((d) => d.value !== null && typeof d.value === 'number') as { timestamp: Date; value: number }[];
         if (channelData.length < 1) return;
         
-        const rect = event.currentTarget.getBoundingClientRect();
-        const xPos = event.clientX - rect.left;
+        const rect = currentTarget.getBoundingClientRect();
+        const xPos = clientX - rect.left;
         const padding = { top: 50, right: 80, bottom: 40, left: 60 };
         const graphWidth = width - padding.left - padding.right;
         if (graphWidth <=0) return;
@@ -545,8 +546,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 const dx = Math.abs(lastTouch.clientX - touchStartPos.current.x);
                 const dy = Math.abs(lastTouch.clientY - touchStartPos.current.y);
                 if (duration < 300 && dx < 10 && dy < 10) {
-                    const mockMouseEvent = { clientX: lastTouch.clientX, clientY: lastTouch.clientY, currentTarget: event.currentTarget } as any;
-                    handleClick(mockMouseEvent);
+                    // FIX: Pass primitive values directly to handleClick to ensure type safety.
+                    handleClick(lastTouch.clientX, event.currentTarget);
                 }
             }
         }
@@ -1058,7 +1059,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onClick={handleClick}
+      onClick={(e) => handleClick(e.clientX, e.currentTarget)}
       style={{ width: '100%', height: '100%', display: 'block', touchAction: 'pan-y' }}
     />
   );
