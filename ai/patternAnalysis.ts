@@ -1,4 +1,4 @@
-import { Type } from "@google/genai";
+// src/ai/patternAnalysis.ts
 import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
 import { getGenAIClient } from "../services/geminiService";
 
@@ -22,14 +22,15 @@ function getPatternAnalysisPrompt(
     });
   };
 
-  let masterPrompt: string;
+  let masterPrompt = "";
   let masterSchema: any;
 
+  // ✅ JSON Schema 구조 (신 SDK에서 Type 제거됨)
   const pointSchema = {
-    type: Type.OBJECT,
+    type: "object",
     properties: {
-      timestamp: { type: Type.STRING },
-      value: { type: Type.NUMBER },
+      timestamp: { type: "string" },
+      value: { type: "number" },
     },
     required: ["timestamp", "value"],
   };
@@ -49,7 +50,7 @@ function getPatternAnalysisPrompt(
     }
 
     masterSchema = {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
         z1: pointSchema,
         z2: pointSchema,
@@ -64,7 +65,7 @@ function getPatternAnalysisPrompt(
         m1: pointSchema,
         responseStartPoint: pointSchema,
         responseEndPoint: pointSchema,
-        responseError: { type: Type.STRING },
+        responseError: { type: "string" },
       },
     };
 
@@ -105,6 +106,7 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
      - Z3 = first data point,
      - Z4 = first point ≥300s after Z3.
   5. If no stable section exists, omit this task.
+
 ---
 
 **TASK 4: S3 & S4 (High Phase 2)**
@@ -157,29 +159,19 @@ export async function runPatternAnalysis(
   const selectedChannelIndex = job.parsedData.channels.findIndex(
     (c) => c.id === job.selectedChannelId
   );
-
   if (selectedChannelIndex === -1) {
-    console.warn("⚠️ 선택된 채널을 찾을 수 없습니다. 분석을 건너뜁니다.");
-    return Promise.reject(
-      new Error("Selected channel not found in parsed data.")
-    );
+    throw new Error("Selected channel not found in parsed data.");
   }
 
-  // ✅ Gemini 클라이언트 가져오기 (API 키 자동 포함, 재시도 포함)
+  // ✅ Gemini 클라이언트 가져오기
   const ai = getGenAIClient();
+  const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   const allDataPoints = job.parsedData.data
-    .map((d) => ({
-      t: d.timestamp.toISOString(),
-      v: d.values[selectedChannelIndex],
-    }))
-    .filter(
-      (d) => d.v !== null && typeof d.v === "number"
-    ) as { t: string; v: number }[];
+    .map((d) => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
+    .filter((d) => d.v !== null && typeof d.v === "number") as { t: string; v: number }[];
 
   const phaseMap = new Map(job.aiPhaseAnalysisResult.map((p) => [p.name, p]));
-
-  console.log("Detected Phases:", Array.from(phaseMap.keys()));
 
   const { masterPrompt, masterSchema } = getPatternAnalysisPrompt(
     job,
@@ -188,35 +180,22 @@ export async function runPatternAnalysis(
   );
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [{ role: "user", parts: [{ text: masterPrompt }] }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: masterSchema,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    });
+    const result = await model.generateContent([
+      { text: masterPrompt },
+    ]);
 
-    const jsonText =
-      (response as any).output_text ||
-      (response as any).output?.[0]?.content?.parts?.[0]?.text ||
-      (response as any).text;
+    const jsonText = result.response.text();
+    if (!jsonText) throw new Error("No JSON response from Gemini model.");
 
-    if (!jsonText)
-      throw new Error("No JSON response from Gemini model.");
+    const parsed = JSON.parse(jsonText) as AiAnalysisResult;
 
-    const result = JSON.parse(jsonText) as AiAnalysisResult;
-
-    // ✅ 응답 시간 계산
-    if (result.responseStartPoint && result.responseEndPoint) {
-      const start = new Date(result.responseStartPoint.timestamp).getTime();
-      const end = new Date(result.responseEndPoint.timestamp).getTime();
-      if (end >= start)
-        result.responseTimeInSeconds = (end - start) / 1000;
+    if (parsed.responseStartPoint && parsed.responseEndPoint) {
+      const start = new Date(parsed.responseStartPoint.timestamp).getTime();
+      const end = new Date(parsed.responseEndPoint.timestamp).getTime();
+      if (end >= start) parsed.responseTimeInSeconds = (end - start) / 1000;
     }
 
-    return result;
+    return parsed;
   } catch (err: any) {
     console.error("❌ Gemini Pattern Analysis failed:", err.message);
     throw new Error(
