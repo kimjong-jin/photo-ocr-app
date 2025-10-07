@@ -1,58 +1,19 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
-
-// Interfaces for parsed data
-interface ChannelInfo {
-  id: string;
-  name: string;
-  unit: string;
-}
-
-interface DataPoint {
-  timestamp: Date;
-  values: (number | null)[];
-}
-
-interface ParsedCsvData {
-  channels: ChannelInfo[];
-  data: DataPoint[];
-  fileName: string;
-}
-
-// Interfaces for Range Analysis
-interface RangeSelection {
-  start: { timestamp: Date; value: number } | null;
-  end: { timestamp: Date; value: number } | null;
-}
-
-interface AnalysisResult {
-  id: string; // For React keys
-  min: number;
-  max: number;
-  diff: number;
-  startTime: Date;
-  endTime: Date;
-}
-
-export interface ChannelAnalysisState {
-  isAnalyzing: boolean;
-  selection: RangeSelection;
-  results: AnalysisResult[];
-}
-
-export interface CsvGraphJob {
-    id: string;
-    receiptNumber: string;
-    fileName: string | null;
-    parsedData: ParsedCsvData | null; // This is not saved, it's transient
-    channelAnalysis: Record<string, ChannelAnalysisState>;
-    selectedChannelId: string | null;
-    timeRangeInMs: 'all' | number;
-    viewEndTimestamp: number | null;
-    submissionStatus: 'idle' | 'sending' | 'success' | 'error';
-    submissionMessage?: string;
-}
+import { CsvDisplay } from './components/csv/CsvDisplay';
+import { parseGraphtecCsv } from './utils/parseGraphtecCsv';
+import { runPhaseAnalysis } from './ai/phaseAnalysis';
+import { runPatternAnalysis } from './ai/patternAnalysis';
+import type { 
+    CsvGraphJob, 
+    ParsedCsvData, 
+    ChannelAnalysisState, 
+    AnalysisResult, 
+    AiPhase, 
+    AiAnalysisPoint, 
+    AiAnalysisResult 
+} from './types/csvGraph';
 
 interface CsvGraphPageProps {
   userName: string;
@@ -70,607 +31,6 @@ const TrashIcon: React.FC = () => (
     </svg>
 );
 
-
-// ---------- small CSV helper (handles quoted commas) ----------
-const splitCsvLine = (line: string): string[] => {
-  const out: string[] = [];
-  let cur = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      inQuotes = !inQuotes;
-    } else if (ch === ',' && !inQuotes) {
-      out.push(cur);
-      cur = '';
-    } else {
-      cur += ch;
-    }
-  }
-  out.push(cur);
-  return out.map((s) => s.trim().replace(/^"|"$/g, ''));
-};
-
-// ---------- Custom hook to observe resize of a ref (SSR-safe) ----------
-const useResizeObserver = () => {
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  const resizeRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const element = resizeRef.current;
-    if (!element) return;
-
-    if (typeof (window as any).ResizeObserver === 'undefined') {
-      const update = () => setSize({ width: element.clientWidth, height: element.clientHeight });
-      update();
-      window.addEventListener('resize', update);
-      return () => window.removeEventListener('resize', update);
-    }
-
-    const resizeObserver = new (window as any).ResizeObserver((entries: any[]) => {
-      if (!entries || entries.length === 0) return;
-      const { width, height } = entries[0].contentRect;
-      setSize({ width, height });
-    });
-
-    resizeObserver.observe(element);
-    return () => resizeObserver.unobserve(element);
-  }, []);
-
-  return { ref: resizeRef, ...size };
-};
-
-// ---------- Graphing Components ----------
-interface GraphCanvasProps {
-  data: DataPoint[];
-  channelIndex: number;
-  channelInfo: ChannelInfo;
-  width: number;
-  height: number;
-  onPan: (direction: number) => void;
-  showMajorTicks: boolean;
-  yMinMaxOverall: { yMin: number; yMax: number } | null;
-  isAnalyzing: boolean;
-  onPointSelect: (point: { timestamp: Date; value: number }) => void;
-  selection: RangeSelection | null;
-  analysisResults: AnalysisResult[];
-}
-
-const GraphCanvas: React.FC<GraphCanvasProps> = ({ 
-    data, channelIndex, channelInfo, width, height, onPan, showMajorTicks, yMinMaxOverall,
-    isAnalyzing, onPointSelect, selection, analysisResults
-}) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null);
-  const touchStartX = useRef<number | null>(null);
-  const lastPanTime = useRef<number>(0);
-
-  const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    setMousePosition({ x: event.clientX - rect.left, y: event.clientY - rect.top });
-  };
-  const handleMouseLeave = () => setMousePosition(null);
-
-  const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
-    event.preventDefault();
-    const now = Date.now();
-    if (now - lastPanTime.current > 50) {
-        onPan(Math.sign(event.deltaY));
-        lastPanTime.current = now;
-    }
-  };
-
-  const handleTouchStart = (event: React.TouchEvent<HTMLCanvasElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const touch = event.touches[0];
-    setMousePosition({ x: touch.clientX - rect.left, y: touch.clientY - rect.top });
-    touchStartX.current = touch.clientX;
-  };
-
-  const handleTouchMove = (event: React.TouchEvent<HTMLCanvasElement>) => {
-    if (touchStartX.current === null) return;
-    const currentX = event.touches[0].clientX;
-    const deltaX = currentX - touchStartX.current;
-    
-    if (Math.abs(deltaX) > 10) setMousePosition(null);
-    if (Math.abs(deltaX) > 40) { onPan(-Math.sign(deltaX)); touchStartX.current = currentX; }
-  };
-  
-  const handleTouchEnd = () => { touchStartX.current = null; };
-  
-  const handleClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isAnalyzing) return;
-    
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const channelData = data
-      .map((d) => ({ timestamp: d.timestamp, value: d.values[channelIndex] }))
-      .filter((d) => d.value !== null && typeof d.value === 'number') as { timestamp: Date; value: number }[];
-    if (channelData.length < 1) return;
-    
-    const rect = event.currentTarget.getBoundingClientRect();
-    const xPos = event.clientX - rect.left;
-    const padding = { top: 20, right: 20, bottom: 40, left: 60 };
-    const graphWidth = width - padding.left - padding.right;
-    if (graphWidth <=0) return;
-
-    let minTimestamp = channelData[0].timestamp.getTime();
-    let maxTimestamp = channelData[channelData.length - 1].timestamp.getTime();
-    if (minTimestamp === maxTimestamp) maxTimestamp = minTimestamp + 1;
-
-    let closestIndex = -1;
-    let minDistance = Infinity;
-    const timeAtMouse = minTimestamp + ((xPos - padding.left) / graphWidth) * (maxTimestamp - minTimestamp);
-    
-    channelData.forEach((d, i) => {
-      const distance = Math.abs(d.timestamp.getTime() - timeAtMouse);
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestIndex = i;
-      }
-    });
-
-    if (closestIndex !== -1) {
-      onPointSelect(channelData[closestIndex]);
-    }
-
-  }, [isAnalyzing, data, channelIndex, width, onPointSelect]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || width === 0 || height === 0) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    canvas.width = Math.max(1, Math.floor(width * dpr));
-    canvas.height = Math.max(1, Math.floor(height * dpr));
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
-
-    const padding = { top: 20, right: 20, bottom: 40, left: 60 };
-    const graphWidth = width - padding.left - padding.right;
-    const graphHeight = height - padding.top - padding.bottom;
-    if (graphWidth <= 0 || graphHeight <= 0) return;
-
-    const channelData = data
-      .map((d) => ({ timestamp: d.timestamp, value: d.values[channelIndex] }))
-      .filter((d) => d.value !== null && typeof d.value === 'number') as { timestamp: Date; value: number }[];
-    channelData.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-
-    if (channelData.length < 2) {
-      ctx.fillStyle = '#94a3b8';
-      ctx.textAlign = 'center';
-      ctx.font = '14px Inter, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", sans-serif';
-      ctx.fillText('데이터가 부족하여 그래프를 표시할 수 없습니다.', width / 2, height / 2);
-      return;
-    }
-
-    let minTimestamp = channelData[0].timestamp.getTime();
-    let maxTimestamp = channelData[channelData.length - 1].timestamp.getTime();
-    if (minTimestamp === maxTimestamp) maxTimestamp = minTimestamp + 1;
-
-    let yMin, yMax;
-    if (yMinMaxOverall) {
-        yMin = yMinMaxOverall.yMin;
-        yMax = yMinMaxOverall.yMax;
-    } else {
-        const yValues = channelData.map((d) => d.value);
-        yMin = Math.min(...yValues);
-        yMax = Math.max(...yValues);
-        const yRange = yMax - yMin || 1;
-        yMin -= yRange * 0.1;
-        yMax += yRange * 0.1;
-    }
-
-    const mapX = (ts: number) => padding.left + ((ts - minTimestamp) / (maxTimestamp - minTimestamp)) * graphWidth;
-    const mapY = (val: number) => padding.top + graphHeight - ((val - yMin) / (yMax - yMin)) * graphHeight;
-
-    // --- Drawing starts ---
-    ctx.strokeStyle = '#334155';
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '10px Inter, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", sans-serif';
-    ctx.lineWidth = 1;
-
-    // Y-Axis and Grid
-    const numYGridLines = 5;
-    for (let i = 0; i <= numYGridLines; i++) {
-      const y = padding.top + (i / numYGridLines) * graphHeight;
-      const value = yMax - (i / numYGridLines) * (yMax - yMin);
-      ctx.beginPath();
-      ctx.moveTo(padding.left, y);
-      ctx.lineTo(padding.left + graphWidth, y);
-      ctx.stroke();
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(value.toFixed(2), padding.left - 8, y);
-    }
-
-    // X-Axis and Grid
-    const numXGridLines = Math.min(Math.floor(graphWidth / 100), 10);
-    if (numXGridLines > 0) {
-      for (let i = 0; i <= numXGridLines; i++) {
-        const x = padding.left + (i / numXGridLines) * graphWidth;
-        const timestamp = new Date(minTimestamp + (i / numXGridLines) * (maxTimestamp - minTimestamp));
-        ctx.beginPath();
-        ctx.moveTo(x, padding.top);
-        ctx.lineTo(x, padding.top + graphHeight);
-        ctx.stroke();
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(timestamp.toLocaleTimeString(), x, padding.top + graphHeight + 8);
-      }
-    }
-    
-    // Major Time Ticks (1 hour)
-    const ONE_HOUR_MS = 60 * 60 * 1000;
-    if (showMajorTicks) {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)'; // red-500
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      let tickTime = Math.ceil(minTimestamp / ONE_HOUR_MS) * ONE_HOUR_MS;
-      while (tickTime < maxTimestamp) {
-        const x = mapX(tickTime);
-        if (x > padding.left && x < width - padding.right) {
-            ctx.beginPath();
-            ctx.moveTo(x, padding.top);
-            ctx.lineTo(x, padding.top + graphHeight);
-            ctx.stroke();
-        }
-        tickTime += ONE_HOUR_MS;
-      }
-      ctx.restore();
-    }
-    
-    // --- Range Analysis Visuals ---
-    if (isAnalyzing && selection?.start && !selection.end) {
-        const startX = mapX(selection.start.timestamp.getTime());
-        ctx.save();
-        ctx.strokeStyle = 'rgba(253, 224, 71, 0.9)'; // yellow-300
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(startX, padding.top);
-        ctx.lineTo(startX, padding.top + graphHeight);
-        ctx.stroke();
-        ctx.restore();
-    }
-
-    if (analysisResults) {
-        analysisResults.forEach(result => {
-            const startX = mapX(result.startTime.getTime());
-            const endX = mapX(result.endTime.getTime());
-            ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
-            ctx.fillRect(startX, padding.top, endX - startX, graphHeight);
-        });
-    }
-
-    // Main Graph Line
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    channelData.forEach((d, i) => {
-      const x = mapX(d.timestamp.getTime());
-      const y = mapY(d.value);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-
-    // Analysis Result Points (Min/Max)
-    if (analysisResults) {
-        analysisResults.forEach(result => {
-            const pointsInRange = channelData.filter(d => d.timestamp >= result.startTime && d.timestamp <= result.endTime);
-            if (pointsInRange.length === 0) return;
-            const maxPoint = pointsInRange.find(p => p.value === result.max);
-            const minPoint = pointsInRange.find(p => p.value === result.min);
-
-            const drawResultPoint = (point: { value: number; timestamp: Date; } | undefined, color: string) => {
-                if (!point) return;
-                const x = mapX(point.timestamp.getTime());
-                const y = mapY(point.value);
-                ctx.fillStyle = color;
-                ctx.strokeStyle = '#0f172a';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(x, y, 5, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-            };
-            drawResultPoint(maxPoint, '#4ade80'); // green-400
-            drawResultPoint(minPoint, '#f87171'); // red-400
-        });
-    }
-
-    // Hover Tooltip
-    if (
-      mousePosition &&
-      mousePosition.x > padding.left && mousePosition.x < width - padding.right &&
-      mousePosition.y > padding.top && mousePosition.y < height - padding.bottom
-    ) {
-      let closestIndex = -1;
-      let minDistance = Infinity;
-      const timeAtMouse = minTimestamp + ((mousePosition.x - padding.left) / graphWidth) * (maxTimestamp - minTimestamp);
-      channelData.forEach((d, i) => {
-        const distance = Math.abs(d.timestamp.getTime() - timeAtMouse);
-        if (distance < minDistance) { minDistance = distance; closestIndex = i; }
-      });
-      if (closestIndex !== -1) {
-        const point = channelData[closestIndex];
-        const x = mapX(point.timestamp.getTime());
-        const y = mapY(point.value);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(x, padding.top);
-        ctx.lineTo(x, padding.top + graphHeight);
-        ctx.stroke();
-        ctx.fillStyle = '#38bdf8';
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(x, y, 4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        const text1 = `${point.timestamp.toLocaleString()}`;
-        const text2 = `${point.value.toFixed(3)} ${channelInfo.unit.replace(/\[|\]/g, '')}`;
-        ctx.font = '12px Inter, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", sans-serif';
-        const text1Width = ctx.measureText(text1).width;
-        const text2Width = ctx.measureText(text2).width;
-        const boxWidth = Math.max(text1Width, text2Width) + 16;
-        const boxHeight = 44;
-        let boxX = x + 15;
-        if (boxX + boxWidth > width) boxX = x - boxWidth - 15;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(boxX, mousePosition.y - boxHeight / 2, boxWidth, boxHeight);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(text1, boxX + 8, mousePosition.y - 8);
-        ctx.fillText(text2, boxX + 8, mousePosition.y + 8);
-      }
-    }
-  }, [data, channelIndex, channelInfo, width, height, mousePosition, showMajorTicks, yMinMaxOverall, isAnalyzing, selection, analysisResults, onPointSelect]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      onWheel={handleWheel}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onClick={handleClick}
-      style={{ width: '100%', height: '100%', display: 'block', cursor: isAnalyzing ? 'copy' : 'crosshair', touchAction: 'pan-y' }}
-    />
-  );
-};
-
-interface TimelineNavigatorProps {
-  fullData: DataPoint[];
-  channelIndex: number;
-  fullTimeRange: { min: number; max: number };
-  viewTimeRange: number;
-  viewEndTimestamp: number;
-  onNavigate: (newEndTimestamp: number) => void;
-  yMinMaxOverall: { yMin: number; yMax: number } | null;
-}
-
-const TimelineNavigator: React.FC<TimelineNavigatorProps> = ({
-  fullData, channelIndex, fullTimeRange, viewTimeRange, viewEndTimestamp, onNavigate, yMinMaxOverall
-}) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { ref: containerRef, width, height } = useResizeObserver();
-  const isDragging = useRef(false);
-  const dragStart = useRef({ mouseX: 0, endTimestamp: 0 });
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || width === 0 || height === 0) return;
-    
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
-
-    const channelData = fullData
-      .map((d) => ({ timestamp: d.timestamp, value: d.values[channelIndex] }))
-      .filter((d) => d.value !== null && typeof d.value === 'number') as { timestamp: Date; value: number }[];
-    if (channelData.length < 2) return;
-
-    const { min: minTs, max: maxTs } = fullTimeRange;
-    const duration = maxTs - minTs;
-    const { yMin, yMax } = yMinMaxOverall || { yMin: 0, yMax: 1 };
-
-    const mapX = (ts: number) => ((ts - minTs) / duration) * width;
-    const mapY = (val: number) => height - ((val - yMin) / (yMax - yMin)) * height;
-
-    // Draw mini graph line
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    channelData.forEach((d, i) => {
-      const x = mapX(d.timestamp.getTime());
-      const y = mapY(d.value);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-
-    // Draw selection window
-    const windowWidth = (viewTimeRange / duration) * width;
-    const windowStartTs = viewEndTimestamp - viewTimeRange;
-    const windowX = mapX(windowStartTs);
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.3)';
-    ctx.fillRect(windowX, 0, windowWidth, height);
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
-    ctx.strokeRect(windowX, 0, windowWidth, height);
-
-  }, [width, height, fullData, channelIndex, fullTimeRange, viewTimeRange, viewEndTimestamp, yMinMaxOverall]);
-
-  const handleInteraction = (clientX: number, isEnd: boolean = false) => {
-    if (isEnd) {
-      isDragging.current = false;
-      return;
-    }
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = clientX - rect.left;
-    const duration = fullTimeRange.max - fullTimeRange.min;
-    
-    if (isDragging.current) {
-        const deltaX = mouseX - dragStart.current.mouseX;
-        const deltaMs = (deltaX / width) * duration;
-        let newEnd = dragStart.current.endTimestamp + deltaMs;
-        const minPossibleEnd = fullTimeRange.min + viewTimeRange;
-        const maxPossibleEnd = fullTimeRange.max;
-        newEnd = Math.max(minPossibleEnd, Math.min(newEnd, maxPossibleEnd));
-        onNavigate(newEnd);
-    }
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const duration = fullTimeRange.max - fullTimeRange.min;
-
-    const windowWidth = (viewTimeRange / duration) * width;
-    const windowX = ((viewEndTimestamp - viewTimeRange - fullTimeRange.min) / duration) * width;
-    
-    if(mouseX >= windowX && mouseX <= windowX + windowWidth) {
-        isDragging.current = true;
-        dragStart.current = { mouseX: mouseX, endTimestamp: viewEndTimestamp };
-    } else {
-        const clickedTs = fullTimeRange.min + (mouseX / width) * duration;
-        let newEnd = clickedTs + viewTimeRange / 2;
-        const minPossibleEnd = fullTimeRange.min + viewTimeRange;
-        const maxPossibleEnd = fullTimeRange.max;
-        newEnd = Math.max(minPossibleEnd, Math.min(newEnd, maxPossibleEnd));
-        onNavigate(newEnd);
-    }
-  };
-  
-  const handleMouseMove = (e: React.MouseEvent) => handleInteraction(e.clientX);
-  const handleMouseUp = (e: React.MouseEvent) => handleInteraction(e.clientX, true);
-  const handleMouseLeave = (e: React.MouseEvent) => handleInteraction(e.clientX, true);
-
-  const getCursor = () => {
-    if (isDragging.current) return 'grabbing';
-    return 'grab';
-  };
-
-  return (
-    <div ref={containerRef} className="w-full h-16 bg-slate-900/50 rounded-md border border-slate-700 p-1">
-      <canvas
-        ref={canvasRef}
-        style={{ width: '100%', height: '100%', display: 'block', cursor: getCursor() }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
-      />
-    </div>
-  );
-};
-
-
-const Graph: React.FC<{ 
-    data: DataPoint[]; 
-    channelIndex: number; 
-    channelInfo: ChannelInfo; 
-    onPan: (direction: number) => void; 
-    showMajorTicks: boolean; 
-    yMinMaxOverall: { yMin: number; yMax: number } | null;
-    isAnalyzing: boolean;
-    onPointSelect: (point: { timestamp: Date; value: number }) => void;
-    selection: RangeSelection | null;
-    analysisResults: AnalysisResult[];
-}> = (props) => {
-  const { ref, width, height } = useResizeObserver();
-  return (
-    <div ref={ref} className="w-full h-80 relative">
-      <GraphCanvas {...props} width={width} height={height} />
-    </div>
-  );
-};
-
-const parseGraphtecCsv = (csvContent: string, fileName: string): ParsedCsvData => {
-  const lines = csvContent.split(/\r?\n/);
-  const channels: ChannelInfo[] = [];
-  const data: DataPoint[] = [];
-
-  let state: 'idle' | 'amp' | 'data' = 'idle';
-  let dataHeaderCols: string[] = [];
-  let ampHeaderFound = false;
-
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/\uFEFF/g, '');
-    const trimmedLine = line.trim();
-    if (!trimmedLine) continue;
-
-    if (trimmedLine.startsWith('AMP settings')) {
-      state = 'amp';
-      ampHeaderFound = false;
-      continue;
-    } else if (trimmedLine.startsWith('Data')) {
-      state = 'data';
-      continue;
-    } else if (trimmedLine.startsWith('Calc settings')) {
-      state = 'idle';
-      continue;
-    }
-
-    if (state === 'amp') {
-        if (!ampHeaderFound) {
-            if (trimmedLine.toLowerCase().startsWith('ch,signal name')) ampHeaderFound = true;
-        } else {
-            const cols = splitCsvLine(line);
-            if (cols[0]?.toLowerCase().startsWith('ch') && !isNaN(parseInt(cols[0].substring(2))) && cols.length > 9) {
-                channels.push({ id: cols[0], name: cols[1], unit: cols[9] });
-            }
-        }
-    } else if (state === 'data') {
-      if (dataHeaderCols.length === 0 && trimmedLine.toLowerCase().includes('date&time')) {
-        dataHeaderCols = splitCsvLine(line).map(h => h.replace(/"/g, '').trim());
-      } else if (dataHeaderCols.length > 0 && /^\d+/.test(trimmedLine)) {
-        const cols = splitCsvLine(line);
-        const timeColIndex = dataHeaderCols.findIndex(h => h.toLowerCase() === 'date&time');
-        if (timeColIndex === -1 || timeColIndex >= cols.length) continue;
-        const timestampStr = cols[timeColIndex];
-        const normalized = timestampStr.replace(/\//g, '-').replace(/\s+/, 'T');
-        const timestamp = new Date(normalized);
-        if (isNaN(timestamp.getTime())) continue;
-
-        const values: (number | null)[] = [];
-        channels.forEach((ch) => {
-            const colIndex = dataHeaderCols.findIndex(h => h.toUpperCase() === ch.id.toUpperCase());
-          if (colIndex !== -1 && colIndex < cols.length && cols[colIndex] !== '') {
-            const val = parseFloat(cols[colIndex].replace('+', ''));
-            values.push(Number.isFinite(val) ? val : null);
-          } else {
-            values.push(null);
-          }
-        });
-        data.push({ timestamp, values });
-      }
-    }
-  }
-
-  if (channels.length === 0 || data.length === 0) {
-    throw new Error('CSV 파일 형식이 올바르지 않거나 지원되지 않는 형식입니다. (AMP settings 또는 Data 섹션 누락)');
-  }
-
-  return { channels, data, fileName };
-};
-
 const ONE_MINUTE_MS = 60 * 1000;
 const BIG_PAN_RATIO = 0.25;
 
@@ -678,6 +38,11 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [placingAiPointLabel, setPlacingAiPointLabel] = useState<string | null>(null);
+  const [isPhaseAnalysisModified, setIsPhaseAnalysisModified] = useState(false);
+  const [isFullScreenGraph, setIsFullScreenGraph] = useState(false);
+  const [aiPointHistory, setAiPointHistory] = useState<AiAnalysisResult[]>([]);
+  const [sequentialPlacementState, setSequentialPlacementState] = useState({ isActive: false, currentIndex: 0 });
   
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
@@ -702,6 +67,12 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     }
   }, [fullTimeRange, activeJob, updateActiveJob]);
 
+  // Reset history and sequential mode when job changes or data is cleared.
+  useEffect(() => {
+    setAiPointHistory([]);
+    setSequentialPlacementState({ isActive: false, currentIndex: 0 });
+  }, [activeJobId, activeJob?.fileName]);
+
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     if (!activeJob) {
         alert("파일을 업로드할 작업을 먼저 선택하거나 추가해주세요.");
@@ -724,9 +95,16 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
             parsedData: parsed,
             // Keep existing analysis data if file name matches, otherwise reset
             channelAnalysis: job.fileName === file.name ? job.channelAnalysis : {},
+            autoMinMaxResults: null,
             selectedChannelId: job.fileName === file.name ? job.selectedChannelId : (parsed.channels[0]?.id || null),
             timeRangeInMs: job.fileName === file.name ? job.timeRangeInMs : 'all',
             viewEndTimestamp: job.fileName === file.name ? job.viewEndTimestamp : null,
+            aiPhaseAnalysisResult: null,
+            aiPhaseAnalysisError: null,
+            aiAnalysisResult: null,
+            aiAnalysisError: null,
+            isRangeSelecting: false,
+            rangeSelection: null,
         }));
       } catch (err: any) {
         setError(err?.message || '파일 처리 중 오류가 발생했습니다.');
@@ -746,9 +124,16 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         fileName: null,
         parsedData: null,
         channelAnalysis: {},
+        autoMinMaxResults: null,
         selectedChannelId: null,
         timeRangeInMs: 'all',
         viewEndTimestamp: null,
+        aiPhaseAnalysisResult: null,
+        aiPhaseAnalysisError: null,
+        aiAnalysisResult: null,
+        aiAnalysisError: null,
+        isRangeSelecting: false,
+        rangeSelection: null,
     }));
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -759,23 +144,42 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
       return { yMinMaxPerChannel: [] };
     }
 
+    const measurementRange = activeJob.parsedData.measurementRange;
+
     const minMax: ({ yMin: number; yMax: number } | null)[] = activeJob.parsedData.channels.map((_, channelIndex) => {
-        const yValues = activeJob.parsedData!.data
-            .map(d => d.values[channelIndex])
-            .filter(v => v !== null && typeof v === 'number') as number[];
-        
-        if (yValues.length === 0) return null;
-        
-        let yMin = Math.min(...yValues);
-        let yMax = Math.max(...yValues);
-        
-        if (yMin === yMax) { yMin -= 1; yMax += 1; }
+      // If a manual measurement range is set, use it.
+      if (typeof measurementRange === 'number' && measurementRange > 0) {
+        // yMin is slightly negative for padding, yMax is the range plus padding.
+        return { yMin: -measurementRange * 0.05, yMax: measurementRange * 1.05 };
+      }
 
-        const yRange = yMax - yMin;
-        yMin -= yRange * 0.1;
-        yMax += yRange * 0.1;
+      // Otherwise, use auto-ranging.
+      const yValues = activeJob.parsedData!.data
+        .map(d => d.values[channelIndex])
+        .filter(v => v !== null && typeof v === 'number') as number[];
+      
+      if (yValues.length === 0) return null;
+      
+      let yMin = Math.min(...yValues);
+      let yMax = Math.max(...yValues);
+      
+      if (yMin === yMax) {
+        yMin -= 1;
+        yMax += 1;
+      }
 
-        return { yMin, yMax };
+      const yRange = yMax - yMin;
+      // Add 10% padding top and bottom
+      yMin -= yRange * 0.1;
+      yMax += yRange * 0.1;
+
+      // Ensure yMin is not unnecessarily negative if all data is positive
+      if (yMin < 0 && Math.min(...yValues) >= 0) {
+        yMin = -yRange * 0.1; // Small negative padding
+      }
+
+
+      return { yMin, yMax };
     });
 
     return { yMinMaxPerChannel: minMax };
@@ -850,6 +254,41 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         return {...job, viewEndTimestamp: Math.max(minPossibleEnd, Math.min(newEnd, maxPossibleEnd))};
     });
   }, [activeJob, fullTimeRange, updateActiveJob]);
+
+  const handleZoom = useCallback((zoomFactor: number, centerTimestamp: number) => {
+    if (!activeJob || !fullTimeRange || typeof activeJob.timeRangeInMs !== 'number') return;
+    
+    const timeRangeNumber = activeJob.timeRangeInMs;
+    const fullDuration = fullTimeRange.max - fullTimeRange.min;
+
+    const newTimeRangeInMs = Math.max(
+        60 * 1000, // min 1 minute
+        Math.min(fullDuration, timeRangeNumber / zoomFactor)
+    );
+
+    // If no significant change, return to avoid jitter
+    if (Math.abs(newTimeRangeInMs - timeRangeNumber) < 1) return;
+
+    updateActiveJob(job => {
+        if (job.viewEndTimestamp === null || typeof job.timeRangeInMs !== 'number') return job;
+        
+        const oldDistanceFromEnd = job.viewEndTimestamp - centerTimestamp;
+        // The distance from the center to the end should scale with the zoom
+        const newDistanceFromEnd = oldDistanceFromEnd * (newTimeRangeInMs / job.timeRangeInMs);
+        let newViewEndTimestamp = centerTimestamp + newDistanceFromEnd;
+
+        // Clamp the new end timestamp to valid bounds
+        const minPossibleEnd = fullTimeRange.min + newTimeRangeInMs;
+        const maxPossibleEnd = fullTimeRange.max;
+        newViewEndTimestamp = Math.max(minPossibleEnd, Math.min(newViewEndTimestamp, maxPossibleEnd));
+
+        return {
+            ...job,
+            timeRangeInMs: newTimeRangeInMs,
+            viewEndTimestamp: newViewEndTimestamp
+        };
+    });
+  }, [activeJob, fullTimeRange, updateActiveJob]);
   
   const handleNavigate = (newEndTimestamp: number) => {
     if (!activeJob || activeJob.timeRangeInMs === 'all' || !fullTimeRange || typeof activeJob.timeRangeInMs !== 'number') return;
@@ -895,9 +334,21 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     });
   };
   
-  const handleResetAnalysis = (channelId: string) => {
-    updateActiveJob(job => ({ ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { isAnalyzing: false, selection: { start: null, end: null }, results: [] }} }));
-  };
+  const handleClearAnalysis = useCallback(() => {
+    if (!activeJob) return;
+    updateActiveJob(job => ({
+        ...job,
+        channelAnalysis: {},
+        autoMinMaxResults: null,
+        aiPhaseAnalysisResult: null,
+        aiPhaseAnalysisError: null,
+        aiAnalysisResult: null,
+        aiAnalysisError: null,
+        isRangeSelecting: false,
+        rangeSelection: null,
+    }));
+    setIsPhaseAnalysisModified(false);
+  }, [activeJob, updateActiveJob]);
 
   const handleCancelSelection = (channelId: string) => {
     updateActiveJob(job => {
@@ -950,31 +401,291 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         
         const newResult: AnalysisResult = { id: self.crypto.randomUUID(), min, max, diff: max - min, startTime, endTime };
 
-        return { ...job, channelAnalysis: { ...job.channelAnalysis, [channelId]: { ...state, selection: { start: null, end: null }, results: [...state.results, newResult] }}};
+        return { ...job, autoMinMaxResults: null, channelAnalysis: { ...job.channelAnalysis, [channelId]: { ...state, selection: { start: null, end: null }, results: [...state.results, newResult] }}};
       }
     });
   }, [activeJob?.parsedData, updateActiveJob]);
 
-  const getAnalysisButtonText = (state: ChannelAnalysisState | undefined) => {
-    if (state?.isAnalyzing) {
-        if (state.selection.start) return '끝점 선택...';
-        return '분석 중 (종료하려면 클릭)';
-    }
-    return '범위 분석';
-  };
+    const handlePhaseTimeChange = useCallback((index: number, field: 'startTime' | 'endTime', newTime: Date) => {
+        updateActiveJob(job => {
+            if (!job.aiPhaseAnalysisResult || !job.parsedData) return job;
 
-  const timeRangeOptions = [
-    { label: '10분', value: 10 * 60 * 1000 },
-    { label: '30분', value: 30 * 60 * 1000 },
-    { label: '1시간', value: 60 * 60 * 1000 },
-    { label: '3시간', value: 3 * 60 * 60 * 1000 },
-    { label: '6시간', value: 6 * 60 * 60 * 1000 },
-    { label: '12시간', value: 12 * 60 * 60 * 1000 },
-    { label: '전체', value: 'all' },
-  ] as const;
+            const dataPoints = job.parsedData.data.map(d => d.timestamp.getTime());
+            const newTimeMs = newTime.getTime();
+            
+            let closestTimestamp = dataPoints.reduce((prev, curr) => {
+                return (Math.abs(curr - newTimeMs) < Math.abs(prev - newTimeMs) ? curr : prev);
+            });
+            
+            const newPhases = [...job.aiPhaseAnalysisResult];
+            newPhases[index] = { ...newPhases[index], [field]: new Date(closestTimestamp).toISOString() };
+            return { ...job, aiPhaseAnalysisResult: newPhases, submissionStatus: 'idle' };
+        });
+        setIsPhaseAnalysisModified(true);
+    }, [updateActiveJob]);
+    
+    const pushToHistory = useCallback(() => {
+        if (!activeJob?.aiAnalysisResult) return;
+        setAiPointHistory(prev => [...prev, JSON.parse(JSON.stringify(activeJob.aiAnalysisResult))]);
+    }, [activeJob?.aiAnalysisResult]);
+
+    const handleUndoAiPointChange = useCallback(() => {
+        if (aiPointHistory.length === 0) return;
+        const prevState = aiPointHistory[aiPointHistory.length - 1];
+        updateActiveJob(j => ({ ...j, aiAnalysisResult: prevState }));
+        setAiPointHistory(prev => prev.slice(0, -1));
+    }, [aiPointHistory, updateActiveJob]);
+
+    const handleAiPointChange = useCallback((pointLabel: string, newPoint: AiAnalysisPoint) => {
+        pushToHistory(); // Save state *before* changing it
+        updateActiveJob(j => {
+            if (!j.aiAnalysisResult) j.aiAnalysisResult = {};
+            const currentResult = j.aiAnalysisResult;
+            const key = pointLabel.toLowerCase();
+            let updatedResult: AiAnalysisResult = { ...currentResult };
+    
+            if (key === 'responsestartpoint') updatedResult.responseStartPoint = newPoint;
+            else if (key === 'responseendpoint') updatedResult.responseEndPoint = newPoint;
+            else (updatedResult as any)[key] = newPoint;
+            
+            if (updatedResult.responseStartPoint && updatedResult.responseEndPoint) {
+                const startTime = new Date(updatedResult.responseStartPoint.timestamp).getTime();
+                const endTime = new Date(updatedResult.responseEndPoint.timestamp).getTime();
+                updatedResult.responseTimeInSeconds = (endTime >= startTime) ? (endTime - startTime) / 1000 : undefined;
+            }
+    
+            return { ...j, aiAnalysisResult: updatedResult, submissionStatus: 'idle' };
+        });
+    }, [updateActiveJob, pushToHistory]);
+
+    const handleManualAiPointPlacement = useCallback((label: string, point: { timestamp: Date; value: number }) => {
+        pushToHistory();
+        updateActiveJob(j => {
+            if (!j.aiAnalysisResult) j.aiAnalysisResult = {};
+            return j;
+        });
+        handleAiPointChange(label, { timestamp: point.timestamp.toISOString(), value: point.value });
+        setPlacingAiPointLabel(null);
+    }, [handleAiPointChange, updateActiveJob, pushToHistory, setPlacingAiPointLabel]);
+
+    const SEQUENTIAL_POINT_ORDER = useMemo(() => {
+        let order: string[];
+        const responsePoints = !activeJob?.excludeResponseTime ? ['responseStartPoint', 'responseEndPoint'] : [];
+
+        switch (activeJob?.sensorType) {
+            case '수질 (SS)':
+            case '수질 (PH)':
+                order = ['z1', 'z2', 's1', 's2', 'z3', 'z4', 's3', 's4', 'z5', 's5', 'm1', 'm2', 'm3', '현장1', '현장2', ...responsePoints];
+                break;
+            case '먹는물 (TU/Cl)':
+            default:
+                order = ['z1', 'z2', 's1', 's2', 'z3', 'z4', 's3', 's4', 'z5', 's5', 'm1', ...responsePoints];
+                break;
+        }
+        
+        return [...new Set(order)];
+    }, [activeJob?.excludeResponseTime, activeJob?.sensorType]);
+
+    const handleToggleSequentialPlacement = useCallback(() => {
+        setPlacingAiPointLabel(null);
+        setSequentialPlacementState(prev => {
+            const wasActive = prev.isActive;
+            return {
+                isActive: !wasActive,
+                currentIndex: !wasActive ? 0 : prev.currentIndex,
+            };
+        });
+    }, []);
+    
+    const handleSetIndividualPointMode = useCallback((label: string) => {
+        setSequentialPlacementState({ isActive: false, currentIndex: 0 });
+        setPlacingAiPointLabel(current => (current === label ? null : label));
+    }, []);
+
+    const handleSequentialPointPlacement = useCallback((point: { timestamp: Date; value: number }) => {
+        if (!sequentialPlacementState.isActive) return;
+        const pointLabelToPlace = SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex];
+        if (!pointLabelToPlace) {
+            setSequentialPlacementState({ isActive: false, currentIndex: 0 });
+            alert("모든 포인트 순차 지정을 완료했습니다.");
+            return;
+        }
+        handleManualAiPointPlacement(pointLabelToPlace, point);
+        setSequentialPlacementState(prev => ({ ...prev, currentIndex: prev.currentIndex + 1 }));
+    }, [sequentialPlacementState, SEQUENTIAL_POINT_ORDER, handleManualAiPointPlacement]);
+
+    const handleAiPhaseAnalysis = useCallback(async () => {
+        if (!activeJob || !selectedChannel || selectedChannelIndex === -1 || !activeJob.parsedData) return;
+
+        updateActiveJob(j => ({ ...j, isAiPhaseAnalyzing: true, aiPhaseAnalysisResult: null, aiPhaseAnalysisError: null, aiAnalysisResult: null, aiAnalysisError: null }));
+        setIsPhaseAnalysisModified(false);
+
+        try {
+            const result = await runPhaseAnalysis(activeJob);
+            updateActiveJob(j => ({ ...j, aiPhaseAnalysisResult: result }));
+        } catch (err: any) {
+            console.error("AI Phase Analysis failed:", err);
+            updateActiveJob(j => ({ ...j, aiPhaseAnalysisError: "AI 분석 요청량이 많습니다. 잠시 후 다시 시도해주세요." }));
+        } finally {
+            updateActiveJob(j => ({ ...j, isAiPhaseAnalyzing: false }));
+        }
+    }, [activeJob, selectedChannel, selectedChannelIndex, updateActiveJob]);
+
+    const handleAiAnalysis = useCallback(async () => {
+        if (!activeJob || !selectedChannel || selectedChannelIndex === -1 || !activeJob.parsedData || !activeJob.aiPhaseAnalysisResult) return;
+    
+        updateActiveJob(j => ({ ...j, isAiAnalyzing: true, aiAnalysisResult: null, aiAnalysisError: null, submissionMessage: `패턴 분석 중...` }));
+    
+        try {
+            const result = await runPatternAnalysis(activeJob);
+            updateActiveJob(j => ({ ...j, aiAnalysisResult: result, submissionMessage: `패턴 분석 완료` }));
+        } catch (err: any) {
+            console.error("AI Analysis failed:", err);
+            let errorMessage = err.message || "AI 패턴 분석 중 오류가 발생했습니다.";
+             if (err.toString().includes('response is blocked')) {
+                errorMessage = `분석 실패: AI 응답이 안전상의 이유로 차단되었습니다.`;
+            } else if (err.message?.includes('responseSchema')) {
+                 errorMessage = `분석 실패: AI가 필수 포인트를 찾지 못했거나, 정의된 스키마에 맞는 응답을 생성하지 못했습니다.`;
+            }
+            updateActiveJob(j => ({ ...j, aiAnalysisError: errorMessage }));
+        } finally {
+            updateActiveJob(j => ({ ...j, isAiAnalyzing: false, submissionMessage: undefined }));
+        }
+    }, [activeJob, selectedChannel, selectedChannelIndex, updateActiveJob]);
+
+    // FIX: Moved the function declaration before its usage to prevent a "used before declaration" error.
+    const handleAutoRangeAnalysis = useCallback(() => {
+        if (!activeJob?.aiPhaseAnalysisResult || !activeJob.parsedData) {
+            alert("먼저 '농도' 분석을 실행하여 구간을 정의해야 합니다.");
+            return;
+        }
+    
+        updateActiveJob(job => {
+            if (!job.aiPhaseAnalysisResult || !job.parsedData || !job.selectedChannelId) {
+                return job;
+            }
+            
+            const allData = job.parsedData.data;
+            const channelIndexValue = job.parsedData.channels.findIndex(c => c.id === job.selectedChannelId);
+
+            if (channelIndexValue === -1) {
+                return job;
+            }
+    
+            const newResults: AnalysisResult[] = [];
+    
+            job.aiPhaseAnalysisResult.forEach(phase => {
+                const startTime = new Date(phase.startTime);
+                const endTime = new Date(phase.endTime);
+
+                if (!isNaN(startTime.getTime()) && !isNaN(endTime.getTime()) && startTime < endTime) {
+                    const valuesInRange = allData
+                        .filter(d => d.timestamp >= startTime && d.timestamp <= endTime)
+                        .map(d => d.values[channelIndexValue])
+                        .filter(v => v !== null && typeof v === 'number') as number[];
+            
+                    if (valuesInRange.length > 0) {
+                        const min = Math.min(...valuesInRange);
+                        const max = Math.max(...valuesInRange);
+                        newResults.push({ id: self.crypto.randomUUID(), name: phase.name, min, max, diff: max - min, startTime, endTime });
+                    }
+                }
+            });
+            
+            return {
+                ...job,
+                autoMinMaxResults: newResults,
+                channelAnalysis: { ...job.channelAnalysis, [job.selectedChannelId]: { isAnalyzing: false, selection: { start: null, end: null }, results: [] } }
+            };
+        });
+    }, [activeJob, updateActiveJob]);
+
+    const handleReapplyAnalysis = useCallback(async () => {
+        if (!activeJob?.aiPhaseAnalysisResult) {
+            alert("수정된 농도 분석을 적용하려면 먼저 '농도 분석'을 실행해야 합니다.");
+            return;
+        }
+        await handleAiAnalysis();
+        handleAutoRangeAnalysis();
+        setIsPhaseAnalysisModified(false);
+    }, [activeJob, handleAiAnalysis, handleAutoRangeAnalysis]);
+
+
+    const handleAutoMinMaxResultChange = useCallback((resultId: string, field: keyof AnalysisResult, value: string) => {
+        updateActiveJob(job => {
+            if (!job.autoMinMaxResults) return job;
+
+            const newResults = job.autoMinMaxResults.map(result => {
+                if (result.id === resultId) {
+                    const updatedResult = { ...result };
+
+                    if (field === 'startTime' || field === 'endTime') {
+                        const newDate = new Date(value);
+                        if (!isNaN(newDate.getTime())) {
+                            updatedResult[field] = newDate;
+                        }
+                    } else if (field === 'min' || field === 'max') {
+                        const numericValue = parseFloat(value);
+                        if (!isNaN(numericValue)) {
+                            (updatedResult as any)[field] = numericValue;
+                            const newMin = field === 'min' ? numericValue : updatedResult.min;
+                            const newMax = field === 'max' ? numericValue : updatedResult.max;
+                            updatedResult.diff = newMax - newMin;
+                        }
+                    }
+                    return updatedResult;
+                }
+                return result;
+            });
+
+            return { ...job, autoMinMaxResults: newResults };
+        });
+    }, [updateActiveJob]);
+
+    const handleManualAnalysisResultChange = useCallback((channelId: string, resultId: string, field: keyof AnalysisResult, value: string) => {
+        updateActiveJob(job => {
+            if (!job.channelAnalysis[channelId]) return job;
+    
+            const analysisState = job.channelAnalysis[channelId];
+            const newResults = analysisState.results.map(result => {
+                if (result.id === resultId) {
+                    const updatedResult = { ...result };
+    
+                    if (field === 'startTime' || field === 'endTime') {
+                        const newDate = new Date(value);
+                        if (!isNaN(newDate.getTime())) {
+                            updatedResult[field] = newDate;
+                        }
+                    } else if (field === 'min' || field === 'max') {
+                        const numericValue = parseFloat(value);
+                        if (!isNaN(numericValue)) {
+                            (updatedResult as any)[field] = numericValue;
+                            const newMin = field === 'min' ? numericValue : updatedResult.min;
+                            const newMax = field === 'max' ? numericValue : updatedResult.max;
+                            updatedResult.diff = newMax - newMin;
+                        }
+                    }
+                    return updatedResult;
+                }
+                return result;
+            });
+    
+            return {
+                ...job,
+                channelAnalysis: {
+                    ...job.channelAnalysis,
+                    [channelId]: {
+                        ...analysisState,
+                        results: newResults,
+                    }
+                }
+            };
+        });
+    }, [updateActiveJob]);
+
 
   return (
-    <div className="w-full max-w-7xl mx-auto bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
+    <div className={`w-full max-w-7xl bg-slate-800 shadow-2xl space-y-6 ${isFullScreenGraph ? '' : 'sm:rounded-xl sm:p-6 lg:p-8'}`}>
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">CSV 그래프 (P6)</h2>
       
       {jobs.length > 0 && (
@@ -986,7 +697,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
                 className={`p-2.5 rounded-md cursor-pointer transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}>
                 <div className="flex justify-between items-center">
                   <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>
-                    {job.receiptNumber} {job.fileName && `/ ${job.fileName}`}
+                    {job.receiptNumber || `작업 (${job.sensorType})`} {job.fileName && `/ ${job.fileName}`}
                   </span>
                   <button onClick={(e) => { e.stopPropagation(); onDeleteJob(job.id); }} className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0" aria-label="작업 삭제">
                     <TrashIcon />
@@ -1019,160 +730,51 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
       {error && <p className="text-red-400 text-center p-4 bg-red-900/30 rounded-md">{error}</p>}
 
       {activeJob && activeJob.parsedData && (
-        <>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <h3 className="text-xl font-semibold text-slate-100">그래프 분석: <span className="text-sky-400">{activeJob.fileName}</span></h3>
-            <div className="flex items-center bg-slate-700/50 p-1 rounded-lg">
-              {timeRangeOptions.map(opt => (
-                <button 
-                  key={opt.label} 
-                  onClick={() => handleTimeRangeChange(opt.value)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50
-                    ${activeJob.timeRangeInMs === opt.value 
-                        ? 'bg-sky-500 text-white shadow-md' 
-                        : 'text-slate-300 hover:bg-slate-700'
-                    }`
-                  }
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          {activeJob.timeRangeInMs !== 'all' && (
-            <div className="flex items-center justify-center gap-2 text-sm flex-wrap">
-                <ActionButton onClick={handleGoToStart} disabled={isAtStart}>{'<< 맨 앞으로'}</ActionButton>
-                <ActionButton onClick={handlePreviousChunk} disabled={isAtStart}>{'< 이전'}</ActionButton>
-                <span className="text-slate-300 font-mono bg-slate-900/50 px-3 py-1.5 rounded-md text-xs whitespace-nowrap">{viewMemo.currentWindowDisplay}</span>
-                <ActionButton onClick={handleNextChunk} disabled={isAtEnd}>{'다음 >'}</ActionButton>
-                <ActionButton onClick={handleGoToEnd} disabled={isAtEnd}>{'맨 뒤로 >>'}</ActionButton>
-            </div>
-          )}
-          
-          <div className="flex flex-wrap gap-2 border-b border-slate-700 pb-4 mb-4">
-              <h4 className="w-full text-md font-semibold text-slate-200 mb-1">채널 선택:</h4>
-              {activeJob.parsedData.channels.map(channel => (
-                <button
-                  key={channel.id}
-                  onClick={() => updateActiveJob(j => ({...j, selectedChannelId: channel.id}))}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 focus:ring-sky-500 ${activeJob.selectedChannelId === channel.id ? 'bg-sky-500 text-white' : 'bg-slate-600 hover:bg-slate-500 text-slate-300'}`}
-                >
-                  {channel.name} ({channel.id})
-                </button>
-              ))}
-          </div>
-
-          {selectedChannel && selectedChannelIndex !== -1 && (
-            <div className="space-y-6">
-                <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700 space-y-4">
-                    <div className="flex justify-between items-start mb-2">
-                        <div>
-                            <h4 className="text-lg font-semibold text-slate-100">{selectedChannel.name} ({selectedChannel.id})</h4>
-                            <p className="text-sm text-slate-400">단위: {selectedChannel.unit.replace(/\[|\]/g, '')}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {(activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0) > 0 && (
-                                <>
-                                    <ActionButton
-                                        onClick={() => handleUndoLastResult(selectedChannel.id)}
-                                        variant="secondary"
-                                        className="text-xs !py-1.5 !px-2"
-                                        title="마지막으로 추가된 분석 결과를 되돌립니다."
-                                    >
-                                        마지막 결과 되돌리기
-                                    </ActionButton>
-                                    <ActionButton
-                                        onClick={() => handleResetAnalysis(selectedChannel.id)}
-                                        variant="danger"
-                                        className="text-xs !py-1.5 !px-2"
-                                        title="이 그래프의 모든 분석 결과 지우기"
-                                    >
-                                        분석 초기화
-                                    </ActionButton>
-                                </>
-                            )}
-                            <ActionButton
-                                onClick={() => toggleAnalysisMode(selectedChannel.id)}
-                                variant={activeJob.channelAnalysis[selectedChannel.id]?.isAnalyzing ? 'primary' : 'secondary'}
-                                className="text-xs !py-1.5 !px-3"
-                            >
-                                {getAnalysisButtonText(activeJob.channelAnalysis[selectedChannel.id])}
-                            </ActionButton>
-                             {activeJob.channelAnalysis[selectedChannel.id]?.isAnalyzing && activeJob.channelAnalysis[selectedChannel.id]?.selection.start && (
-                                <ActionButton onClick={() => handleCancelSelection(selectedChannel.id)} variant="danger" className="text-xs !py-1.5 !px-2">
-                                    선택 취소
-                                </ActionButton>
-                            )}
-                        </div>
-                    </div>
-                    <Graph 
-                        data={viewMemo.filteredData || []} 
-                        channelIndex={selectedChannelIndex} 
-                        channelInfo={selectedChannel} 
-                        onPan={handleFinePan} 
-                        showMajorTicks={activeJob.timeRangeInMs !== 'all'} 
-                        yMinMaxOverall={yMinMaxPerChannel[selectedChannelIndex]}
-                        isAnalyzing={activeJob.channelAnalysis[selectedChannel.id]?.isAnalyzing || false}
-                        onPointSelect={(point) => handlePointSelect(selectedChannel.id, point)}
-                        selection={activeJob.channelAnalysis[selectedChannel.id]?.selection || null}
-                        analysisResults={activeJob.channelAnalysis[selectedChannel.id]?.results || []}
-                    />
-                    {activeJob.timeRangeInMs !== 'all' && fullTimeRange && activeJob.viewEndTimestamp !== null && (
-                      <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">전체 시간 탐색:</label>
-                        <TimelineNavigator
-                          fullData={activeJob.parsedData.data}
-                          channelIndex={selectedChannelIndex}
-                          fullTimeRange={fullTimeRange}
-                          viewTimeRange={activeJob.timeRangeInMs}
-                          viewEndTimestamp={activeJob.viewEndTimestamp}
-                          onNavigate={handleNavigate}
-                          yMinMaxOverall={yMinMaxPerChannel[selectedChannelIndex]}
-                        />
-                      </div>
-                    )}
-                </div>
-                
-                <div>
-                    <h4 className="text-lg font-semibold text-slate-100 mb-2">분석 결과 ({activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0} / 25)</h4>
-                    <div className="overflow-x-auto bg-slate-900/50 rounded-lg border border-slate-700 max-h-96">
-                        <table className="min-w-full text-sm text-left">
-                            <thead className="bg-slate-700/50 sticky top-0">
-                                <tr>
-                                    <th className="px-4 py-2 font-medium text-slate-300">No.</th>
-                                    <th className="px-4 py-2 font-medium text-slate-300">시작 시간</th>
-                                    <th className="px-4 py-2 font-medium text-slate-300">종료 시간</th>
-                                    <th className="px-4 py-2 font-medium text-slate-300 text-right">최대값</th>
-                                    <th className="px-4 py-2 font-medium text-slate-300 text-right">최소값</th>
-                                    <th className="px-4 py-2 font-medium text-slate-300 text-right">차이</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-700">
-                                {(activeJob.channelAnalysis[selectedChannel.id]?.results?.length || 0) > 0 ? (
-                                    activeJob.channelAnalysis[selectedChannel.id].results.map((result, idx) => (
-                                        <tr key={result.id} className="hover:bg-slate-800">
-                                            <td className="px-4 py-2 text-slate-400">{idx + 1}</td>
-                                            <td className="px-4 py-2 text-slate-300 whitespace-nowrap">{result.startTime.toLocaleString()}</td>
-                                            <td className="px-4 py-2 text-slate-300 whitespace-nowrap">{result.endTime.toLocaleString()}</td>
-                                            <td className="px-4 py-2 text-green-400 font-mono text-right">{result.max.toFixed(3)}</td>
-                                            <td className="px-4 py-2 text-red-400 font-mono text-right">{result.min.toFixed(3)}</td>
-                                            <td className="px-4 py-2 text-sky-400 font-mono text-right">{result.diff.toFixed(3)}</td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan={6} className="text-center py-4 text-slate-500">
-                                            '범위 분석' 버튼을 눌러 구간을 선택하세요.
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-          )}
-        </>
+        <CsvDisplay
+          activeJob={activeJob}
+          yMinMaxPerChannel={yMinMaxPerChannel}
+          viewMemo={viewMemo}
+          fullTimeRange={fullTimeRange}
+          isAtStart={isAtStart}
+          isAtEnd={isAtEnd}
+          selectedChannel={selectedChannel}
+          selectedChannelIndex={selectedChannelIndex}
+          updateActiveJob={updateActiveJob}
+          handleTimeRangeChange={handleTimeRangeChange}
+          handleGoToStart={handleGoToStart}
+          handleGoToEnd={handleGoToEnd}
+          handlePreviousChunk={handlePreviousChunk}
+          handleNextChunk={handleNextChunk}
+          handleFinePan={handleFinePan}
+          handlePan={handlePan}
+          handleZoom={handleZoom}
+          handleNavigate={handleNavigate}
+          toggleAnalysisMode={toggleAnalysisMode}
+          handleUndoLastResult={handleUndoLastResult}
+          handleResetAnalysis={handleClearAnalysis}
+          handleCancelSelection={handleCancelSelection}
+          handlePointSelect={handlePointSelect}
+          handlePhaseTimeChange={handlePhaseTimeChange}
+          handleAiPointChange={handleAiPointChange}
+          handleAutoRangeAnalysis={handleAutoRangeAnalysis}
+          handleAiPhaseAnalysis={handleAiPhaseAnalysis}
+          handleAiAnalysis={handleAiAnalysis}
+          placingAiPointLabel={placingAiPointLabel}
+          setPlacingAiPointLabel={handleSetIndividualPointMode}
+          handleManualAiPointPlacement={handleManualAiPointPlacement}
+          handleAutoMinMaxResultChange={handleAutoMinMaxResultChange}
+          handleManualAnalysisResultChange={handleManualAnalysisResultChange}
+          isPhaseAnalysisModified={isPhaseAnalysisModified}
+          handleReapplyAnalysis={handleReapplyAnalysis}
+          isFullScreenGraph={isFullScreenGraph}
+          setIsFullScreenGraph={setIsFullScreenGraph}
+          aiPointHistory={aiPointHistory}
+          handleUndoAiPointChange={handleUndoAiPointChange}
+          sequentialPlacementState={sequentialPlacementState}
+          handleToggleSequentialPlacement={handleToggleSequentialPlacement}
+          handleSequentialPointPlacement={handleSequentialPointPlacement}
+          SEQUENTIAL_POINT_ORDER={SEQUENTIAL_POINT_ORDER}
+        />
       )}
     </div>
   );
