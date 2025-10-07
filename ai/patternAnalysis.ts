@@ -211,7 +211,7 @@ export async function runPatternAnalysis(
     config: {
       responseMimeType: "application/json",
       responseSchema: schema,
-      thinkingConfig: { thinkingBudget: 0.2 },
+      thinkingConfig: { thinkingBudget: 1 },
     },
   });
 
