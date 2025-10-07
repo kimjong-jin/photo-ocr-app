@@ -2,15 +2,14 @@ import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiPhase } from "../types/csvGraph";
 
 /**
- * ✅ 단계 분석용 프롬프트 생성기
- * (PH / SS / 먹는물 TU·Cl 모두 지원)
+ * ✅ 단계 분석 프롬프트 (절대 수정 금지)
  */
 function getPhaseAnalysisPrompt(
   dataPoints: { t: string; v: number | null }[],
   sensorType: CsvGraphJob["sensorType"],
   measurementRange: number | undefined
 ): string {
-  let prompt = "";
+  let prompt: string;
 
   switch (sensorType) {
     case "수질 (PH)":
@@ -30,40 +29,47 @@ You are a hyper-precise data analysis robot. Your SOLE mission is to find broad 
    * Low Phase: Continuous ≥60s, all v within ph4_range.
    * High Phase: Continuous ≥60s, all v within ph7_range.
    * CRITICAL Low Phase 2 RULE: Must be High phase at pH 7 with ≥2h (7200s) stable period.
+**Execution Plan:**
+1. Low Phase 1
+2. High Phase 1
+3. Low Phase 2 (2h rest)
+4. High Phase 2
+5. Low Phase 3
+6. High Phase 3
+**FINAL OUTPUT:** Respond ONLY with a single JSON array of phases you identified.
 Data:
 ${JSON.stringify(dataPoints)}
 `;
       break;
 
     case "수질 (SS)":
-      const ssThreshold =
-        typeof measurementRange === "number" && measurementRange > 0
-          ? `
+      let ssThreshold: string;
+      if (typeof measurementRange === "number" && measurementRange > 0) {
+        ssThreshold = `
 - Measurement range = ${measurementRange}.
-- Thresholds:
+- Define thresholds:
   high_threshold = ${measurementRange * 0.8}
   low_threshold = ${measurementRange * 0.2}
   medium_threshold_low = ${measurementRange * 0.4}
   medium_threshold_high = ${measurementRange * 0.6}
-`
-          : `
-- Find data_min, data_max in dataset.
-- Thresholds:
-  high_threshold = data_min + (data_max - data_min)*0.8
-  low_threshold = data_min + (data_max - data_min)*0.2
-  medium_threshold_low = data_min + (data_max - data_min)*0.4
-  medium_threshold_high = data_min + (data_max - data_min)*0.6
 `;
+      } else {
+        ssThreshold = `
+- Find data_min, data_max in dataset.
+- Define thresholds using 0.8/0.2/0.4/0.6 ratios.
+`;
+      }
 
       prompt = `
 You are a hyper-precise data analysis robot. Your SOLE mission is to find broad concentration phases from '수질 (SS)' data.
 **DATA & THRESHOLDS:**
 ${ssThreshold}
 **MISSION:**
-- Low ≥30min (v <= low_threshold)
-- High ≥30min (v >= high_threshold)
-- Medium ≥20min (v between medium_threshold_low & medium_threshold_high)
+- Low Phase ≥30min (v <= low_threshold)
+- High Phase ≥30min (v >= high_threshold)
+- Medium Phase ≥20min (v between medium_threshold_low & medium_threshold_high)
 - Low Phase 2 must include 2-hour rest (7200s)
+**FINAL OUTPUT:** Respond ONLY with JSON array of identified phases.
 Data:
 ${JSON.stringify(dataPoints)}
 `;
@@ -71,36 +77,38 @@ ${JSON.stringify(dataPoints)}
 
     case "먹는물 (TU/Cl)":
     default:
-      const drinkingThreshold =
-        typeof measurementRange === "number" && measurementRange > 0
-          ? `
+      let tuDef: string;
+      if (typeof measurementRange === "number" && measurementRange > 0) {
+        tuDef = `
 - Measurement range = ${measurementRange}.
-- Thresholds:
+- Define thresholds:
   high_threshold = ${measurementRange * 0.8}
   low_threshold = ${measurementRange * 0.2}
   medium_threshold_low = ${measurementRange * 0.4}
   medium_threshold_high = ${measurementRange * 0.6}
-`
-          : `
-- Compute thresholds from data_min, data_max (same logic as above)
 `;
+      } else {
+        tuDef = `
+- Derive thresholds dynamically using data_min, data_max.
+`;
+      }
 
       prompt = `
 You are a hyper-precise data analysis robot. Identify broad concentration phases from '먹는물 (TU/Cl)' data.
 
 **THRESHOLDS:**
-${drinkingThreshold}
+${tuDef}
 
-**MISSION (STRICT SEQUENCE):**
+**MISSION:**
 1. Low Phase 1 (v <= low_threshold, ≥60s)
 2. High Phase 1 (v >= high_threshold, ≥60s)
-3. Low Phase 2 (v <= low_threshold, must include 2h rest)
+3. Low Phase 2 (2-hour rest rule)
 4. High Phase 2
 5. Low Phase 3
 6. High Phase 3
 7. Medium Phase 1
-Return as JSON array of phases in chronological order.
 
+Respond ONLY with JSON array of identified phases.
 Data:
 ${JSON.stringify(dataPoints)}
 `;
@@ -136,7 +144,7 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
     job.parsedData.measurementRange
   );
 
-  const responseSchema = {
+  const schema = {
     type: Type.ARRAY,
     items: {
       type: Type.OBJECT,
@@ -154,19 +162,19 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
       responseMimeType: "application/json",
-      responseSchema,
+      responseSchema: schema,
     },
   });
 
-  const resultText =
+  const text =
     (r as any).output_text ||
     (r as any).text ||
     (r as any).output?.[0]?.content?.parts?.[0]?.text ||
     "";
 
-  if (!resultText.trim()) throw new Error("Empty response from Gemini model");
+  if (!text.trim()) throw new Error("Empty response from Gemini model");
 
-  const parsed = JSON.parse(resultText) as AiPhase[];
+  const phases = JSON.parse(text) as AiPhase[];
 
   const order = [
     "Low Phase 1",
@@ -177,7 +185,7 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
     "High Phase 3",
     "Medium Phase 1",
   ];
-  parsed.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  phases.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
 
-  return parsed;
+  return phases;
 }
