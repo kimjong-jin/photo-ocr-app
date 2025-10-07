@@ -1,8 +1,6 @@
+import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
 
-/**
- * 패턴 분석용 프롬프트 구성
- */
 function getPatternAnalysisPrompt(
   job: CsvGraphJob,
   allDataPoints: { t: string; v: number }[],
@@ -23,15 +21,12 @@ function getPatternAnalysisPrompt(
     });
   };
 
-  let masterPrompt = "";
+  let masterPrompt: string;
   let masterSchema: any;
 
   const pointSchema = {
-    type: "object",
-    properties: {
-      timestamp: { type: "string" },
-      value: { type: "number" },
-    },
+    type: Type.OBJECT,
+    properties: { timestamp: { type: Type.STRING }, value: { type: Type.NUMBER } },
     required: ["timestamp", "value"],
   };
 
@@ -50,7 +45,7 @@ function getPatternAnalysisPrompt(
     }
 
     masterSchema = {
-      type: "object",
+      type: Type.OBJECT,
       properties: {
         z1: pointSchema,
         z2: pointSchema,
@@ -65,7 +60,7 @@ function getPatternAnalysisPrompt(
         m1: pointSchema,
         responseStartPoint: pointSchema,
         responseEndPoint: pointSchema,
-        responseError: { type: "string" },
+        responseError: { type: Type.STRING },
       },
     };
 
@@ -107,7 +102,6 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
      - Z3 = first data point,
      - Z4 = first point ≥300s after Z3.
   5. If no stable section exists, omit this task.
-
 ---
 
 **TASK 4: S3 & S4 (High Phase 2)**
@@ -148,9 +142,6 @@ Do NOT re-interpret stability or noise — assume each provided phase dataset is
   return { masterPrompt, masterSchema };
 }
 
-/**
- * 실제 패턴 분석 실행 (Vercel 서버 호출)
- */
 export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisResult> {
   if (!job.parsedData || !job.selectedChannelId || !job.aiPhaseAnalysisResult) {
     throw new Error(
@@ -161,9 +152,11 @@ export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisRe
   const selectedChannelIndex = job.parsedData.channels.findIndex(
     (c) => c.id === job.selectedChannelId
   );
-  if (selectedChannelIndex === -1) {
+  if (selectedChannelIndex === -1)
     throw new Error("Selected channel not found in parsed data.");
-  }
+
+  // ✅ Gemini 초기화 (환경 변수명 수정)
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   const allDataPoints = job.parsedData.data
     .map((d) => ({ t: d.timestamp.toISOString(), v: d.values[selectedChannelIndex] }))
@@ -173,34 +166,33 @@ export async function runPatternAnalysis(job: CsvGraphJob): Promise<AiAnalysisRe
 
   console.log("Detected Phases:", Array.from(phaseMap.keys()));
 
-  const { masterPrompt } = getPatternAnalysisPrompt(job, allDataPoints, phaseMap);
+  const { masterPrompt, masterSchema } = getPatternAnalysisPrompt(job, allDataPoints, phaseMap);
 
-  try {
-    // ✅ Vercel Serverless Function 호출
-    const response = await fetch("/api/gemini-analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: masterPrompt }),
-    });
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: [{ role: "user", parts: [{ text: masterPrompt }] }],
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: masterSchema,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini API call failed: ${errText}`);
-    }
+  const jsonText =
+    (response as any).output_text ||
+    (response as any).output?.[0]?.content?.parts?.[0]?.text ||
+    (response as any).text;
 
-    const { output } = await response.json();
-    const result = JSON.parse(output) as AiAnalysisResult;
+  if (!jsonText) throw new Error("No JSON response from Gemini model.");
 
-    // ✅ 응답 시간 계산
-    if (result.responseStartPoint && result.responseEndPoint) {
-      const start = new Date(result.responseStartPoint.timestamp).getTime();
-      const end = new Date(result.responseEndPoint.timestamp).getTime();
-      if (end >= start) result.responseTimeInSeconds = (end - start) / 1000;
-    }
+  const result = JSON.parse(jsonText) as AiAnalysisResult;
 
-    return result;
-  } catch (err: any) {
-    console.error("❌ Pattern Analysis failed:", err);
-    throw new Error(`Gemini Pattern Analysis Error: ${err.message}`);
+  // ✅ 응답 시간 계산
+  if (result.responseStartPoint && result.responseEndPoint) {
+    const start = new Date(result.responseStartPoint.timestamp).getTime();
+    const end = new Date(result.responseEndPoint.timestamp).getTime();
+    if (end >= start) result.responseTimeInSeconds = (end - start) / 1000;
   }
+
+  return result;
 }
