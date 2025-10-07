@@ -5,6 +5,7 @@ import {
   Part,
   GenerateContentParameters,
 } from "@google/genai";
+import { callVllmApi } from "./vllmService"; // ✅ vLLM 호출 유틸 가져오기
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -24,9 +25,9 @@ const getGenAIClient = (): GoogleGenAI => {
   return aiClient;
 };
 
-const DEFAULT_TIMEOUT_MS = 20_000;    // 요청 타임아웃 (20초)
-const MAX_RETRIES = 3;                // 최대 재시도 횟수
-const INITIAL_DELAY_MS = 1_000;       // 백오프 시작 지연 (1초)
+const DEFAULT_TIMEOUT_MS = 20_000; // 요청 타임아웃 (20초)
+const MAX_RETRIES = 3; // 최대 재시도 횟수
+const INITIAL_DELAY_MS = 1_000; // 백오프 시작 지연 (1초)
 
 /** 지정된 시간(ms)만큼 대기 */
 async function delay(ms: number): Promise<void> {
@@ -35,10 +36,6 @@ async function delay(ms: number): Promise<void> {
 
 /**
  * 재시도 + 지수적 백오프 로직 공통화
- * @param fn 호출 함수
- * @param retries 최대 재시도 횟수
- * @param initialDelay 시작 지연(ms)
- * @param shouldRetry 재시도 여부 판별 함수
  */
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -65,11 +62,7 @@ async function retryWithBackoff<T>(
 }
 
 /**
- * 이미지에서 텍스트를 추출
- * @param imageBase64 Base64 인코딩된 이미지 데이터
- * @param mimeType 이미지 MIME 타입 (e.g. "image/jpeg")
- * @param promptText 분석용 프롬프트
- * @param modelConfig Gemini 모델 구성 (optional)
+ * 이미지에서 텍스트를 추출 (Gemini 또는 vLLM 모드 선택)
  */
 export const extractTextFromImage = async (
   imageBase64: string,
@@ -77,24 +70,57 @@ export const extractTextFromImage = async (
   promptText: string,
   modelConfig: GenerateContentParameters["config"] = {}
 ): Promise<string> => {
+  // ✅ 현재 AI 모드 확인 ('gemini' | 'vllm')
+  const apiMode = localStorage.getItem("apiMode") || "gemini";
+
+  /** ✅ vLLM 모드 분기 */
+  if (apiMode === "vllm") {
+    try {
+      const dataUri = `data:${mimeType};base64,${imageBase64}`;
+      const messages = [
+        {
+          role: "user" as const,
+          content: [
+            { type: "text" as const, text: promptText },
+            { type: "image_url" as const, image_url: { url: dataUri } },
+          ],
+        },
+      ];
+
+      const json_mode = !!modelConfig.responseSchema;
+      const result = await callVllmApi(messages, { json_mode });
+
+      console.debug("[vllmService] 최종 추출 텍스트:", result);
+      return result;
+    } catch (error: any) {
+      console.error("[vllmService] vLLM call failed:", error.message);
+      throw new Error(
+        error.message || "vLLM API 통신 중 알 수 없는 오류가 발생했습니다."
+      );
+    }
+  }
+
+  /** ✅ Gemini 모드 분기 */
   const client = getGenAIClient();
 
   const parts: Part[] = [
     { text: promptText },
     { inlineData: { mimeType, data: imageBase64 } },
   ];
-  // FIX: Per coding guidelines, use 'gemini-2.5-pro' for general text tasks.
-  const model = "gemini-2.5-pro";
+
+  // FIX: Per coding guidelines, use 'gemini-2.5-flash' for text/image tasks
+  const model = "gemini-2.5-flash";
 
   // 실제 API 호출 함수
   const callApi = async (): Promise<string> => {
-    const response: GenerateContentResponse = await client.models.generateContent({
-      model,
-      contents: { parts },
-      config: modelConfig,
-      // @ts-ignore: SDK 내부 axios 옵션 전달용
-      axiosRequestConfig: { timeout: DEFAULT_TIMEOUT_MS },
-    });
+    const response: GenerateContentResponse =
+      await client.models.generateContent({
+        model,
+        contents: { parts },
+        config: modelConfig,
+        // @ts-ignore: SDK 내부 axios 옵션 전달용
+        axiosRequestConfig: { timeout: DEFAULT_TIMEOUT_MS },
+      });
     return response.text;
   };
 
@@ -120,7 +146,7 @@ export const extractTextFromImage = async (
     console.error("[geminiService] 모든 재시도 실패:", error.message);
     if (error.message.includes("API Key not valid")) {
       throw new Error(
-        "유효하지 않은 Gemini API Key입니다. API_KEY 환경변수를 확인해주세요."
+        "유효하지 않은 Gemini API Key입니다. VITE_API_KEY 환경변수를 확인해주세요."
       );
     }
     if (error.message.includes("Quota exceeded")) {
