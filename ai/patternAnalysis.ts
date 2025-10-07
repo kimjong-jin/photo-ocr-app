@@ -1,5 +1,5 @@
 import { Type } from "@google/genai";
-import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/csvGraph";
+import type { CsvGraphJob, AiAnalysisResult, AiPhase } from "../types/CsvGraph";
 import { getGenAIClient } from "../services/geminiService";
 
 function getPatternAnalysisPrompt(
