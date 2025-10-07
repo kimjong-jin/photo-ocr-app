@@ -172,8 +172,9 @@ export async function runPhaseAnalysis(job: CsvGraphJob): Promise<AiPhase[]> {
         },
     });
 
-    const resultJson = response.text;
-    const parsedResult = JSON.parse(resultJson) as AiPhase[];
+    const match = resultJson.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+    if (!match) throw new Error("No valid JSON found in response");
+    const parsedResult = JSON.parse(match[0]) as AiPhase[];
 
     // Sort results into the fixed order
     const phaseOrder = ["Low Phase 1", "High Phase 1", "Low Phase 2", "High Phase 2", "Low Phase 3", "High Phase 3", "Medium Phase 1"];
