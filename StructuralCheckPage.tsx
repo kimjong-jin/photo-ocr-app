@@ -542,13 +542,14 @@ ${itemSpecificHint}
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              "제조회사": { type: Type.STRING, description: "The manufacturer of the device (e.g., (주)에이치코비)." },
-              "기기형식": { type: Type.STRING, description: "The model name or type of the device (e.g., HATN-4000)." },
-              "형식승인번호": { type: Type.STRING, description: "The type approval number. CRITICAL: Format it to start with '제' and end with '호' (e.g., '제WTMS-TN-2017-4호')." },
-              "형식승인일": { type: Type.STRING, description: "The date of type approval. CRITICAL: Format as YYYY-MM-DD." },
-              "기기고유번호": { type: Type.STRING, description: "The unique serial number of the device (e.g., H4TN2M1509)." },
+              "제조회사": { type: Type.STRING },
+              "기기형식": { type: Type.STRING },
+              "형식승인번호": { type: Type.STRING },
+              "형식승인일": { type: Type.STRING },
+              "기기고유번호": { type: Type.STRING },
             },
             required: ["제조회사", "기기형식", "형식승인번호", "형식승인일", "기기고유번호"],
+            additionalProperties: false
           },
         };
         break;
