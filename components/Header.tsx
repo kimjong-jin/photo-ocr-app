@@ -19,7 +19,7 @@ export const Header: React.FC<HeaderProps> = ({ apiMode, onApiModeChange }) => {
       {/* 분석 모드 표시 영역 */}
       <div className="flex justify-between items-center w-full mb-4 px-1">
         <span className="text-slate-300 font-semibold text-sm">
-          분석 : 외부 AI || 내부 AI
+          분석 : {apiMode === 'gemini' ? '외부 AI' : '내부 AI'}
         </span>
         <button
           onClick={handleToggle}
