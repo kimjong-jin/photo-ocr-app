@@ -510,7 +510,6 @@ FIELDS TO EXTRACT:
 - 형식승인번호 (Type Approval Number)
 - 형식승인일 (Type Approval Date)
 - 기기고유번호 (Serial Number / S/N)
-- 수입신고일 (Import Declaration Date)
 
 If a field is missing or unreadable, return an empty string "" as its value.  
 Do not omit any key from the JSON structure.
