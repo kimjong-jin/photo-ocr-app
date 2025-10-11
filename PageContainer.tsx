@@ -785,7 +785,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   return (
     <div className="w-full min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-4 sm:px-8 py-4 sm:py-8 font-[Inter]">
-      <Header />
+      <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} />
 
       <div className="w-full max-w-3xl mb-4 flex flex-col sm:flex-row justify-between items-center bg-slate-800/50 p-3 rounded-lg shadow">
         <div className="text-sm text-sky-300 mb-2 sm:mb-0">
@@ -803,6 +803,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             </ActionButton>
         </div>
       </div>
+    </div>
 
       {activePage !== 'kakaoTalk' && (
         <div className="w-full max-w-3xl mb-6 p-4 bg-slate-800/60 rounded-lg border border-slate-700 shadow-sm space-y-2">
