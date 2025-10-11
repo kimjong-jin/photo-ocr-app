@@ -792,17 +792,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           환영합니다, <span className="font-semibold">{userName}</span>님!
         </div>
         <div className="flex items-center space-x-2">
-            <div className="flex items-center space-x-3">
-              <span className="text-slate-300 font-semibold text-sm">
-                분석 : 외부 AI || 내부 AI
-              </span>
-              <button 
-                onClick={() => handleApiModeChange(apiMode === 'gemini' ? 'vllm' : 'gemini')}
-                className="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors bg-slate-600 hover:bg-slate-500 text-slate-100 focus:ring-slate-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800"
-              >
-                {apiMode === 'gemini' ? '전환 → 내부 AI' : '전환 → 외부 AI'}
-              </button>
-            </div>
+            <div className="flex items-center p-1 bg-slate-700 rounded-lg">
             <ActionButton
               onClick={onLogout}
               variant="secondary"
