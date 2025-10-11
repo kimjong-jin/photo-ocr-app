@@ -1,6 +1,5 @@
 // ✅ vLLM 서버 정식 주소 (직접 호출)
 const VLLM_BASE_URL = "https://mobile.ktl.re.kr/genai/v1";
-
 const API_KEY = "EMPTY"; // vLLM 서버 기본값
 const MODEL = "/root/.cache/huggingface/Qwen72B-AWQ"; // 모델 경로
 
@@ -34,36 +33,6 @@ interface VllmPayload {
   response_format?: { type: "json_object" };
 }
 
-// ✅ base64 → Blob URL 변환 함수
-const base64ToBlobUrl = (base64Data: string, mimeType: string): string => {
-  const byteString = atob(base64Data.split(",")[1]);
-  const byteArray = Uint8Array.from(byteString, (c) => c.charCodeAt(0));
-  const blob = new Blob([byteArray], { type: mimeType });
-  return URL.createObjectURL(blob);
-};
-
-// ✅ base64 이미지 메시지를 blob URL로 변환
-const transformBase64Images = (messages: VllmMessage[]): VllmMessage[] => {
-  return messages.map((msg) => {
-    if (typeof msg.content === "string") return msg;
-
-    const newContent = msg.content.map((part) => {
-      if (part.type === "image_url" && part.image_url?.url.startsWith("data:image/")) {
-        const mimeMatch = part.image_url.url.match(/^data:(.+);base64,/);
-        const mime = mimeMatch ? mimeMatch[1] : "image/png";
-        const blobUrl = base64ToBlobUrl(part.image_url.url, mime);
-        return {
-          ...part,
-          image_url: { url: blobUrl },
-        };
-      }
-      return part;
-    });
-
-    return { ...msg, content: newContent };
-  });
-};
-
 /**
  * ✅ vLLM API 호출 함수
  * @param messages - 대화 메시지 배열
@@ -73,14 +42,13 @@ export const callVllmApi = async (
   messages: VllmMessage[],
   config?: { json_mode?: boolean }
 ): Promise<string> => {
-  const transformedMessages = transformBase64Images(messages);
-
   const payload: VllmPayload = {
     model: MODEL,
-    messages: transformedMessages,
+    messages, // ⛔ 변환 없이 그대로 사용
     stream: false,
   };
 
+  // ✅ JSON 모드 설정 시 응답 형식 지정
   if (config?.json_mode) {
     payload.response_format = { type: "json_object" };
   }
@@ -108,6 +76,7 @@ export const callVllmApi = async (
     const data: VllmChatCompletionResponse = await response.json();
     const content = data.choices[0]?.message?.content || "";
 
+    // ✅ JSON 코드 블록 제거 (json_mode용)
     if (config?.json_mode) {
       const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})/s);
       if (jsonMatch) {
