@@ -445,44 +445,68 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
         const yearPrefixes = Array.from({ length: 5 }, (_, i) => `${twoDigitYear - i}-`).join("', '");
 
         prompt = `
+prompt = `
 You are a highly precise data extraction assistant specializing in official Korean '정도검사 증명서' (Certificate of Inspection).
-From the provided image of the certificate for a "${mainItemName}" device, extract ALL of the following fields. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY FIELDS from the JSON structure.
+From the provided certificate image(s) for a "\${mainItemName}" device, extract ALL fields below. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS. Respond ONLY with a single JSON object (no markdown, no extra text).
 
-- productName: The product name or model (품명/모델명).
-- manufacturer: The manufacturer (제작사).
-- serialNumber: The serial number (제작번호/기기번호).
-- typeApprovalNumber: The type approval number (형식승인번호).
-- inspectionDate: The date the inspection was conducted (검사일자).
-- validity: The expiration date of the certificate (유효기간).
-- previousReceiptNumber: The main certificate ID number, often labeled '제...호'. Extract ONLY the core number string (e.g., from '제21-018279-02-77호', extract '21-018279-02-77'). Follow this specific logic:
-  1. The current year is ${currentYear}. Your primary goal is to find the most recent receipt number. Search for numbers starting with two-digit year prefixes in this descending order of priority: '${yearPrefixes}'.
-  2. If you find numbers starting with multiple prefixes (e.g., '25-' and '24-'), you MUST choose and extract the one with the highest priority prefix (in this case, '25-').
-  3. If you do not find any number matching these year-prefix patterns, then and only then should you extract any other identifiable main certificate number you can find on the document.
+MULTI-IMAGE / RIGHT-CERT SELECTION (CRITICAL):
+- If multiple certificate images are provided, you MUST select the single certificate that matches the requested analysis item "\${mainItemName}" and extract fields from THAT one only.
+- Model-family mapping rules (case-insensitive). Use BOTH the model code around the type-approval line and the Korean descriptor text to determine the correct certificate:
 
-CRITICAL INSTRUCTIONS:
-1. Date Format: Both 'inspectionDate' and 'validity' MUST be in YYYY-MM-DD format. Convert any other date format you find (e.g., YYYY.MM.DD or YYYY년 MM월 DD일) to this exact format.
-2. Type Approval Number Format: The 'typeApprovalNumber' must start with '제' and end with '호'. For example, if the certificate shows 'WTMS-CODmn-2022-2', you must return '제WTMS-CODmn-2022-2호'.
-3. Complete JSON: The final output must be a single, complete JSON object containing all the fields listed above. Do not omit any keys.
+  • 수질 (WTMS 계열):
+    - TN  → prefer model strings like "WTMS-TN"; Korean descriptor like "총질소 연속자동측정기와 그 부속기기".
+    - TP  → prefer "WTMS-TP"; Korean "총인 연속자동측정기와 그 부속기기".
+    - COD → prefer "WTMS-COD" (또는 유사 변형), Korean "화학적산소요구량 연속자동측정기와 그 부속기기".
+    - SS  → prefer "WTMS-SS"; Korean "부유물질 연속자동측정기와 그 부속기기".
+    - pH  → prefer "WTMS-pH"; Korean "수소이온농도 연속자동측정기와 그 부속기기".
+    - TN/TP(멀티) → prefer explicit MULTI variants: "WTMS-MULTI", "WTMS-multi", "MULTI", "multi", and Korean "총질소/총인 연속자동측정기와 그 부속기기".
+    - When the line shows choices like WTMS-"TN", WTMS-"TP", WTMS-"COD", choose the one EXACTLY matching \${mainItemName}.
 
-Respond ONLY with the JSON object. Do not include any other text, explanations, or markdown formatting.
+  • 먹는물 (DWMS 계열):
+    - TU(탁도)      → prefer "DWMS-TM" (또는 "DWMS-TU"); Korean "탁도 연속자동측정기와 그 부속기기".
+    - Cl(잔류염소)  → prefer "DWMS-Cl"; Korean "잔류염소 연속자동측정기와 그 부속기기".
+    - TU/CL(멀티)   → prefer explicit MULTI variants: "DWMS-MULTI", "DWMS-multi", "MULTI", "multi", and Korean "탁도/잔류염소 연속자동측정기와 그 부속기기".
+
+- Tie-breaking if more than one candidate still matches:
+  1) Prefer the correct family prefix (WTMS- for 수질, DWMS- for 먹는물).
+  2) If \${mainItemName} is a combined item (e.g., "TN/TP" or "TU/CL"), prefer a MULTI model over single-item models.
+  3) Prefer the most specific/longest matching model string among equals.
+
+FIELDS TO EXTRACT (ALL REQUIRED; USE "" IF MISSING):
+- productName: Product/model name (품명/모델명). Remove surrounding quotes, keep hyphens. Examples: "WTMS-TN", "WTMS-TP", "WTMS-MULTI", "DWMS-TM", "DWMS-Cl", "DWMS-MULTI".
+- manufacturer: 제작사.
+- serialNumber: 제작번호/기기번호.
+- typeApprovalNumber: 형식승인번호. MUST start with '제' and end with '호'. If the source shows only the core pattern like "WTMS-CODmn-2022-2", return "제WTMS-CODmn-2022-2호".
+- inspectionDate: 검사일자. MUST be formatted as YYYY-MM-DD. Convert from any of YYYY.MM.DD / YYYY년 MM월 DD일 / YY.MM.DD to YYYY-MM-DD. Example: "2025-01-01".
+- validity: 유효기간. MUST be formatted as YYYY-MM-DD (same conversion rule).
+- previousReceiptNumber: The main certificate ID often labeled '제...호'. Extract ONLY the core number (strip '제' prefix and '호' suffix). For example, from '제21-018279-02-77호' return '21-018279-02-77'.
+  Priority rule for choosing which number to extract:
+  1) The current year is \${currentYear}. Search first for numbers starting with two-digit year prefixes in this strict descending priority: '\${yearPrefixes}'.
+  2) If multiple matches exist (e.g., '30-' and '29-'), choose the highest-priority prefix (e.g., '30-').
+  3) If none match those prefixes, choose any valid main certificate number present.
+
+CRITICAL FORMATTING RULES:
+1) Dates: 'inspectionDate' and 'validity' MUST be 'YYYY-MM-DD' exactly.
+2) Type Approval: 'typeApprovalNumber' MUST start with '제' and end with '호'.
+3) Output Shape: Return a SINGLE JSON object with ALL keys above present (use "" if a value is not visible). No markdown, no additional text.
 `;
-        modelConfig = {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              productName: { type: Type.STRING, description: "품명 또는 모델명" },
-              manufacturer: { type: Type.STRING, description: "제작사" },
-              serialNumber: { type: Type.STRING, description: "제작번호 또는 기기번호" },
-              typeApprovalNumber: { type: Type.STRING, description: "The type approval number (형식승인번호). CRITICAL: Ensure the final value starts with '제' and ends with '호'." },
-              inspectionDate: { type: Type.STRING, description: "검사일자. CRITICAL: Format as YYYY-MM-DD." },
-              validity: { type: Type.STRING, description: "유효기간. CRITICAL: Format as YYYY-MM-DD." },
-              previousReceiptNumber: { type: Type.STRING, description: "직전 접수번호 (핵심 번호만)" },
-            },
-            required: ["productName", "manufacturer", "serialNumber", "typeApprovalNumber", "inspectionDate", "validity", "previousReceiptNumber"],
-          },
-        };
-        break;
+modelConfig = {
+  responseMimeType: "application/json",
+  responseSchema: {
+    type: Type.OBJECT,
+    properties: {
+      productName: { type: Type.STRING, description: "품명 또는 모델명" },
+      manufacturer: { type: Type.STRING, description: "제작사" },
+      serialNumber: { type: Type.STRING, description: "제작번호 또는 기기번호" },
+      typeApprovalNumber: { type: Type.STRING, description: "형식승인번호. MUST start with '제' and end with '호'." },
+      inspectionDate: { type: Type.STRING, description: "검사일자. MUST be YYYY-MM-DD." },
+      validity: { type: Type.STRING, description: "유효기간. MUST be YYYY-MM-DD." },
+      previousReceiptNumber: { type: Type.STRING, description: "직전 접수번호(핵심 번호만, '제'와 '호' 제외)" },
+    },
+    required: ["productName", "manufacturer", "serialNumber", "typeApprovalNumber", "inspectionDate", "validity", "previousReceiptNumber"],
+  },
+};
+;
 
       case "표시사항확인":
         autoComment = "표시사항";
