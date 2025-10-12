@@ -28,7 +28,7 @@ import { Spinner } from '../Spinner';
 import {
   generateA4CompositeJPEGPages,
   dataURLtoBlob,
-  generateStampedImage,fb
+  generateStampedImage,
   CompositeImageInput,
   compressImage,
 } from '../../services/imageStampingService';
