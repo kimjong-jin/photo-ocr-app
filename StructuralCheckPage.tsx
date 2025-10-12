@@ -541,7 +541,6 @@ OUTPUT FORMAT:
   {"제조회사":"", "기기형식":"", "형식승인번호":"", "형식승인일":"", "기기고유번호":""}
 - Do not include any explanations, extra text, or markdown.
 
-${itemSpecificHint}
 `.trim();
         modelConfig = {
           responseMimeType: "application/json",
