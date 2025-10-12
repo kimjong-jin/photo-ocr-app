@@ -444,10 +444,6 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
           const twoDigitYear = currentYear % 100;
           const yearPrefixes = Array.from({ length: 5 }, (_, i) => `${twoDigitYear - i}-`).join("', '");
 
-          const mainItemName =
-            MAIN_STRUCTURAL_ITEMS.find((i) => i.key === activeJob.mainItemKey)?.name ||
-            activeJob.mainItemKey;
-
           prompt = `
 You are a highly precise data extraction assistant specializing in official Korean '정도검사 증명서' (Certificate of Inspection).
 From the provided certificate image(s) for a "${mainItemName}" device, extract ALL fields below. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS. Respond ONLY with a single JSON object (no markdown, no extra text).
@@ -1018,7 +1014,7 @@ OUTPUT FORMAT:
     
     const currentMethodOptions = activeJob ? MEASUREMENT_METHOD_OPTIONS[activeJob.mainItemKey] : undefined;
     const currentRangeOptions = activeJob ? MEASUREMENT_RANGE_OPTIONS[activeJob.mainItemKey] : undefined;
-    const isFixedDateItem = activeJob?.mainItemKey === 'PH' || activeJob?.mainItemKey === 'TU' || activeJob?.mainItemKey === 'Cl';
+    const isFixedDateItem = ['pH', 'PH', 'TU', 'Cl'].includes(activeJob?.mainItemKey ?? '');
     
     const QuickAnalysisButton: React.FC<{ analysisType: AnalysisType }> = ({ analysisType }) => {
         const feedback = quickAnalysisFeedback?.targetItemName === analysisType ? quickAnalysisFeedback : null;
