@@ -70,10 +70,6 @@ export const callVllmApi = async (
     stream: false,
   };
 
-  if (config?.json_mode) {
-    payload.response_format = { type: "json_object" };
-  }
-
   // 🔒 타임아웃 가드 적용
   const response = await fetchWithTimeout(`${VLLM_BASE_URL}/chat/completions`, {
     method: "POST",
