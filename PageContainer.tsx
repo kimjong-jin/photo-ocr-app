@@ -553,7 +553,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         const newP3Jobs: DrinkingWaterJob[] = allSelections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
         if (newP3Jobs.length > 0) {
             setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
-            if (activePage === 'drinkingWater') setActivePhotoLogJobId(newP3Jobs[0]?.id || null);
+            if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
         }
     
         const newP4Jobs = allSelections.structuralCheck.map(itemName => {
