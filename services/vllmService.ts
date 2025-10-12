@@ -60,9 +60,24 @@ export const callVllmApi = async (
     const content = response.data.choices[0]?.message?.content || "";
 
     if (config?.json_mode) {
-      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})|(\[[\s\S]*\])/s);
-      if (jsonMatch) {
-          return jsonMatch[1] || jsonMatch[2] || jsonMatch[3];
+      // AI 응답에 JSON 외 텍스트가 포함된 경우를 대비한 파싱 로직 강화
+      const firstBracket = content.indexOf('[');
+      const firstBrace = content.indexOf('{');
+
+      let jsonStartIndex = -1;
+
+      // '[' 또는 '{' 가 처음 나타나는 위치를 찾음
+      if (firstBracket !== -1 && firstBrace !== -1) {
+        jsonStartIndex = Math.min(firstBracket, firstBrace);
+      } else if (firstBracket !== -1) {
+        jsonStartIndex = firstBracket;
+      } else {
+        jsonStartIndex = firstBrace;
+      }
+
+      // JSON 시작 부분을 찾았다면, 그 부분부터 문자열을 잘라 반환
+      if (jsonStartIndex !== -1) {
+        return content.substring(jsonStartIndex);
       }
     }
     return content;
