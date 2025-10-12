@@ -44,7 +44,7 @@ export const callVllmApi = async (
 ): Promise<string> => {
   const payload: VllmPayload = {
     model: MODEL,
-    messages, // base64 image_url 그대로 사용
+    messages,
     stream: false,
   };
 
@@ -54,7 +54,7 @@ export const callVllmApi = async (
 
   try {
     console.log("[vllmService] Request →", `${VLLM_BASE_URL}/chat/completions`);
-    console.log("[vllmService] Payload →", payload);
+    console.log("[vllmService] Payload →", JSON.stringify(payload, null, 2));
 
     const response = await fetch(`${VLLM_BASE_URL}/chat/completions`, {
       method: "POST",
@@ -75,14 +75,18 @@ export const callVllmApi = async (
     const data: VllmChatCompletionResponse = await response.json();
     const content = data.choices[0]?.message?.content || "";
 
+    console.log("[vllmService] Raw content →", content);
+
     if (config?.json_mode) {
       const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})/s);
-      if (jsonMatch) {
-        return jsonMatch[1] || jsonMatch[2];
+
+      const parsedContent = jsonMatch ? (jsonMatch[1] || jsonMatch[2]) : content;
+
+      if (!parsedContent || parsedContent.trim() === "") {
+        console.warn("[vllmService] ⚠️ 빈 응답 또는 유효하지 않은 JSON 문자열.");
       }
 
-      // ✅ fallback: 정규식 실패해도 content 그대로 반환
-      return content;
+      return parsedContent;
     }
 
     return content;
