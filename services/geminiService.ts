@@ -5,7 +5,7 @@ import {
   Part,
   GenerateContentParameters,
 } from "@google/genai";
-import { callVllmApi } from "./vllmService"; // ✅ vLLM 호출 유틸 가져오기
+import { callVllmApi } from "./vllmService";
 
 let aiClient: GoogleGenAI | null = null;
 
