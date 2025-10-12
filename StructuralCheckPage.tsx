@@ -501,38 +501,45 @@ Respond ONLY with the JSON object. Do not include any other text, explanations, 
 You are a highly precise data extraction assistant specializing in Korean equipment labels.
 
 TASK:
-From the provided image, identify and extract information from the '형식승인표' (Type Approval Label). 
-You must extract the following six fields accurately in a single step.
+From the provided image, identify and extract information from the '형식승인표' (Type Approval Label).
+You must extract the following five fields accurately in a single step.
 
-FIELDS TO EXTRACT:
+FIELDS TO EXTRACT (keys must be exactly these five, in Korean):
 - 제조회사 (Manufacturer)
 - 기기형식 (Model Type)
 - 형식승인번호 (Type Approval Number)
 - 형식승인일 (Type Approval Date)
 - 기기고유번호 (Serial Number / S/N)
 
-If a field is missing or unreadable, return an empty string "" as its value.  
+If a field is missing or unreadable, return an empty string "" as its value.
 Do not omit any key from the JSON structure.
 
 STRUCTURE DETAILS:
-- Each field name (e.g., 제조회사, 기기형식, 형식승인번호, 기기고유번호) appears next to or above its corresponding value.
-- Some fields (e.g., 제조회사, 기기형식, 형식승인번호, 기기고유번호) may span multiple lines due to small cell sizes. 
-  Combine all lines belonging to the same field into one string, separated by a space.
-- Ensure that each extracted value corresponds exactly to its labeled field.
+- Each field name (e.g., 제조회사, 기기형식, 형식승인번호, 형식승인일, 기기고유번호) appears next to or above its corresponding value.
+- Some fields may span multiple lines due to small cell sizes. Merge split lines into a single string separated by a single space.
+- Extract the value that is directly associated with the labeled field (nearest cell/line to the right or below the label).
 
 CRITICAL RULES:
-1. **Date Format:** Convert all detected dates into the YYYY-MM-DD format.  
-   (e.g., 2017.08.21 → 2017-08-21, or 2017년 8월 21일 → 2017-08-21)
-2. **Type Approval Number Format:** The '형식승인번호' must start with '제' and end with '호'.  
-   For example, if the label shows 'WTMS-TN-2017-4', return '제WTMS-TN-2017-4호'.
-3. **Table Recognition:** Always match each value to the field name located immediately to its left or above.
-4. **Multi-Line Handling:** Merge split text lines that belong to the same field (especially for manufacturer and model type).
-5. **Field Exclusivity:** Extract only the six fields listed above. Do not infer, predict, or include any other information.
+1) Date Format:
+   - Convert all detected dates to YYYY-MM-DD (zero-padded): e.g., 2017.8.1 → 2017-08-01, 2017년 8월 21일 → 2017-08-21.
+   - If only year-month is visible (e.g., 2017-08), return "" (do not guess the day).
+2) Type Approval Number Format:
+   - The value for '형식승인번호' must START with '제' and END with '호'.
+   - If the label shows a core ID like WTMS-TN-2017-4, return '제WTMS-TN-2017-4호'.
+   - Remove surrounding spaces; preserve internal hyphens and alphanumerics as-is.
+3) Label-Value Matching:
+   - Always match each value to the field name located immediately to its left or above.
+   - Do not reuse a single text fragment for multiple fields unless it is explicitly repeated on the label.
+4) Multi-Line Handling:
+   - Merge wrapped lines belonging to the same field into a single line with single spaces.
+   - Normalize consecutive spaces to a single space; trim leading/trailing spaces.
+5) Field Exclusivity:
+   - Extract ONLY the five fields listed above. Do not infer, predict, or include any other information.
 
 OUTPUT FORMAT:
-Return ONLY one complete JSON object containing all six fields.  
-Do not include any explanations, additional text, or markdown formatting.  
-Your final response must be a valid JSON object.
+- Return ONLY a single valid JSON object with exactly these keys:
+  {"제조회사":"", "기기형식":"", "형식승인번호":"", "형식승인일":"", "기기고유번호":""}
+- Do not include any explanations, extra text, or markdown.
 
 ${itemSpecificHint}
 `.trim();
