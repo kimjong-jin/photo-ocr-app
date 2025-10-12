@@ -1,4 +1,3 @@
-// vllmService.ts
 const VLLM_BASE_URL = "https://mobile.ktl.re.kr/genai/v1";
 const API_KEY = "EMPTY";
 const MODEL = "/root/.cache/huggingface/Qwen72B-AWQ";
@@ -6,7 +5,7 @@ const MODEL = "/root/.cache/huggingface/Qwen72B-AWQ";
 interface VllmChatCompletionResponse {
   choices: {
     message: {
-      content: string | any[]; // 문자열/멀티모달 배열 모두 대비
+      content: string | any[]; // 문자열/멀티모달 배열 대비
     };
   }[];
 }
@@ -29,23 +28,7 @@ interface VllmPayload {
   response_format?: { type: "json_object" };
 }
 
-/** 총 타임아웃 가드(기본 5분) */
-type TimeoutOpts = { totalMs?: number };
-async function fetchWithTimeout(
-  input: RequestInfo | URL,
-  init?: RequestInit & TimeoutOpts
-) {
-  const totalMs = init?.totalMs ?? 300000; // 5분
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort("total-timeout"), totalMs);
-  try {
-    return await fetch(input, { ...init, signal: ctrl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** (옵션) content가 배열로 올 때 텍스트만 안전 추출 */
+/** 멀티모달 배열일 경우 텍스트만 추출(방어적) */
 function normalizeVllmContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -64,17 +47,6 @@ function normalizeVllmContent(content: unknown): string {
   return "";
 }
 
-/** 응답 본문에서 가장 바깥 JSON 배열만 추출 */
-function extractJsonArray(text: string): string | null {
-  if (!text) return null;
-  const first = text.indexOf("[");
-  const last = text.lastIndexOf("]");
-  if (first !== -1 && last !== -1 && last > first) {
-    return text.slice(first, last + 1);
-  }
-  return null;
-}
-
 export const callVllmApi = async (
   messages: VllmMessage[],
   config?: { json_mode?: boolean }
@@ -83,22 +55,16 @@ export const callVllmApi = async (
     model: MODEL,
     messages,
     stream: false,
+    ...(config?.json_mode ? { response_format: { type: "json_object" } } : {}),
   };
 
-  // vLLM(OpenAI 호환) 서버가 지원하면 JSON 모드 힌트 제공
-  if (config?.json_mode) {
-    payload.response_format = { type: "json_object" };
-  }
-
-  // 🔒 타임아웃 가드 적용
-  const response = await fetchWithTimeout(`${VLLM_BASE_URL}/chat/completions`, {
+  const response = await fetch(`${VLLM_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${API_KEY}`,
     },
     body: JSON.stringify(payload),
-    totalMs: 300000, // 필요 시 조정
   });
 
   if (!response.ok) {
@@ -108,14 +74,21 @@ export const callVllmApi = async (
 
   const data: VllmChatCompletionResponse = await response.json();
   const raw = data.choices?.[0]?.message?.content;
-  const content = normalizeVllmContent(raw) || "";
 
-  // JSON 모드일 때: 코드펜스 제거 + 배열만 강제 추출
-  if (config?.json_mode) {
-    const fenced = content.match(/```json\s*([\s\S]*?)\s*```/s)?.[1] ?? null;
-    const picked = extractJsonArray(fenced ?? content);
-    if (picked) return picked;
+  // 멀티모달 배열이 오면 텍스트만 모아봄
+  const content = normalizeVllmContent(raw);
+
+  if (!content || !content.trim()) {
+    throw new Error("vLLM 응답이 비어 있습니다.");
   }
 
-  return content;
+  if (config?.json_mode) {
+    // ```json 블록 또는 순수 JSON 둘 다 허용
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```|(^\s*[\[{][\s\S]*$)/m);
+    if (jsonMatch) {
+      return (jsonMatch[1] || jsonMatch[2] || content).trim();
+    }
+  }
+
+  return content.trim();
 };
