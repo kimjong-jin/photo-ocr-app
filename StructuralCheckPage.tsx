@@ -438,15 +438,14 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     const mainItemName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey;
     
     switch (itemNameForAnalysis) {
-        case "정도검사 증명서": {
-          autoComment = "정도검사 증명서";
-          const currentYear = new Date().getFullYear();
-          const twoDigitYear = currentYear % 100;
-          const yearPrefixes = Array.from({ length: 5 }, (_, i) => `${twoDigitYear - i}-`).join("', '");
+      case "정도검사 증명서":
+        autoComment = "정도검사 증명서";
+        const currentYear = new Date().getFullYear();
+        const twoDigitYear = currentYear % 100;
+        const yearPrefixes = Array.from({ length: 5 }, (_, i) => `${twoDigitYear - i}-`).join("', '");
 
-          prompt = `
-You are a highly precise data extraction assistant specializing in official Korean '정도검사 증명서' (Certificate of Inspection).
-From the provided certificate image(s) for a "${mainItemName}" device, extract ALL fields below. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS. Respond ONLY with a single JSON object (no markdown, no extra text).
+        prompt = `
+You are a highly precise data extraction assistant specializing in official Korean '정도검사 증명서' (Certificate of Inspection). From the provided certificate image(s) for a "${mainItemName}" device, extract ALL fields below. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS. Respond ONLY with a single JSON object (no markdown, no extra text). 
 
 MULTI-IMAGE / RIGHT-CERT SELECTION (CRITICAL):
 - If multiple certificate images are provided, you MUST select the single certificate that matches the requested analysis item "${mainItemName}" and extract fields from THAT one only.
@@ -455,23 +454,21 @@ CERT MATCHING RULES (MODEL CODE MAY BE MISSING):
 - Use BOTH any model code near the type-approval line and the **Korean descriptor** sentence (예: "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기", "총질소 연속자동측정기와 그 부속기기").
 - If the WTMS-/DWMS- prefix is missing or blurred, rely on the **Korean descriptor**.
 - **COMBO ⇒ MULTI (강제 규칙):** 대상이 복합 항목이면(예: "${mainItemName}"가 "TN/TP" 또는 "TU/CL" 계열이거나, 한글 서술문에 슬래시 조합이 보이면) 해당 증명서는 **MULTI**로 간주한다.
-  - 수질: productName은 "WTMS-MULTI" (접두어 불명확하면 "MULTI")
-  - 먹는물: productName은 "DWMS-MULTI" (접두어 불명확하면 "MULTI")
+- 수질: productName은 "WTMS-MULTI" (접두어 불명확하면 "MULTI")
+- 먹는물: productName은 "DWMS-MULTI" (접두어 불명확하면 "MULTI")
 
 Descriptor-to-item mapping (case-insensitive, space-insensitive; **한글 서술문이 핵심**):
 • 수질:
-  - TN:  descriptor contains "총질소 연속자동측정기와 그 부속기기"
-  - TP:  descriptor contains "총인 연속자동측정기와 그 부속기기"
+  - TN: descriptor contains "총질소 연속자동측정기와 그 부속기기"
+  - TP: descriptor contains "총인 연속자동측정기와 그 부속기기"
   - COD: descriptor contains "화학적산소요구량 연속자동측정기와 그 부속기기"
-  - SS:  descriptor contains "부유물질 연속자동측정기와 그 부속기기"
-  - pH:  descriptor contains "수소이온농도 연속자동측정기와 그 부속기기"
+  - SS: descriptor contains "부유물질 연속자동측정기와 그 부속기기"
+  - pH: descriptor contains "수소이온농도 연속자동측정기와 그 부속기기"
   - TN/TP(MULTI): descriptor contains "총질소/총인 연속자동측정기와 그 부속기기" → **MULTI**
 
 • 먹는물 — **TM/CM 코드 힌트 포함**:
-  - 탁도(TU):     descriptor contains "탁도 연속자동측정기와 그 부속기기"
-    * Code cues: "DWMS-TM" 또는 "-TM" 패턴 → 탁도로 해석
-  - 잔류염소(Cl):  descriptor contains "잔류염소 연속자동측정기와 그 부속기기"
-    * Code cues: "DWMS-CM" 또는 "-CM-" 패턴 → 잔류염소로 해석
+  - 탁도(TU): descriptor contains "탁도 연속자동측정기와 그 부속기기" * Code cues: "DWMS-TM" 또는 "-TM" 패턴 → 탁도로 해석
+  - 잔류염소(Cl): descriptor contains "잔류염소 연속자동측정기와 그 부속기기" * Code cues: "DWMS-CM" 또는 "-CM-" 패턴 → 잔류염소로 해석
   - TU/CL(MULTI): descriptor contains "탁도/잔류염소 연속자동측정기와 그 부속기기" → **MULTI**
   - **Conflict rule:** 코드(TM/CM)와 서술문이 충돌하면 **서술문(한글 descriptor)을 우선**한다.
 
@@ -486,13 +483,6 @@ Tie-breaking (apply in order):
 3) (접두어가 보일 때만) WTMS(수질)/DWMS(먹는물) 우선.
 4) 동률이면 가장 구체/긴 모델 문자열.
 
-LATEST-CERT SELECTION USING TODAY (${todayISO}):
-- When two or more certificates match "${mainItemName}", select the **latest** one by the following strict priority:
-  1) **previousReceiptNumber 연도 접두어 우선**: Parse two-digit year prefixes (e.g., "25-", "24-", "23-"). Use ${currentYear} to build the priority list **'${yearPrefixes}'** from newest to oldest. Choose the certificate with the **highest-priority** prefix.
-  2) **동일 접두어 타이브레이커**: If multiple candidates share the same prefix (e.g., all "23-"), pick the **lexicographically largest** full number including hyphens (string comparison).
-  3) **영수번호 부재 시 대체**: If a valid '제..호' number is not visible on candidates, choose the one with the **most recent inspectionDate** (최근일자) **≤ ${todayISO}**. If dates tie, pick the one with the more complete field set.
-- After selection, **extract ONLY from the chosen certificate**; never mix values across images.
-
 FIELDS TO EXTRACT (ALL REQUIRED; USE "" IF MISSING):
 - productName: **한글 ‘품명’ 서술문을 우선 추출** (예: "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기", "총질소/총인 연속자동측정기와 그 부속기기").
   - 서술문이 보이지 않을 때만 모델코드(예: "DWMS-TM", "DWMS-CM", "WTMS-TN", "WTMS-MULTI") 또는 접두어 불명확 시 "MULTI"로 대체.
@@ -504,17 +494,21 @@ FIELDS TO EXTRACT (ALL REQUIRED; USE "" IF MISSING):
   * **먹는물 코드 규칙:** "-CM-" 포함 → 잔류염소(Cl), "-TM-" 또는 "-TU-" 포함 → 탁도(TU).
 - inspectionDate: 검사일자. MUST be formatted as YYYY-MM-DD. Convert from any of YYYY.MM.DD / YYYY년 MM월 DD일 / YY.MM.DD to YYYY-MM-DD.
 - validity: 유효기간. MUST be formatted as YYYY-MM-DD (same conversion rule).
-- previousReceiptNumber: The main certificate ID often labeled '제...호'. Extract ONLY the core number (strip '제' prefix and '호' suffix).
-  Example: from '제21-018279-02-77호' return '21-018279-02-77'.
+- previousReceiptNumber: The main certificate ID often labeled '제...호'. Extract ONLY the core number (strip '제' prefix and '호' suffix). Example: from '제21-018279-02-77호' return '21-018279-02-77'.
+Priority when multiple '제..호' exist:
+1) The current year is ${currentYear}. Search first for numbers starting with two-digit year prefixes in this strict descending priority: '${yearPrefixes}'.
+2) If multiple matches exist (e.g., '30-' and '29-'), choose the highest-priority prefix (e.g., '30-').
+3) If none match those prefixes, choose any valid main certificate number present.
 
 CRITICAL FORMATTING RULES:
 1) Dates: 'inspectionDate' and 'validity' MUST be 'YYYY-MM-DD' exactly (zero-padded).
 2) Type Approval: 'typeApprovalNumber' MUST start with '제' and end with '호' (add them if missing).
 3) Output Shape: Return a SINGLE JSON object with ALL keys above present (use "" if a value is not visible). No markdown, no additional text.
 
-`.trim();
+.trim();
 
-		modelConfig = {
+`;
+        modelConfig = {
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -522,25 +516,16 @@ CRITICAL FORMATTING RULES:
               productName: { type: Type.STRING, description: "품명 또는 모델명" },
               manufacturer: { type: Type.STRING, description: "제작사" },
               serialNumber: { type: Type.STRING, description: "제작번호 또는 기기번호" },
-              typeApprovalNumber: { type: Type.STRING, description: "형식승인번호. MUST start with '제' and end with '호'." },
-              inspectionDate: { type: Type.STRING, description: "검사일자. MUST be YYYY-MM-DD." },
-              validity: { type: Type.STRING, description: "유효기간. MUST be YYYY-MM-DD." },
-              previousReceiptNumber: { type: Type.STRING, description: "직전 접수번호(핵심 번호만, '제'와 '호' 제외)" },
+              typeApprovalNumber: { type: Type.STRING, description: "The type approval number (형식승인번호). CRITICAL: Ensure the final value starts with '제' and ends with '호'." },
+              inspectionDate: { type: Type.STRING, description: "검사일자. CRITICAL: Format as YYYY-MM-DD." },
+              validity: { type: Type.STRING, description: "유효기간. CRITICAL: Format as YYYY-MM-DD." },
+              previousReceiptNumber: { type: Type.STRING, description: "직전 접수번호 (핵심 번호만)" },
             },
-            required: [
-              "productName",
-              "manufacturer",
-              "serialNumber",
-              "typeApprovalNumber",
-              "inspectionDate",
-              "validity",
-              "previousReceiptNumber",
-            ],
+            required: ["productName", "manufacturer", "serialNumber", "typeApprovalNumber", "inspectionDate", "validity", "previousReceiptNumber"],
           },
         };
-       break;
-      }
-        
+        break;
+
       case "표시사항확인":
         autoComment = "표시사항";
         let itemSpecificHint = '';
@@ -633,8 +618,8 @@ OUTPUT FORMAT:
 - Do not include any explanations, extra text, or markdown.
 
 `.trim();
-        
-    modelConfig = {
+
+        modelConfig = {
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -1014,7 +999,7 @@ OUTPUT FORMAT:
     
     const currentMethodOptions = activeJob ? MEASUREMENT_METHOD_OPTIONS[activeJob.mainItemKey] : undefined;
     const currentRangeOptions = activeJob ? MEASUREMENT_RANGE_OPTIONS[activeJob.mainItemKey] : undefined;
-    const isFixedDateItem = ['pH', 'PH', 'TU', 'Cl'].includes(activeJob?.mainItemKey ?? '');
+    const isFixedDateItem = activeJob?.mainItemKey === 'PH' || activeJob?.mainItemKey === 'TU' || activeJob?.mainItemKey === 'Cl';
     
     const QuickAnalysisButton: React.FC<{ analysisType: AnalysisType }> = ({ analysisType }) => {
         const feedback = quickAnalysisFeedback?.targetItemName === analysisType ? quickAnalysisFeedback : null;
