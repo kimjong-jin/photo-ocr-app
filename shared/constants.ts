@@ -1,11 +1,11 @@
-
 // shared/constants.ts
 export const TN_IDENTIFIERS = [
   "M1", "M2", "M3", "Z1", "Z2", "S1", "S2", "Z3", "Z4", "S3", "S4", 
   "Z5", "S5", "Z6", "S6", "Z7", "S7", "현장1", "현장2"
 ];
 
-export const P2_SINGLE_ITEM_IDENTIFIERS = ["현장1", "현장2"];
+// P3(현장 계수) 전용 허용 식별자
+export const P3_SINGLE_ITEM_IDENTIFIERS = ["현장1", "현장2"];
 
 export const TP_IDENTIFIERS = [
   "M1P", "M2P", "M3P", "Z1P", "Z2P", "S1P", "S2P", "Z3P", "Z4P", 
@@ -47,6 +47,6 @@ export const DRINKING_WATER_IDENTIFIERS = [
   "드리프트 완료", "Z5", "S5", "반복성 완료", "M", "응답"
 ];
 
-// ✅ P2(현장계수) 페이지는 '현장' 관련 식별자만 사용하도록 제한
-export const P2_TN_IDENTIFIERS = ["현장1", "현장2"];
-export const P2_TP_IDENTIFIERS = ["현장1P", "현장2P"];
+// ✅ P3(현장계수) 페이지는 '현장' 관련 식별자만 사용하도록 제한
+export const P3_TN_IDENTIFIERS = ["현장1", "현장2"];
+export const P3_TP_IDENTIFIERS = ["현장1P", "현장2P"];
