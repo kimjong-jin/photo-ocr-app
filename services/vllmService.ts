@@ -1,28 +1,20 @@
 // vllmService.ts
 const VLLM_BASE_URL = "https://mobile.ktl.re.kr/genai/v1";
 const API_KEY = "EMPTY";
-// ⚠️ 실제 서버의 '비전 지원' 모델로 맞춰라 (예: Qwen2-VL / LLaVA / InternVL 등)
-const MODEL = "/root/.cache/huggingface/Qwen2-VL-7B-Instruct";
+const MODEL = "/root/.cache/huggingface/Qwen72B-AWQ";
 
 interface VllmChatCompletionResponse {
-  choices: {
-    message: {
-      content: string | any[];
-    };
-  }[];
+  choices: { message: { content: string | any[] } }[];
 }
-
 interface VllmContentPart {
   type: "text" | "image_url";
   text?: string;
   image_url?: { url: string };
 }
-
 export interface VllmMessage {
   role: "user";
   content: string | VllmContentPart[];
 }
-
 interface VllmPayload {
   model: string;
   messages: VllmMessage[];
@@ -30,19 +22,22 @@ interface VllmPayload {
   response_format?: { type: "json_object" };
 }
 
-type TimeoutOpts = { totalMs?: number };
-async function fetchWithTimeout(
-  input: RequestInfo | URL,
-  init?: RequestInit & TimeoutOpts
-) {
-  const totalMs = init?.totalMs ?? 300000; // 5분
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort("total-timeout"), totalMs);
-  try {
-    return await fetch(input, { ...init, signal: ctrl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+// ---- 공통 대기/재시도 ----
+const TOTAL_TIMEOUT_MS = 900_000; // 15분 (진짜 오래 대기)
+const MAX_RETRIES = 5;
+const INITIAL_DELAY_MS = 2_000;
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+async function fetchWithLongWait(input: RequestInfo | URL, init?: RequestInit) {
+  // AbortController로 끊지 않음. (프록시 read-timeout만 안 넘으면 계속 대기)
+  return fetch(input, {
+    ...init,
+    mode: "cors",
+    cache: "no-store",
+    keepalive: true,
+    credentials: "omit",
+  });
 }
 
 function normalizeVllmContent(content: unknown): string {
@@ -50,86 +45,82 @@ function normalizeVllmContent(content: unknown): string {
   if (Array.isArray(content)) {
     try {
       return content
-        .map((p: any) => {
-          if (typeof p === "string") return p;
-          if (p && typeof p === "object" && p.type === "text" && typeof p.text === "string") return p.text;
-          return "";
-        })
+        .map((p: any) => (typeof p === "string" ? p : (p?.type === "text" ? p.text ?? "" : "")))
         .join("");
-    } catch {
-      return "";
-    }
+    } catch { return ""; }
   }
   return "";
-}
-
-function hasImageInput(messages: VllmMessage[]) {
-  return messages.some(
-    (m) => Array.isArray(m.content) && m.content.some((p) => (p as any)?.type === "image_url")
-  );
-}
-function looksLikeTextOnlyModel(name: string) {
-  const l = name.toLowerCase();
-  // 간단한 휴리스틱(서버 모델명에 맞게 보정해도 됨)
-  return !["-vl", "vision", "llava", "internvl", "phi-3-vision"].some((k) => l.includes(k));
 }
 
 export const callVllmApi = async (
   messages: VllmMessage[],
   config?: { json_mode?: boolean }
 ): Promise<string> => {
-  // 이미지 들어왔는데 텍스트 전용 모델이면 즉시 에러
-  if (hasImageInput(messages) && looksLikeTextOnlyModel(MODEL)) {
-    throw new Error("vLLM 모델이 이미지 입력을 지원하지 않습니다. (비전 모델로 교체 필요)");
-  }
+  const startedAt = Date.now();
 
   const payload: VllmPayload = {
     model: MODEL,
     messages,
     stream: false,
   };
+  if (config?.json_mode) payload.response_format = { type: "json_object" };
 
-  // ✅ JSON 강제 (OpenAI 호환 vLLM에서 지원하는 경우에 한해)
-  if (config?.json_mode) {
-    payload.response_format = { type: "json_object" };
+  let attempt = 0;
+  let lastErr: any;
+
+  while (attempt <= MAX_RETRIES) {
+    try {
+      const res = await fetchWithLongWait(`${VLLM_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${API_KEY}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`vLLM ${res.status} ${res.statusText} - ${t}`);
+      }
+
+      const data: VllmChatCompletionResponse = await res.json();
+      const raw = data.choices?.[0]?.message?.content;
+      const content = normalizeVllmContent(raw) || "";
+
+      if (config?.json_mode) {
+        const m = content.match(/```json\s*([\s\S]*?)\s*```|(\[[\s\S]*\]|\{[\s\S]*\})/s);
+        if (m) return m[1] || m[2];
+      }
+      return content;
+    } catch (err: any) {
+      lastErr = err;
+
+      // 총 대기 시간 가드 (서버가 오래 걸리는 케이스 고려)
+      if (Date.now() - startedAt > TOTAL_TIMEOUT_MS) {
+        break;
+      }
+
+      // 네트워크/일시적 오류만 재시도 (TypeError/Fetch failed/게이트웨이 등)
+      const msg = String(err?.message || err);
+      const retryable =
+        msg.includes("Failed to fetch") ||
+        msg.includes("NetworkError") ||
+        msg.includes("fetch") ||
+        msg.includes("timeout") ||
+        msg.includes("504") ||
+        msg.includes("502") ||
+        msg.includes("temporarily") ||
+        msg.includes("ECONN") ||
+        msg.includes("EAI_AGAIN");
+
+      if (!retryable || attempt === MAX_RETRIES) break;
+
+      const delay = INITIAL_DELAY_MS * Math.pow(2, attempt);
+      await sleep(delay);
+      attempt++;
+    }
   }
 
-  let response: Response;
-  try {
-    response = await fetchWithTimeout(`${VLLM_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify(payload),
-      totalMs: 300000,
-    });
-  } catch (e: any) {
-    if (e?.name === "AbortError") throw new Error("vLLM 요청 총 타임아웃(클라이언트에서 중단)");
-    throw e;
-  }
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`vLLM API Error: ${response.status} ${response.statusText} - ${errorText}`);
-  }
-
-  const data: VllmChatCompletionResponse = await response.json();
-  const raw = data.choices?.[0]?.message?.content;
-  const content = normalizeVllmContent(raw) || "";
-
-  // ✅ 모델이 마크다운/설명을 섞어도 JSON만 뽑아보기
-  if (config?.json_mode) {
-    // 우선 ```json ... ``` 블록
-    let m = content.match(/```json\s*([\s\S]*?)\s*```/i);
-    if (m?.[1]) return m[1].trim();
-
-    // 그 다음 배열/객체 루트만 추출
-    m = content.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
-    if (m?.[1]) return m[1].trim();
-  }
-
-  return content;
+  throw new Error(lastErr?.message || "vLLM 호출 실패");
 };
