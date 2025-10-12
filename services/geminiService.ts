@@ -25,7 +25,7 @@ const getGenAIClient = (): GoogleGenAI => {
   return aiClient;
 };
 
-const DEFAULT_TIMEOUT_MS = 20_000; // 요청 타임아웃 (20초)
+const DEFAULT_TIMEOUT_MS = 300_000; // 요청 타임아웃 (20초)
 const MAX_RETRIES = 3; // 최대 재시도 횟수
 const INITIAL_DELAY_MS = 1_000; // 백오프 시작 지연 (1초)
 
