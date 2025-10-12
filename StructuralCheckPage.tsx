@@ -519,7 +519,8 @@ CRITICAL FORMATTING RULES:
             },
           };
           break;
-
+          }
+        
       case "표시사항확인":
         autoComment = "표시사항";
         let itemSpecificHint = '';
