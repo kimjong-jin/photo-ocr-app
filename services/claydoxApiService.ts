@@ -1,9 +1,8 @@
-
 //claydoxApiService.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
 // FIX: The ExtractedEntry type should be imported from the shared types definition file.
 import type { ExtractedEntry } from '../shared/types';
-import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, ANALYSIS_ITEM_GROUPS } from '../shared/constants';
+import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, ANALYSIS_ITEM_GROUPS, P3_TN_IDENTIFIERS, P3_TP_IDENTIFIERS } from '../shared/constants';
 import {
   MainStructuralItemKey,
   ChecklistStatus,
@@ -229,7 +228,27 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
           }
         }
       }
-    } else { // P1, P2
+    } else if (payload.pageType === 'FieldCount') { // ✅ P3(현장 계수)만 제한
+      if (entry.identifier
+          && P3_TN_IDENTIFIERS.includes(entry.identifier)
+          && typeof entry.value === 'string'
+          && entry.value.trim()) {
+        const valueToUse = entry.value.match(/-?\d+(\.\d+)?/)?.[0] || null;
+        if (valueToUse !== null) {
+          labviewItemObject[getNextKtlIdentifier(entry.identifier)] = valueToUse;
+        }
+      }
+      if (payload.item === 'TN/TP'
+          && entry.identifierTP
+          && P3_TP_IDENTIFIERS.includes(entry.identifierTP)
+          && typeof entry.valueTP === 'string'
+          && entry.valueTP.trim()) {
+        const valueTPToUse = entry.valueTP.match(/-?\d+(\.\d+)?/)?.[0] || null;
+        if (valueTPToUse !== null) {
+          labviewItemObject[getNextKtlIdentifier(entry.identifierTP)] = valueTPToUse;
+        }
+      }
+    } else { // ✅ P2(수질 분석=PhotoLog) - 제한 없음
       if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
         const valueToUse = entry.value.match(/-?\d+(\.\d+)?/)?.[0] || null;
         if (valueToUse !== null) {
@@ -308,11 +327,12 @@ export const sendToClaydoxApi = async (
     formData.append('files', file, file.name);
   });
 
-  let pageIdentifier = 'Page 2';
+  // P2/P3/P4 라벨로 통일
+  let pageIdentifier = 'P2 수질 분석';
   if (payload.pageType === 'FieldCount') {
-    pageIdentifier = 'Page 3';
+    pageIdentifier = 'P3 현장 계수';
   } else if (payload.pageType === 'DrinkingWater') {
-    pageIdentifier = 'Page 4';
+    pageIdentifier = 'P4 먹는물 분석';
   }
 
   const logIdentifier = `[ClaydoxAPI - ${pageIdentifier}]`;
@@ -382,7 +402,7 @@ export const sendToClaydoxApi = async (
 
 // --- END: Page 1 (Photo Log / OCR Data) Functionality ---
 
-// --- START: Page 4 (Structural Check) Functionality ---
+// --- START: P1 (구조 확인) Functionality ---
 
 interface StructuralCheckPayloadForKtl {
   receiptNumber: string;
@@ -712,14 +732,14 @@ export const sendSingleStructuralCheckToKtlApi = async (
   let zipFileNameOnServer: string | undefined;
 
   // 1. Add checklist image (Do not compress this)
-  onProgress('(1/4) 체크리스트 이미지 준비 중...');
+  onProgress('(1/4) [P1 구조 확인] 체크리스트 이미지 준비 중...');
   const checklistBlob = dataURLtoBlob(`data:${checklistImage.mimeType};base64,${checklistImage.base64}`);
   filesToUpload.push(new File([checklistBlob], checklistImage.file.name, { type: checklistImage.mimeType }));
 
   // 2. Process photos if they exist
   if (job.photos && job.photos.length > 0) {
     // 2a. Create composite image and compress it
-    onProgress('(2/4) 참고사진 종합 이미지 생성 중...');
+    onProgress('(2/4) [P1 구조 확인] 참고사진 종합 이미지 생성 중...');
     try {
       const imageSourcesForComposite: CompositeImageInput[] = job.photos.map(p => ({
         base64: p.base64,
@@ -737,7 +757,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
     }
 
     // 2b. Create ZIP file with compressed stamped images
-    onProgress('(3/4) 참고사진 ZIP 파일 생성 중...');
+    onProgress('(3/4) [P1 구조 확인] 참고사진 ZIP 파일 생성 중...');
     try {
       const zip = new JSZip();
       for (const photo of job.photos) {
@@ -756,14 +776,14 @@ export const sendSingleStructuralCheckToKtlApi = async (
   }
 
   // 3. Upload all files
-  onProgress('(4/4) KTL 서버로 파일 업로드 중...');
+  onProgress('(4/4) [P1 구조 확인] KTL 서버로 파일 업로드 중...');
   if (filesToUpload.length > 0) {
     const formData = new FormData();
     filesToUpload.forEach(file => formData.append('files', file, file.name));
     try {
       await retryKtlApiCall(
         () => axios.post(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, { timeout: KTL_API_TIMEOUT }),
-        2, 2000, 'Page 1 Single Upload'
+        2, 2000, 'P1 Single Upload'
       );
     } catch (e: any) {
       throw new Error(`파일 업로드 실패: ${e.message}`);
@@ -771,7 +791,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
   }
 
   // 4. Construct and send JSON
-  onProgress('KTL 서버로 JSON 데이터 전송 중...');
+  onProgress('[P1 구조 확인] KTL 서버로 JSON 데이터 전송 중...');
   const payload: StructuralCheckPayloadForKtl = {
     receiptNumber: job.receiptNumber,
     siteName: siteNameGlobal,
@@ -817,7 +837,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
   try {
     const jsonResponse = await retryKtlApiCall(
       () => axios.post(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, { timeout: KTL_API_TIMEOUT }),
-      2, 2000, 'Page 1 Single JSON Send'
+      2, 2000, 'P1 Single JSON Send'
     );
     return { success: true, message: jsonResponse.data?.message || '데이터 전송 완료' };
   } catch (e: any) {
@@ -898,7 +918,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
         filesToUploadDirectly.push(compositeFile);
         receiptToCompositeFileNameMap.set(receiptNo, compositeFileNameOnServer);
       } catch (compositeGenError: any) {
-        console.error(`[ClaydoxAPI - Page 1] Error generating composite image for ${receiptNo}:`, compositeGenError);
+        console.error(`[ClaydoxAPI - P1] Error generating composite image for ${receiptNo}:`, compositeGenError);
         jobs
           .filter((j) => j.receiptNumber === receiptNo)
           .forEach((job) => {
@@ -937,7 +957,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
           const stampedBlob = dataURLtoBlob(compressedUrl);
           zip.file(jpegName, stampedBlob);
         } catch (zipError: any) {
-          console.error(`[ClaydoxAPI - Page 1] Error adding stamped photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
+          console.error(`[ClaydoxAPI - P1] Error adding stamped photo ${photo.file.name} to ZIP for ${receiptNo}:`, zipError);
         }
       }
       if (Object.keys(zip.files).length > 0) {
@@ -948,7 +968,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
           filesToUploadDirectly.push(zipFile);
           receiptToZipFileNameMap.set(receiptNo, zipFileNameOnServer);
         } catch (zipGenError: any) {
-          console.error(`[ClaydoxAPI - Page 1] Error generating ZIP file for ${receiptNo}:`, zipGenError);
+          console.error(`[ClaydoxAPI - P1] Error generating ZIP file for ${receiptNo}:`, zipGenError);
           jobs
             .filter((j) => j.receiptNumber === receiptNo)
             .forEach((job) => {
@@ -998,7 +1018,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
     if (relatedJobStrict) {
       relatedJobStrict.checklistImageFileName = chkImgInfo.file.name;
     } else {
-      console.warn(`[ClaydoxAPI - Page 1] Could not find related job for checklist image: ${chkImgInfo.file.name}`);
+      console.warn(`[ClaydoxAPI - P1] Could not find related job for checklist image: ${chkImgInfo.file.name}`);
     }
   });
 
@@ -1008,7 +1028,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       formDataForAllUploads.append('files', file, file.name);
     });
     try {
-      console.log('[ClaydoxAPI - Page 1] Uploading files directly to KTL /uploadfiles (batched):', filesToUploadDirectly.map((f) => f.name));
+      console.log('[ClaydoxAPI - P1] Uploading files directly to KTL /uploadfiles (batched):', filesToUploadDirectly.map((f) => f.name));
       const batchSize = 3;
       for (let i = 0; i < filesToUploadDirectly.length; i += batchSize) {
         const slice = filesToUploadDirectly.slice(i, i + batchSize);
@@ -1024,12 +1044,12 @@ export const sendBatchStructuralChecksToKtlApi = async (
             }),
           2,
           2000,
-          `Page 1 Upload batch ${Math.floor(i / batchSize) + 1}`
+          `P1 Upload batch ${Math.floor(i / batchSize) + 1}`
         );
       }
-      console.log('[ClaydoxAPI - Page 1] All file batches for Page 1 uploaded successfully to KTL /uploadfiles.');
+      console.log('[ClaydoxAPI - P1] All file batches for P1 uploaded successfully to KTL /uploadfiles.');
     } catch (filesUploadError: any) {
-      console.error('[ClaydoxAPI - Page 1] Files upload to KTL /uploadfiles failed:', filesUploadError);
+      console.error('[ClaydoxAPI - P1] Files upload to KTL /uploadfiles failed:', filesUploadError);
       jobs.forEach((job) => {
         if (!results.find((r) => r.receiptNo === job.receiptNumber && (MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey) === r.mainItem)) {
           results.push({
@@ -1099,7 +1119,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
     };
 
     try {
-      console.log(`[ClaydoxAPI - Page 1] Sending final JSON for ${receiptNo} to KTL /env:`, finalKtlJsonObject);
+      console.log(`[ClaydoxAPI - P1] Sending final JSON for ${receiptNo} to KTL /env:`, finalKtlJsonObject);
       const jsonResponse = await retryKtlApiCall<KtlApiResponseData>(
         () =>
           axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, {
@@ -1111,9 +1131,9 @@ export const sendBatchStructuralChecksToKtlApi = async (
           }),
         2,
         2000,
-        `Page 1 JSON Send for ${receiptNo}`
+        `P1 JSON Send for ${receiptNo}`
       );
-      console.log(`[ClaydoxAPI - Page 1] JSON for ${receiptNo} sent successfully. Response:`, jsonResponse.data);
+      console.log(`[ClaydoxAPI - P1] JSON for ${receiptNo} sent successfully. Response:`, jsonResponse.data);
       currentGroupOfJobs.forEach((jobPayload) => {
         results.push({
           receiptNo: jobPayload.receiptNumber,
@@ -1123,7 +1143,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
         });
       });
     } catch (jsonSendError: any) {
-      console.error(`[ClaydoxAPI - Page 1] JSON send for ${receiptNo} failed:`, jsonSendError);
+      console.error(`[ClaydoxAPI - P1] JSON send for ${receiptNo} failed:`, jsonSendError);
       currentGroupOfJobs.forEach((jobPayload) => {
         results.push({
           receiptNo: jobPayload.receiptNumber,
