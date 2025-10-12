@@ -40,10 +40,6 @@ export const callVllmApi = async (
     stream: false,
   };
 
-  if (config?.json_mode) {
-    payload.response_format = { type: "json_object" };
-  }
-
   try {
     const response = await axios.post<VllmChatCompletionResponse>(
         `${VLLM_BASE_URL}/chat/completions`,
