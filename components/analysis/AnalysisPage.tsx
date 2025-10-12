@@ -19,7 +19,7 @@ import {
 } from '../../services/claydoxApiService';
 import JSZip from 'jszip';
 // ✅ constants에서 alias 포함해서 import
-import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, P2_TN_IDENTIFIERS, P2_TP_IDENTIFIERS, P2_SINGLE_ITEM_IDENTIFIERS } from '../../shared/constants';
+import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, P3_TN_IDENTIFIERS, P3_TP_IDENTIFIERS, P3_SINGLE_ITEM_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
 import { Type } from '@google/genai';
@@ -301,9 +301,9 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const availableTnIdentifiers = pageType === 'FieldCount' ? P2_TN_IDENTIFIERS : TN_IDENTIFIERS;
-  const availableTpIdentifiers = pageType === 'FieldCount' ? P2_TP_IDENTIFIERS : TP_IDENTIFIERS;
-  const availableIdentifiers = pageType === 'FieldCount' ? P2_SINGLE_ITEM_IDENTIFIERS : IDENTIFIER_OPTIONS;
+  const availableTnIdentifiers = pageType === 'FieldCount' ? P3_TN_IDENTIFIERS : TN_IDENTIFIERS;
+  const availableTpIdentifiers = pageType === 'FieldCount' ? P3_TP_IDENTIFIERS : TP_IDENTIFIERS;
+  const availableIdentifiers = pageType === 'FieldCount' ? P3_SINGLE_ITEM_IDENTIFIERS : IDENTIFIER_OPTIONS;
 
   const ocrControlsKtlStatus = useMemo<KtlApiCallStatus>(() => {
     if (!activeJob) return 'idle';
@@ -751,15 +751,14 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         });
 
         const results = await Promise.all(imageProcessingPromises);
-        const reasons: string[] = [];
-       results.forEach(result => {
-          if (result.status === 'fulfilled' && result.value) {
-            if (Array.isArray(result.value)) allRawExtractedEntries.push(...result.value);
-          } else if (result.status === 'rejected') {
-            batchHadError = true;
-            if ((result as any).reason) reasons.push((result as any).reason);
-          }
+        results.forEach(result => {
+            if (result.status === 'fulfilled' && result.value) {
+                if (Array.isArray(result.value)) allRawExtractedEntries.push(...result.value);
+            } else if (result.status === 'rejected') {
+                batchHadError = true;
+            }
         });
+
         if (criticalErrorOccurred) throw new Error(criticalErrorOccurred);
         
         if (allRawExtractedEntries.length > 0) {
@@ -791,25 +790,14 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
             if (batchHadError) setProcessingError("일부 이미지를 처리하지 못했습니다.");
         } else {
-         // 모두 실패했을 때 상황별 메시지
-         const msg =
-           criticalErrorOccurred
-             ? criticalErrorOccurred
-             : (batchHadError
-                 ? "일부 이미지를 처리하지 못했고, 유효한 데이터가 없습니다."
-                 : "AI가 이미지에서 유효한 데이터를 추출하지 못했습니다.");
-         setProcessingError(msg);
-       }
-       } catch (e: any) {
-         const msg =
-           (e && typeof e.message === "string" && e.message.trim())
-             ? e.message
-             : "데이터 추출 중 알 수 없는 오류가 발생했습니다.";
-         setProcessingError(msg);
-       } finally {
-         setIsLoading(false);
-       }
-      }, [activeJob, updateActiveJob]);
+            setProcessingError("AI가 이미지에서 유효한 데이터를 추출하지 못했습니다.");
+        }
+    } catch (e: any) {
+        setProcessingError(e.message || "데이터 추출 중 알 수 없는 오류가 발생했습니다.");
+    } finally {
+        setIsLoading(false);
+    }
+  }, [activeJob, updateActiveJob]);
 
   const handleEntryChange = useCallback((entryId: string, field: keyof ExtractedEntry, value: string | undefined) => {
     updateActiveJob(job => {
