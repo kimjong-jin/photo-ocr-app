@@ -61,9 +61,11 @@ export const callVllmApi = async (
 
   // The model might return markdown ```json ... ```. Strip it.
   if (config?.json_mode) {
-      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})/s);
+      // FIX: JSON 배열 형식([])도 처리하도록 정규식 수정
+      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})|(\[[\s\S]*\])/s);
       if (jsonMatch) {
-          return jsonMatch[1] || jsonMatch[2];
+          // 캡처 그룹 1(마크다운), 2(객체), 3(배열) 중 하나를 반환
+          return jsonMatch[1] || jsonMatch[2] || jsonMatch[3];
       }
   }
 
