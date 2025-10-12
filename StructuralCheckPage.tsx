@@ -490,6 +490,13 @@ Tie-breaking (apply in order):
 3) (접두어가 보일 때만) WTMS(수질)/DWMS(먹는물) 우선.
 4) 동률이면 가장 구체/긴 모델 문자열.
 
+LATEST-CERT SELECTION USING TODAY (${todayISO}):
+- When two or more certificates match "${mainItemName}", select the **latest** one by the following strict priority:
+  1) **previousReceiptNumber 연도 접두어 우선**: Parse two-digit year prefixes (e.g., "25-", "24-", "23-"). Use ${currentYear} to build the priority list **'${yearPrefixes}'** from newest to oldest. Choose the certificate with the **highest-priority** prefix.
+  2) **동일 접두어 타이브레이커**: If multiple candidates share the same prefix (e.g., all "23-"), pick the **lexicographically largest** full number including hyphens (string comparison).
+  3) **영수번호 부재 시 대체**: If a valid '제..호' number is not visible on candidates, choose the one with the **most recent inspectionDate** (최근일자) **≤ ${todayISO}**. If dates tie, pick the one with the more complete field set.
+- After selection, **extract ONLY from the chosen certificate**; never mix values across images.
+
 FIELDS TO EXTRACT (ALL REQUIRED; USE "" IF MISSING):
 - productName: **한글 ‘품명’ 서술문을 우선 추출** (예: "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기", "총질소/총인 연속자동측정기와 그 부속기기").
   - 서술문이 보이지 않을 때만 모델코드(예: "DWMS-TM", "DWMS-CM", "WTMS-TN", "WTMS-MULTI") 또는 접두어 불명확 시 "MULTI"로 대체.
@@ -503,10 +510,6 @@ FIELDS TO EXTRACT (ALL REQUIRED; USE "" IF MISSING):
 - validity: 유효기간. MUST be formatted as YYYY-MM-DD (same conversion rule).
 - previousReceiptNumber: The main certificate ID often labeled '제...호'. Extract ONLY the core number (strip '제' prefix and '호' suffix).
   Example: from '제21-018279-02-77호' return '21-018279-02-77'.
-  Priority when multiple '제..호' exist:
-  1) The current year is ${currentYear}. Search first for numbers starting with two-digit year prefixes in this strict descending priority: '${yearPrefixes}'.
-  2) If multiple matches exist (e.g., '30-' and '29-'), choose the highest-priority prefix (e.g., '30-').
-  3) If none match those prefixes, choose any valid main certificate number present.
 
 CRITICAL FORMATTING RULES:
 1) Dates: 'inspectionDate' and 'validity' MUST be 'YYYY-MM-DD' exactly (zero-padded).
@@ -515,31 +518,31 @@ CRITICAL FORMATTING RULES:
 
 `.trim();
 
-  modelConfig = {
-    responseMimeType: "application/json",
-    responseSchema: {
-      type: Type.OBJECT,
-      properties: {
-        productName: { type: Type.STRING, description: "품명 또는 모델명" },
-        manufacturer: { type: Type.STRING, description: "제작사" },
-        serialNumber: { type: Type.STRING, description: "제작번호 또는 기기번호" },
-        typeApprovalNumber: { type: Type.STRING, description: "형식승인번호. MUST start with '제' and end with '호'." },
-        inspectionDate: { type: Type.STRING, description: "검사일자. MUST be YYYY-MM-DD." },
-        validity: { type: Type.STRING, description: "유효기간. MUST be YYYY-MM-DD." },
-        previousReceiptNumber: { type: Type.STRING, description: "직전 접수번호(핵심 번호만, '제'와 '호' 제외)" },
-      },
-      required: [
-        "productName",
-        "manufacturer",
-        "serialNumber",
-        "typeApprovalNumber",
-        "inspectionDate",
-        "validity",
-        "previousReceiptNumber",
-      ],
-      },
-      };
-      break;
+		modelConfig = {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              productName: { type: Type.STRING, description: "품명 또는 모델명" },
+              manufacturer: { type: Type.STRING, description: "제작사" },
+              serialNumber: { type: Type.STRING, description: "제작번호 또는 기기번호" },
+              typeApprovalNumber: { type: Type.STRING, description: "형식승인번호. MUST start with '제' and end with '호'." },
+              inspectionDate: { type: Type.STRING, description: "검사일자. MUST be YYYY-MM-DD." },
+              validity: { type: Type.STRING, description: "유효기간. MUST be YYYY-MM-DD." },
+              previousReceiptNumber: { type: Type.STRING, description: "직전 접수번호(핵심 번호만, '제'와 '호' 제외)" },
+            },
+            required: [
+              "productName",
+              "manufacturer",
+              "serialNumber",
+              "typeApprovalNumber",
+              "inspectionDate",
+              "validity",
+              "previousReceiptNumber",
+            ],
+          },
+        };
+       break;
       }
         
       case "표시사항확인":
@@ -634,7 +637,8 @@ OUTPUT FORMAT:
 - Do not include any explanations, extra text, or markdown.
 
 `.trim();
-        modelConfig = {
+        
+    modelConfig = {
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
