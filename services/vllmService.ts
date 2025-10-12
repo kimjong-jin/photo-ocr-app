@@ -60,17 +60,62 @@ export const callVllmApi = async (
     const content = response.data.choices[0]?.message?.content || "";
 
     if (config?.json_mode) {
-      // AI 응답에서 JSON 블록만 정확히 추출하는 정규식
-      // 1. ```json ... ``` 블록, 2. {...} 객체, 3. [...] 배열 순서로 찾음
-      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})|(\[[\s\S]*\])/s);
-      
-      // 첫 번째로 매칭된 유효한 JSON 문자열을 반환
-      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[2] || jsonMatch[3] || '').trim() : '';
-
-      if (jsonStr) {
-        return jsonStr;
+      // First, try to find a markdown-style JSON block, which is often cleaner.
+      const markdownMatch = content.match(/```json\n([\s\S]*?)\n```/s);
+      if (markdownMatch && markdownMatch[1]) {
+          try {
+              JSON.parse(markdownMatch[1].trim());
+              return markdownMatch[1].trim();
+          } catch (e) {
+              // Fall through if parsing the markdown block fails
+              console.warn("vllmService: Markdown JSON block found but failed to parse, falling back to substring search.", e);
+          }
       }
-      // json_mode인데도 유효한 JSON을 못 찾았다면 오류 발생
+
+      // Fallback for raw JSON possibly surrounded by other text
+      const firstBracket = content.indexOf('[');
+      const firstBrace = content.indexOf('{');
+      
+      let startIndex = -1;
+      
+      if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
+          startIndex = firstBracket;
+      } else if (firstBrace !== -1) {
+          startIndex = firstBrace;
+      }
+
+      if (startIndex === -1) {
+          throw new Error("vLLM 응답에서 JSON 시작(`[` 또는 `{`)을 찾지 못했습니다. 원본 응답: " + content);
+      }
+      
+      const opener = content[startIndex];
+      const closer = opener === '[' ? ']' : '}';
+      let openCount = 0;
+      let endIndex = -1;
+
+      for (let i = startIndex; i < content.length; i++) {
+        if (content[i] === opener) {
+            openCount++;
+        } else if (content[i] === closer) {
+            openCount--;
+        }
+        
+        if (openCount === 0) {
+            endIndex = i;
+            break;
+        }
+      }
+
+      if (endIndex !== -1) {
+          const jsonStr = content.substring(startIndex, endIndex + 1);
+          try {
+              JSON.parse(jsonStr); // Validate that it's actually parsable
+              return jsonStr;
+          } catch (e) {
+              throw new Error(`vLLM 응답에서 추출된 문자열이 유효한 JSON이 아닙니다. 추출된 문자열: ${jsonStr}`);
+          }
+      }
+
       throw new Error("vLLM 응답에서 유효한 JSON 블록을 찾지 못했습니다. 원본 응답: " + content);
     }
     
