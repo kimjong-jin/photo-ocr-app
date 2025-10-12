@@ -11,7 +11,8 @@ import {
   RangeResults as DisplayRangeResults,
   RangeStat,
 } from '../RangeDifferenceDisplay';
-import { extractTextFromImage } from '../../services/geminiService';
+import { extractTextFromImage as extractWithGemini } from '../../services/geminiService';
+import { extractTextFromImageViaVllm as extractWithVllm } from '../../services/vllmService';
 import {
   sendToClaydoxApi,
   ClaydoxPayload,
