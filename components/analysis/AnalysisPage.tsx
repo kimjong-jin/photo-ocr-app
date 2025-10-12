@@ -11,8 +11,10 @@ import {
   RangeResults as DisplayRangeResults,
   RangeStat,
 } from '../RangeDifferenceDisplay';
+import type { ApiMode } from '../PageContainer';
 import { extractTextFromImage as extractWithGemini } from '../../services/geminiService';
 import { extractTextFromImageViaVllm as extractWithVllm } from '../../services/vllmService';
+
 import {
   sendToClaydoxApi,
   ClaydoxPayload,
@@ -282,11 +284,12 @@ interface AnalysisPageProps {
   siteName: string;
   siteLocation: string;
   onDeleteJob: (jobId: string) => void;
+  apiMode: ApiMode;
 }
 
 const AnalysisPage: React.FC<AnalysisPageProps> = ({
   pageTitle, pageType, showRangeDifferenceDisplay, showAutoAssignIdentifiers,
-  userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob
+  userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob, apiMode,
 }) => {
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
@@ -301,6 +304,15 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
   const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const extractText = useCallback(
+  (base64: string, mimeType: string, prompt: string, modelConfig: any) => {
+    return apiMode === 'gemini'
+      ? extractWithGemini(base64, mimeType, prompt, modelConfig)
+      : extractWithVllm(base64, mimeType, prompt, modelConfig);
+  },
+  [apiMode]
+);
 
   const availableTnIdentifiers = pageType === 'FieldCount' ? P2_TN_IDENTIFIERS : TN_IDENTIFIERS;
   const availableTpIdentifiers = pageType === 'FieldCount' ? P2_TP_IDENTIFIERS : TP_IDENTIFIERS;
@@ -569,7 +581,7 @@ ${valueKeyRule}
                 const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, activeJob.inspectionStartDate, activeJob.inspectionEndDate);
                 const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
                 
-                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
+                jsonStr = await extractText(image.base64, image.mimeType, prompt, modelConfig);
                 
                 const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
                 if (Array.isArray(jsonDataFromImage)) {
@@ -680,7 +692,7 @@ ${valueKeyRule}
     } finally {
         setIsLoading(false);
     }
-  }, [activeJob, siteLocation, updateActiveJob]);
+  }, [activeJob, siteLocation, updateActiveJob, extractText]);
 
   const generatePromptForLogFileAnalysis = (): string => {
     return `You are an expert data extraction assistant. Your task is to analyze an image of a data log screen titled 'FrmViewLog' and extract the tabular data into a structured JSON format.
@@ -742,7 +754,7 @@ ${valueKeyRule}
         const imageProcessingPromises = activeJob.photos.map(async (image) => {
             let jsonStr: string = "";
             try {
-                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
+                jsonStr = await extractText(image.base64, image.mimeType, prompt, modelConfig);
                 const jsonDataFromImage = JSON.parse(jsonStr) as RawLogEntry[];
                 if (Array.isArray(jsonDataFromImage)) {
                     return { status: 'fulfilled', value: jsonDataFromImage };
@@ -804,7 +816,7 @@ ${valueKeyRule}
     } finally {
         setIsLoading(false);
     }
-  }, [activeJob, updateActiveJob]);
+  }, [activeJob, updateActiveJob, extractText]);
 
   const handleEntryChange = useCallback((entryId: string, field: keyof ExtractedEntry, value: string | undefined) => {
     updateActiveJob(job => {
