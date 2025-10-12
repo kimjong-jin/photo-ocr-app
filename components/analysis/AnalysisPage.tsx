@@ -18,6 +18,7 @@ import {
   generateKtlJsonForPreview,
 } from '../../services/claydoxApiService';
 import JSZip from 'jszip';
+// ✅ constants에서 alias 포함해서 import
 import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, P2_TN_IDENTIFIERS, P2_TP_IDENTIFIERS, P2_SINGLE_ITEM_IDENTIFIERS } from '../../shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
 import { ThumbnailGallery } from '../ThumbnailGallery';
