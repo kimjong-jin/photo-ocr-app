@@ -1,6 +1,5 @@
 //claydoxApiService.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
-// FIX: The ExtractedEntry type should be imported from the shared types definition file.
 import type { ExtractedEntry } from '../shared/types';
 import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, ANALYSIS_ITEM_GROUPS, P3_TN_IDENTIFIERS, P3_TP_IDENTIFIERS } from '../shared/constants';
 import {
@@ -718,7 +717,6 @@ function pickZipBase64(photo: ClaydoxJobPhoto): string {
   return photo.base64Original || fallback;
 }
 
-// FIX: Add missing 'sendSingleStructuralCheckToKtlApi' function.
 export const sendSingleStructuralCheckToKtlApi = async (
   job: StructuralJob,
   checklistImage: ImageInfo,
@@ -776,8 +774,8 @@ export const sendSingleStructuralCheckToKtlApi = async (
   }
 
   // 3. Upload all files
-  onProgress('(4/4) [P1 구조 확인] KTL 서버로 파일 업로드 중...');
   if (filesToUpload.length > 0) {
+    onProgress('(4/4) [P1 구조 확인] KTL 서버로 파일 업로드 중...');
     const formData = new FormData();
     filesToUpload.forEach(file => formData.append('files', file, file.name));
     try {
