@@ -1,3 +1,8 @@
+
+
+
+
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -60,41 +65,6 @@ interface QuickAnalysisFeedback {
 export type AnalysisType = "측정범위확인" | "측정방법확인" | "표시사항확인" | "운용프로그램확인" | "정도검사 증명서" | "지시부 번호" | "센서부 번호";
 type AnalysisStatusForPhotos = Record<string, Record<number, Set<AnalysisType>>>;
 type AnalyzedTypesForJob = Record<string, Set<AnalysisType>>;
-
-const getMostRecentCertificate = (certificates: CertificateDetails[]): CertificateDetails | null => {
-  if (!certificates || certificates.length === 0) return null;
-
-  const extractYear = (cert: CertificateDetails): number => {
-    // Priority: 1. typeApprovalNumber, 2. inspectionDate, 3. validity date
-    const fromTypeApproval = cert.typeApprovalNumber?.match(/(\d{4})/);
-    if (fromTypeApproval && fromTypeApproval[1]) {
-      const year = parseInt(fromTypeApproval[1], 10);
-      if (year > 1990 && year < 2100) return year;
-    }
-
-    const fromInspectionDate = cert.inspectionDate?.match(/^(\d{4})/);
-    if (fromInspectionDate && fromInspectionDate[1]) {
-      const year = parseInt(fromInspectionDate[1], 10);
-      if (year > 1990 && year < 2100) return year;
-    }
-    
-    const fromValidity = cert.validity?.match(/^(\d{4})/);
-    if (fromValidity && fromValidity[1]) {
-        const year = parseInt(fromValidity[1], 10);
-        if (year > 1990 && year < 2100) return year;
-    }
-    
-    return 0; // No reliable year found
-  };
-
-  return certificates.reduce((latest, current) => {
-    if (!latest) return current;
-    const latestYear = extractYear(latest);
-    const currentYear = extractYear(current);
-    return currentYear > latestYear ? current : latest;
-  }, certificates[0]);
-};
-
 
 const TrashIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -475,9 +445,43 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
         const yearPrefixes = Array.from({ length: 5 }, (_, i) => `${twoDigitYear - i}-`).join("', '");
 
         prompt = `
-You are a highly precise data extraction assistant specializing in official Korean '정도검사 증명서' (Certificate of Inspection). From the provided image(s), identify ALL visible certificates and extract their details. Respond ONLY with a single JSON array, where each object represents one certificate. If no certificates are visible, return an empty array [].
+You are a highly precise data extraction assistant specializing in official Korean '정도검사 증명서' (Certificate of Inspection). From the provided certificate image(s) for a "${mainItemName}" device, extract ALL fields below. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS. Respond ONLY with a single JSON object (no markdown, no extra text). 
 
-For each certificate, extract the following fields. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS.
+MULTI-IMAGE / RIGHT-CERT SELECTION (CRITICAL):
+- If multiple certificate images are provided, you MUST select the single certificate that matches the requested analysis item "${mainItemName}" and extract fields from THAT one only.
+
+CERT MATCHING RULES (MODEL CODE MAY BE MISSING):
+- Use BOTH any model code near the type-approval line and the **Korean descriptor** sentence (예: "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기", "총질소 연속자동측정기와 그 부속기기").
+- If the WTMS-/DWMS- prefix is missing or blurred, rely on the **Korean descriptor**.
+- **COMBO ⇒ MULTI (강제 규칙):** 대상이 복합 항목이면(예: "${mainItemName}"가 "TN/TP" 또는 "TU/CL" 계열이거나, 한글 서술문에 슬래시 조합이 보이면) 해당 증명서는 **MULTI**로 간주한다.
+- 수질: productName은 "WTMS-MULTI" (접두어 불명확하면 "MULTI")
+- 먹는물: productName은 "DWMS-MULTI" (접두어 불명확하면 "MULTI")
+
+Descriptor-to-item mapping (case-insensitive, space-insensitive; **한글 서술문이 핵심**):
+• 수질:
+  - TN: descriptor contains "총질소 연속자동측정기와 그 부속기기"
+  - TP: descriptor contains "총인 연속자동측정기와 그 부속기기"
+  - COD: descriptor contains "화학적산소요구량 연속자동측정기와 그 부속기기"
+  - SS: descriptor contains "부유물질 연속자동측정기와 그 부속기기"
+  - pH: descriptor contains "수소이온농도 연속자동측정기와 그 부속기기"
+  - TN/TP(MULTI): descriptor contains "총질소/총인 연속자동측정기와 그 부속기기" → **MULTI**
+
+• 먹는물 — **TM/CM 코드 힌트 포함**:
+  - 탁도(TU): descriptor contains "탁도 연속자동측정기와 그 부속기기" * Code cues: "DWMS-TM" 또는 "-TM" 패턴 → 탁도로 해석
+  - 잔류염소(Cl): descriptor contains "잔류염소 연속자동측정기와 그 부속기기" * Code cues: "DWMS-CM" 또는 "-CM-" 패턴 → 잔류염소로 해석
+  - TU/CL(MULTI): descriptor contains "탁도/잔류염소 연속자동측정기와 그 부속기기" → **MULTI**
+  - **Conflict rule:** 코드(TM/CM)와 서술문이 충돌하면 **서술문(한글 descriptor)을 우선**한다.
+
+Model code preferences (보일 때만 사용):
+- 수질: prefer "WTMS-*" or explicit "WTMS-MULTI".
+- 먹는물: prefer "DWMS-*" or explicit "DWMS-MULTI".
+- If a choice list like WTMS-"TN"/"TP"/"COD" is shown, choose the one EXACTLY matching ${mainItemName}; **but if ${mainItemName} is a combo or the descriptor shows a slash combo, override to MULTI.**
+
+Tie-breaking (apply in order):
+1) **Combo-descriptor/MULTI 신호가 있으면 무조건 MULTI.**
+2) Descriptor 정확 일치 > 모델 코드 유사 일치(TM/CM 등).
+3) (접두어가 보일 때만) WTMS(수질)/DWMS(먹는물) 우선.
+4) 동률이면 가장 구체/긴 모델 문자열.
 
 FIELDS TO EXTRACT (ALL REQUIRED; USE "" IF MISSING):
 - productName: **한글 ‘품명’ 서술문을 우선 추출** (예: "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기", "총질소/총인 연속자동측정기와 그 부속기기").
@@ -499,26 +503,25 @@ Priority when multiple '제..호' exist:
 CRITICAL FORMATTING RULES:
 1) Dates: 'inspectionDate' and 'validity' MUST be 'YYYY-MM-DD' exactly (zero-padded).
 2) Type Approval: 'typeApprovalNumber' MUST start with '제' and end with '호' (add them if missing).
-3) Output Shape: Return a SINGLE JSON array of objects. Each object must have ALL keys above present (use "" if a value is not visible). No markdown, no additional text.
-`.trim();
+3) Output Shape: Return a SINGLE JSON object with ALL keys above present (use "" if a value is not visible). No markdown, no additional text.
 
+.trim();
+
+`;
         modelConfig = {
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                  productName: { type: Type.STRING, description: "품명 또는 모델명" },
-                  manufacturer: { type: Type.STRING, description: "제작사" },
-                  serialNumber: { type: Type.STRING, description: "제작번호 또는 기기번호" },
-                  typeApprovalNumber: { type: Type.STRING, description: "The type approval number (형식승인번호). CRITICAL: Ensure the final value starts with '제' and ends with '호'." },
-                  inspectionDate: { type: Type.STRING, description: "검사일자. CRITICAL: Format as YYYY-MM-DD." },
-                  validity: { type: Type.STRING, description: "유효기간. CRITICAL: Format as YYYY-MM-DD." },
-                  previousReceiptNumber: { type: Type.STRING, description: "직전 접수번호 (핵심 번호만)" },
-                },
-                required: ["productName", "manufacturer", "serialNumber", "typeApprovalNumber", "inspectionDate", "validity", "previousReceiptNumber"],
-            }
+            type: Type.OBJECT,
+            properties: {
+              productName: { type: Type.STRING, description: "품명 또는 모델명" },
+              manufacturer: { type: Type.STRING, description: "제작사" },
+              serialNumber: { type: Type.STRING, description: "제작번호 또는 기기번호" },
+              typeApprovalNumber: { type: Type.STRING, description: "The type approval number (형식승인번호). CRITICAL: Ensure the final value starts with '제' and ends with '호'." },
+              inspectionDate: { type: Type.STRING, description: "검사일자. CRITICAL: Format as YYYY-MM-DD." },
+              validity: { type: Type.STRING, description: "유효기간. CRITICAL: Format as YYYY-MM-DD." },
+              previousReceiptNumber: { type: Type.STRING, description: "직전 접수번호 (핵심 번호만)" },
+            },
+            required: ["productName", "manufacturer", "serialNumber", "typeApprovalNumber", "inspectionDate", "validity", "previousReceiptNumber"],
           },
         };
         break;
@@ -676,31 +679,12 @@ OUTPUT FORMAT:
         const resultText = (await extractTextFromImage(photoToProcess.base64, photoToProcess.mimeType, prompt, modelConfig)).trim();
         
         if (itemNameForAnalysis === "정도검사 증명서") {
-            const allCerts = JSON.parse(resultText) as Partial<CertificateDetails>[];
-            if (!Array.isArray(allCerts)) {
-                throw new Error("AI가 유효한 증명서 배열을 반환하지 않았습니다.");
-            }
-            if (allCerts.length === 0) {
-                const feedbackMsg = "이미지에서 유효한 정도검사 증명서를 찾지 못했습니다.";
-                if (isQuickAnalysis) setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: feedbackMsg, type: 'error' });
-                else setDetailAnalysisError(feedbackMsg);
-                return;
-            }
-    
-            const mostRecentCert = getMostRecentCertificate(allCerts as CertificateDetails[]);
-    
-            if (mostRecentCert) {
-                const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes;
-                let existingCertDetails: CertificateDetails = { presence: 'not_selected' };
-                try { if (existingNotes) existingCertDetails = JSON.parse(existingNotes); } catch (e) { /* ignore */ }
-                const mergedDetails: CertificateDetails = { ...existingCertDetails, ...mostRecentCert, presence: 'present' };
-                handleChecklistItemChange(targetChecklistItem, "notes", JSON.stringify(mergedDetails));
-            } else {
-                 const feedbackMsg = "최신 증명서를 판별할 수 없습니다.";
-                 if (isQuickAnalysis) setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: feedbackMsg, type: 'error' });
-                 else setDetailAnalysisError(feedbackMsg);
-                return;
-            }
+            const newCertDetails = JSON.parse(resultText) as Partial<CertificateDetails>;
+            const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes;
+            let existingCertDetails: CertificateDetails = { presence: 'not_selected' };
+            try { if (existingNotes) existingCertDetails = JSON.parse(existingNotes); } catch (e) { /* ignore */ }
+            const mergedDetails: CertificateDetails = { ...existingCertDetails, ...newCertDetails, presence: 'present' };
+            handleChecklistItemChange(targetChecklistItem, "notes", JSON.stringify(mergedDetails));
         } else if (itemNameForAnalysis === "측정범위확인") {
             const itemOptions = MEASUREMENT_RANGE_OPTIONS[activeJob.mainItemKey];
             let matchedOption: string | null = null;
