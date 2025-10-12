@@ -43,6 +43,15 @@ import type {
   ConcentrationBoundaries,
 } from '../../shared/types';
 
+const uuid = () => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') {
+      return (crypto as any).randomUUID();
+    }
+  } catch {}
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 type AppRangeResults = DisplayRangeResults;
 type KtlApiCallStatus = 'idle' | 'success' | 'error';
 
@@ -444,7 +453,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     
     const photosWithUids: JobPhoto[] = newlySelectedImages.map(img => ({
         ...img,
-        uid: self.crypto.randomUUID()
+        uid: uuid()
     }));
 
     updateActiveJob(job => {
@@ -466,7 +475,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
   const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
 
   const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
-    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: self.crypto.randomUUID() };
+    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: uuid() };
     updateActiveJob(job => {
         const newPhotos = [...(job.photos || []), capturedImageInfo];
         setCurrentImageIndex(newPhotos.length - 1);
@@ -679,7 +688,7 @@ ${valueKeyRule}
                 } else {
                     primaryValue = (rawEntry as RawEntrySingle).value || '';
                 }
-                return { id: self.crypto.randomUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
+                return { id: uuid(), time: rawEntry.time, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
             });
 
             updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
@@ -796,7 +805,7 @@ ${valueKeyRule}
                 const primaryValue = rawEntry.values?.[0] || '';
                 const tpValue = isTnTpMode ? (rawEntry.values?.[1] || '') : undefined;
                 return {
-                  id: self.crypto.randomUUID(),
+                  id: uuid(),
                   time: rawEntry.time,
                   value: primaryValue,
                   valueTP: tpValue,
@@ -832,7 +841,7 @@ ${valueKeyRule}
     updateActiveJob(job => {
         if (!job) return job;
         const newEntry: ExtractedEntry = {
-            id: self.crypto.randomUUID(),
+            id: uuid(),
             time: '',
             value: '',
             valueTP: job.selectedItem === "TN/TP" ? '' : undefined,
