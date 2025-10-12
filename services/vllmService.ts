@@ -60,26 +60,20 @@ export const callVllmApi = async (
     const content = response.data.choices[0]?.message?.content || "";
 
     if (config?.json_mode) {
-      // AI 응답에 JSON 외 텍스트가 포함된 경우를 대비한 파싱 로직 강화
-      const firstBracket = content.indexOf('[');
-      const firstBrace = content.indexOf('{');
+      // AI 응답에서 JSON 블록만 정확히 추출하는 정규식
+      // 1. ```json ... ``` 블록, 2. {...} 객체, 3. [...] 배열 순서로 찾음
+      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})|(\[[\s\S]*\])/s);
+      
+      // 첫 번째로 매칭된 유효한 JSON 문자열을 반환
+      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[2] || jsonMatch[3] || '').trim() : '';
 
-      let jsonStartIndex = -1;
-
-      // '[' 또는 '{' 가 처음 나타나는 위치를 찾음
-      if (firstBracket !== -1 && firstBrace !== -1) {
-        jsonStartIndex = Math.min(firstBracket, firstBrace);
-      } else if (firstBracket !== -1) {
-        jsonStartIndex = firstBracket;
-      } else {
-        jsonStartIndex = firstBrace;
+      if (jsonStr) {
+        return jsonStr;
       }
-
-      // JSON 시작 부분을 찾았다면, 그 부분부터 문자열을 잘라 반환
-      if (jsonStartIndex !== -1) {
-        return content.substring(jsonStartIndex);
-      }
+      // json_mode인데도 유효한 JSON을 못 찾았다면 오류 발생
+      throw new Error("vLLM 응답에서 유효한 JSON 블록을 찾지 못했습니다. 원본 응답: " + content);
     }
+    
     return content;
 
   } catch (error: any) {
