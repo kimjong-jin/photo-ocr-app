@@ -61,8 +61,8 @@ async function fetchWithTimeout(
   input: RequestInfo | URL,
   init?: RequestInit & TimeoutOpts
 ) {
-  const ttfbMs = init?.ttfbMs ?? 5000;    // 헤더 수신(TTFB) 제한
-  const totalMs = init?.totalMs ?? 20000;  // 전체 응답 제한
+  const ttfbMs = init?.ttfbMs ?? 20000;    // 헤더 수신(TTFB) 제한
+  const totalMs = init?.totalMs ?? 300000;  // 전체 응답 제한
 
   const ctrlTTFB = new AbortController();
   const ctrlTotal = new AbortController();
