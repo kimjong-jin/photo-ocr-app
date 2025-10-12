@@ -1,7 +1,4 @@
 
-
-
-
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
@@ -773,17 +770,17 @@ return (
             error={processingError}
             isLoading={isLoading}
             contextProvided={!!(activeJob.receiptNumber && siteLocation)}
-            hasImage={true} // In P3, we always show the table
+            hasImage={true} // In P4, we always show the table
             isManualEntryMode={true}
             selectedItem={activeJob.selectedItem}
-            onEntryIdentifierChange={() => {}} // Not used in P3
-            onEntryIdentifierTPChange={() => {}} // Not used in P3
+            onEntryIdentifierChange={() => {}} // Not used in P4
+            onEntryIdentifierTPChange={() => {}} // Not used in P4
             onEntryTimeChange={(id, val) => handleEntryValueChange(id, 'primary', val)} // Time is also a value here
             onEntryPrimaryValueChange={(id, val) => handleEntryValueChange(id, 'primary', val)}
             onEntryValueTPChange={(id, val) => handleEntryValueChange(id, 'tp', val)}
             onEntryValueBlur={handleEntryValueBlur}
-            onAddEntry={() => {}} // P3 has a fixed set of identifiers
-            onReorderRows={() => {}} // Not used in P3
+            onAddEntry={() => {}} // P4 has a fixed set of identifiers
+            onReorderRows={() => {}} // Not used in P4
             availableIdentifiers={[]}
             tnIdentifiers={[]}
             tpIdentifiers={[]}
