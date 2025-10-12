@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ApiMode } from '../PageContainer';
+import type { ApiMode } from '../pageContainer';
 
 interface HeaderProps {
   apiMode: ApiMode;
