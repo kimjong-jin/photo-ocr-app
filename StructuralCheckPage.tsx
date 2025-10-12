@@ -450,20 +450,20 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
 
           prompt = `
 You are a highly precise data extraction assistant specializing in official Korean '정도검사 증명서' (Certificate of Inspection).
-From the provided certificate image(s) for a "\${mainItemName}" device, extract ALL fields below. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS. Respond ONLY with a single JSON object (no markdown, no extra text).
+From the provided certificate image(s) for a "${mainItemName}" device, extract ALL fields below. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS. Respond ONLY with a single JSON object (no markdown, no extra text).
 
 MULTI-IMAGE / RIGHT-CERT SELECTION (CRITICAL):
-- If multiple certificate images are provided, you MUST select the single certificate that matches the requested analysis item "\${mainItemName}" and extract fields from THAT one only.
+- If multiple certificate images are provided, you MUST select the single certificate that matches the requested analysis item "${mainItemName}" and extract fields from THAT one only.
 
 CERT MATCHING RULES (MODEL CODE MAY BE MISSING):
-- Use BOTH any model code near the type-approval line and the **Korean descriptor** sentence (예: "총질소 연속자동측정기와 그 부속기기").
-- If the model code prefix (WTMS-/DWMS-) is missing or blurred, rely on the **Korean descriptor**.
-- **COMBO ⇒ MULTI (강제 규칙):** 대상이 복합 항목이면(예: "\${mainItemName}"가 "TN/TP" 또는 "TU/CL" 계열이거나, 한글 서술문에 슬래시 조합이 보이면) 해당 증명서는 **MULTI**로 간주한다.
-  - 수질: productName은 "WTMS-MULTI" (접두어가 확실치 않으면 "MULTI")
-  - 먹는물: productName은 "DWMS-MULTI" (접두어가 확실치 않으면 "MULTI")
+- Use BOTH any model code near the type-approval line and the **Korean descriptor** sentence (예: "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기", "총질소 연속자동측정기와 그 부속기기").
+- If the WTMS-/DWMS- prefix is missing or blurred, rely on the **Korean descriptor**.
+- **COMBO ⇒ MULTI (강제 규칙):** 대상이 복합 항목이면(예: "${mainItemName}"가 "TN/TP" 또는 "TU/CL" 계열이거나, 한글 서술문에 슬래시 조합이 보이면) 해당 증명서는 **MULTI**로 간주한다.
+  - 수질: productName은 "WTMS-MULTI" (접두어 불명확하면 "MULTI")
+  - 먹는물: productName은 "DWMS-MULTI" (접두어 불명확하면 "MULTI")
 
 Descriptor-to-item mapping (case-insensitive, space-insensitive; **한글 서술문이 핵심**):
-• 수질 (WTMS 계열):
+• 수질:
   - TN:  descriptor contains "총질소 연속자동측정기와 그 부속기기"
   - TP:  descriptor contains "총인 연속자동측정기와 그 부속기기"
   - COD: descriptor contains "화학적산소요구량 연속자동측정기와 그 부속기기"
@@ -471,47 +471,47 @@ Descriptor-to-item mapping (case-insensitive, space-insensitive; **한글 서술
   - pH:  descriptor contains "수소이온농도 연속자동측정기와 그 부속기기"
   - TN/TP(MULTI): descriptor contains "총질소/총인 연속자동측정기와 그 부속기기" → **MULTI**
 
-• 먹는물 (DWMS 계열) — **CM/TM 코드 매핑 포함**:
+• 먹는물 — **TM/CM 코드 힌트 포함**:
   - 탁도(TU):     descriptor contains "탁도 연속자동측정기와 그 부속기기"
-    * Code cues: "DWMS-TM", "DWMS-TU", 또는 "-TM-" 패턴 → 탁도로 해석
+    * Code cues: "DWMS-TM" 또는 "-TM" 패턴 → 탁도로 해석
   - 잔류염소(Cl):  descriptor contains "잔류염소 연속자동측정기와 그 부속기기"
     * Code cues: "DWMS-CM" 또는 "-CM-" 패턴 → 잔류염소로 해석
   - TU/CL(MULTI): descriptor contains "탁도/잔류염소 연속자동측정기와 그 부속기기" → **MULTI**
-  - **Conflict rule:** 코드(CM/TM)와 서술문이 충돌하면 **서술문(한글 descriptor)을 우선**한다.
+  - **Conflict rule:** 코드(TM/CM)와 서술문이 충돌하면 **서술문(한글 descriptor)을 우선**한다.
 
-Model code preferences (if visible):
+Model code preferences (보일 때만 사용):
 - 수질: prefer "WTMS-*" or explicit "WTMS-MULTI".
 - 먹는물: prefer "DWMS-*" or explicit "DWMS-MULTI".
-- If a choice list like WTMS-"TN"/"TP"/"COD" is shown, choose the one EXACTLY matching \${mainItemName}; **but if \${mainItemName} is a combo or the descriptor shows a slash combo, override to MULTI.**
+- If a choice list like WTMS-"TN"/"TP"/"COD" is shown, choose the one EXACTLY matching ${mainItemName}; **but if ${mainItemName} is a combo or the descriptor shows a slash combo, override to MULTI.**
 
 Tie-breaking (apply in order):
 1) **Combo-descriptor/MULTI 신호가 있으면 무조건 MULTI.**
-2) Descriptor 정확 일치 > 모델 코드 유사 일치(CM/TM 등).
+2) Descriptor 정확 일치 > 모델 코드 유사 일치(TM/CM 등).
 3) (접두어가 보일 때만) WTMS(수질)/DWMS(먹는물) 우선.
 4) 동률이면 가장 구체/긴 모델 문자열.
 
 FIELDS TO EXTRACT (ALL REQUIRED; USE "" IF MISSING):
-- productName: Product/model name (품명/모델명). Remove surrounding quotes, keep hyphens.
-  Examples: "WTMS-TN", "WTMS-TP", "WTMS-MULTI", "DWMS-TM", "DWMS-Cl", "DWMS-MULTI", or "MULTI" (접두어 완전히 소실 시).
+- productName: **한글 ‘품명’ 서술문을 우선 추출** (예: "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기", "총질소/총인 연속자동측정기와 그 부속기기").
+  - 서술문이 보이지 않을 때만 모델코드(예: "DWMS-TM", "DWMS-CM", "WTMS-TN", "WTMS-MULTI") 또는 접두어 불명확 시 "MULTI"로 대체.
+  - 따옴표 제거, 하이픈은 모델코드 사용 시 유지.
 - manufacturer: 제작사.
 - serialNumber: 제작번호/기기번호.
 - typeApprovalNumber: 형식승인번호. MUST start with '제' and end with '호'.
-  * If the source shows only the core pattern like "WTMS-CODmn-2022-2" or "DWMS-CM-2018-1",
-    return "제WTMS-CODmn-2022-2호" or "제DWMS-CM-2018-1호".
-  * **먹는물 코드 규칙:** "-CM-"가 포함되면 잔류염소(Cl), "-TM-"가 포함되면 탁도(TU)에 해당.
+  * 원문이 "DWMS-CM-2018-1", "WTMS-CODmn-2022-2" 등 본체만이면 각각 "제DWMS-CM-2018-1호", "제WTMS-CODmn-2022-2호"로 보완.
+  * **먹는물 코드 규칙:** "-CM-" 포함 → 잔류염소(Cl), "-TM-" 또는 "-TU-" 포함 → 탁도(TU).
 - inspectionDate: 검사일자. MUST be formatted as YYYY-MM-DD. Convert from any of YYYY.MM.DD / YYYY년 MM월 DD일 / YY.MM.DD to YYYY-MM-DD.
 - validity: 유효기간. MUST be formatted as YYYY-MM-DD (same conversion rule).
 - previousReceiptNumber: The main certificate ID often labeled '제...호'. Extract ONLY the core number (strip '제' prefix and '호' suffix).
   Example: from '제21-018279-02-77호' return '21-018279-02-77'.
   Priority when multiple '제..호' exist:
-  1) The current year is \${currentYear}. Search first for numbers starting with two-digit year prefixes in this strict descending priority: '\${yearPrefixes}'.
+  1) The current year is ${currentYear}. Search first for numbers starting with two-digit year prefixes in this strict descending priority: '${yearPrefixes}'.
   2) If multiple matches exist (e.g., '30-' and '29-'), choose the highest-priority prefix (e.g., '30-').
   3) If none match those prefixes, choose any valid main certificate number present.
 
 CRITICAL FORMATTING RULES:
 1) Dates: 'inspectionDate' and 'validity' MUST be 'YYYY-MM-DD' exactly (zero-padded).
 2) Type Approval: 'typeApprovalNumber' MUST start with '제' and end with '호' (add them if missing).
-3) Output Shape: Return a SINGLE JSON object with ALL keys below present (use "" if a value is not visible). No markdown, no additional text.
+3) Output Shape: Return a SINGLE JSON object with ALL keys above present (use "" if a value is not visible). No markdown, no additional text.
 `.trim();
 
   modelConfig = {
