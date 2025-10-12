@@ -54,6 +54,45 @@ function ensurePath(urlStr: string, desiredPath: "/save-temp" | "/load-temp") {
   return u.toString();
 }
 
+// === 여기부터: 속도 개선용 공용 래퍼 추가 ===
+type TimeoutOpts = { ttfbMs?: number; totalMs?: number };
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit & TimeoutOpts
+) {
+  const ttfbMs = init?.ttfbMs ?? 5000;    // 헤더 수신(TTFB) 제한
+  const totalMs = init?.totalMs ?? 20000;  // 전체 응답 제한
+
+  const ctrlTTFB = new AbortController();
+  const ctrlTotal = new AbortController();
+  const merged = new AbortController();
+  const abort = (reason: any) => {
+    if (!merged.signal.aborted) (merged as any).abort(reason);
+  };
+  ctrlTTFB.signal.addEventListener("abort", () => abort("ttfb-timeout"));
+  ctrlTotal.signal.addEventListener("abort", () => abort("total-timeout"));
+
+  const ttfbTimer = setTimeout(() => ctrlTTFB.abort(), ttfbMs);
+  const totalTimer = setTimeout(() => ctrlTotal.abort(), totalMs);
+
+  try {
+    const res = await fetch(input, {
+      cache: "no-store",
+      credentials: "omit",
+      ...init,
+      signal: merged.signal,
+      headers: { ...(init?.headers ?? {}) },
+    });
+    // 헤더 수신 시점 → TTFB 타이머 해제
+    clearTimeout(ttfbTimer);
+    return res;
+  } finally {
+    clearTimeout(totalTimer);
+  }
+}
+// === 추가 끝 ===
+
 async function fetchJson(input: RequestInfo | URL, init?: RequestInit) {
   const res = await fetch(input, {
     cache: "no-store",
@@ -81,7 +120,7 @@ export const callSaveTempApi = async (
     receipt_no: receipt,
   });
 
-  const response = await fetchJson(SAVE_TEMP_API_URL, {
+  const response = await fetchWithTimeout(SAVE_TEMP_API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -89,6 +128,8 @@ export const callSaveTempApi = async (
       receipt_no: receipt,
       gps_address: payload.gps_address ?? null,
     }),
+    ttfbMs: 5000,
+    totalMs: 20000,
   });
 
   if (!response.ok) {
@@ -125,13 +166,15 @@ export const callLoadTempApi = async (
   const url1 = new URL(LOAD_TEMP_API_URL);
   url1.searchParams.append("receipt_no", receipt);
   url1.searchParams.append("_", Date.now().toString()); // 캐시무효
-  let res = await fetchJson(url1.toString(), {
+  let res = await fetchWithTimeout(url1.toString(), {
     method: "GET",
     headers: {
       Accept: "application/json",
       "Cache-Control": "no-cache",
       Pragma: "no-cache",
     },
+    ttfbMs: 5000,
+    totalMs: 15000,
   });
 
   // 2) 실패 시 GET + camelCase
@@ -140,23 +183,27 @@ export const callLoadTempApi = async (
     const url2 = new URL(LOAD_TEMP_API_URL);
     url2.searchParams.append("receiptNo", receipt);
     url2.searchParams.append("_", Date.now().toString());
-    res = await fetchJson(url2.toString(), {
+    res = await fetchWithTimeout(url2.toString(), {
       method: "GET",
       headers: {
         Accept: "application/json",
         "Cache-Control": "no-cache",
         Pragma: "no-cache",
       },
+      ttfbMs: 5000,
+      totalMs: 15000,
     });
   }
 
   // 3) 그래도 실패면 POST 바디로 조회
   if (!res.ok) {
     console.warn("[LOAD] GET 실패 → POST로 재시도");
-    res = await fetchJson(LOAD_TEMP_API_URL, {
+    res = await fetchWithTimeout(LOAD_TEMP_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ receipt_no: receipt }),
+      ttfbMs: 5000,
+      totalMs: 15000,
     });
   }
 
