@@ -512,6 +512,7 @@ CRITICAL FORMATTING RULES:
 1) Dates: 'inspectionDate' and 'validity' MUST be 'YYYY-MM-DD' exactly (zero-padded).
 2) Type Approval: 'typeApprovalNumber' MUST start with '제' and end with '호' (add them if missing).
 3) Output Shape: Return a SINGLE JSON object with ALL keys above present (use "" if a value is not visible). No markdown, no additional text.
+
 `.trim();
 
   modelConfig = {
@@ -558,8 +559,39 @@ CRITICAL FORMATTING RULES:
 You are a highly precise data extraction assistant specializing in Korean equipment labels.
 
 TASK:
-From the provided image, identify and extract information from the '형식승인표' (Type Approval Label).
-You must extract the following five fields accurately in a single step.
+From the provided image(s), identify the correct '형식승인표' (Type Approval Label) for the target item and extract exactly five fields.
+
+TARGET CONTEXT
+- Target main item name: "${mainItemName}"   // 예: "탁도", "잔류염소", "총질소", "총인", "TN/TP", "TU/CL" 등
+
+MULTI-LABEL DISAMBIGUATION (CRITICAL):
+If TWO OR MORE labels exist (e.g., 탁도 + 잔류염소 각각의 형식승인표), you MUST select ONE correct label and extract ONLY from that label. Use the following rules in order:
+
+1) **Descriptor-first rule (한글 서술문 우선)**
+   - Read the Korean descriptor sentence inside/near the label (e.g., "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기",
+     "총질소 연속자동측정기와 그 부속기기", "총인 연속자동측정기와 그 부속기기").
+   - Choose the label whose descriptor BEST MATCHES "${mainItemName}".
+     • 탁도 ↔ "탁도 연속자동측정기와 그 부속기기"
+     • 잔류염소 ↔ "잔류염소 연속자동측정기와 그 부속기기"
+     • 총질소 ↔ "총질소 연속자동측정기와 그 부속기기"
+     • 총인   ↔ "총인 연속자동측정기와 그 부속기기"
+     • 복합(TN/TP 또는 TU/CL) ↔ "총질소/총인 연속자동측정기와 그 부속기기" 또는 "탁도/잔류염소 연속자동측정기와 그 부속기기"
+
+2) **Code cue rule (보조 단서)**
+   - 먹는물(DWMS*) 계열: 형식승인번호/모델코드에
+     • **-TM-** 또는 **DWMS-TM / DWMS-TU** 가 보이면 **탁도**용
+     • **-CM-** 또는 **DWMS-CM** 가 보이면 **잔류염소**용
+   - 수질(WTMS*) 계열: **WTMS-TN/TP/COD/SS/pH** 등 해당 항목과 일치하는 코드가 보이면 그 라벨을 선택.
+   - **Conflict:** 코드 단서와 한글 서술문이 충돌하면 **서술문(한글 descriptor)을 우선**한다.
+
+3) **MULTI 강제 규칙(대상 복합일 때)**
+   - "${mainItemName}"가 복합 항목(TN/TP 또는 TU/CL)인 경우, 복합(슬래시 포함) 서술문이 있는 라벨을 선택한다.
+   - 복합 라벨이 없고 단일 라벨만 여러 개라면, "${mainItemName}"에서 요구되는 두 항목 중 현재 이미지에서 **더 명확하게 보이는 라벨 하나**를 선택한다.
+
+4) **Completeness fallback**
+   - 두 후보가 모두 가능한 경우, 5개 필드(제조회사/기기형식/형식승인번호/형식승인일/기기고유번호)가 **가장 완전하게 표기된 라벨**을 선택한다.
+
+Once the single correct label is selected, extract ONLY from that label.
 
 FIELDS TO EXTRACT (keys must be exactly these five, in Korean):
 - 제조회사 (Manufacturer)
@@ -568,28 +600,31 @@ FIELDS TO EXTRACT (keys must be exactly these five, in Korean):
 - 형식승인일 (Type Approval Date)
 - 기기고유번호 (Serial Number / S/N)
 
-If a field is missing or unreadable, return an empty string "" as its value.
-Do not omit any key from the JSON structure.
+If a field is missing or unreadable on the selected label, return an empty string "" as its value. Do not omit any key from the JSON structure.
 
 STRUCTURE DETAILS:
 - Each field name (e.g., 제조회사, 기기형식, 형식승인번호, 형식승인일, 기기고유번호) appears next to or above its corresponding value.
-- Some fields may span multiple lines due to small cell sizes. Merge split lines into a single string separated by a single space.
-- Extract the value that is directly associated with the labeled field (nearest cell/line to the right or below the label).
+- Some fields may span multiple lines due to small cell sizes. Merge wrapped lines into a single string separated by a single space.
+- Extract the value directly associated with the labeled field (nearest cell/line to the right or below the label).
 
 CRITICAL RULES:
 1) Date Format:
    - Convert all detected dates to YYYY-MM-DD (zero-padded): e.g., 2017.8.1 → 2017-08-01, 2017년 8월 21일 → 2017-08-21.
    - If only year-month is visible (e.g., 2017-08), return "" (do not guess the day).
+
 2) Type Approval Number Format:
    - The value for '형식승인번호' must START with '제' and END with '호'.
-   - If the label shows a core ID like WTMS-TN-2017-4, return '제WTMS-TN-2017-4호'.
+   - If the label shows a core ID like WTMS-TN-2017-4 or DWMS-CM-2018-1, return '제WTMS-TN-2017-4호' or '제DWMS-CM-2018-1호'.
    - Remove surrounding spaces; preserve internal hyphens and alphanumerics as-is.
+
 3) Label-Value Matching:
    - Always match each value to the field name located immediately to its left or above.
    - Do not reuse a single text fragment for multiple fields unless it is explicitly repeated on the label.
+
 4) Multi-Line Handling:
    - Merge wrapped lines belonging to the same field into a single line with single spaces.
    - Normalize consecutive spaces to a single space; trim leading/trailing spaces.
+
 5) Field Exclusivity:
    - Extract ONLY the five fields listed above. Do not infer, predict, or include any other information.
 
