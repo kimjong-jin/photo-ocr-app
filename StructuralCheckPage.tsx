@@ -37,6 +37,7 @@ import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { ChecklistSnapshot } from './components/structural/ChecklistSnapshot';
 import PasswordModal from './components/PasswordModal';
 import MapView from './components/MapView';
+import { callVllmApi, VllmMessage } from '@/services/vllmService';
 
 
 export interface JobPhoto extends ImageInfo {
