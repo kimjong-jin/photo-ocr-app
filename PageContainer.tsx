@@ -753,33 +753,94 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
   const isCsvPage = activePage === 'csvGraph';
 
-  const renderActivePage = () => {
-    switch(activePage) {
-      case 'photoLog':
-        return <PhotoLogPage userName={userName} jobs={photoLogJobs} setJobs={setPhotoLogJobs} activeJobId={activePhotoLogJobId} setActiveJobId={setActivePhotoLogJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeletePhotoLogJob} />;
-      case 'fieldCount':
-        return <FieldCountPage userName={userName} jobs={fieldCountJobs} setJobs={setFieldCountJobs} activeJobId={activeFieldCountJobId} setActiveJobId={setActiveFieldCountJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteFieldCountJob} />;
-      case 'drinkingWater':
-        return <DrinkingWaterPage userName={userName} jobs={drinkingWaterJobs} setJobs={setDrinkingWaterJobs} activeJobId={activeDrinkingWaterJobId} setActiveJobId={setActiveDrinkingWaterJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteDrinkingWaterJob} />;
-      case 'structuralCheck':
-        return <StructuralCheckPage 
-                  userName={userName} 
-                  jobs={structuralCheckJobs} 
-                  setJobs={setStructuralCheckJobs} 
-                  activeJobId={activeStructuralCheckJobId} 
-                  setActiveJobId={setActiveStructuralCheckJobId} 
-                  siteName={siteNameOnly} 
-                  onDeleteJob={handleDeleteStructuralCheckJob}
-                  currentGpsAddress={currentGpsAddress}
-                />;
-      case 'kakaoTalk':
-        return <KakaoTalkPage userName={userName} userContact={userContact} />;
-      case 'csvGraph':
-        return <CsvGraphPage userName={userName} jobs={csvGraphJobs} setJobs={setCsvGraphJobs} activeJobId={activeCsvGraphJobId} setActiveJobId={setActiveCsvGraphJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteCsvGraphJob} />;
-      default:
-        return null;
-    }
-  };
+const renderActivePage = () => {
+  switch (activePage) {
+    case 'photoLog':
+      return (
+        <PhotoLogPage
+          userName={userName}
+          jobs={photoLogJobs}
+          setJobs={setPhotoLogJobs}
+          activeJobId={activePhotoLogJobId}
+          setActiveJobId={setActivePhotoLogJobId}
+          siteName={siteNameOnly}
+          siteLocation={finalSiteLocation}
+          onDeleteJob={handleDeletePhotoLogJob}
+          apiMode={apiMode}            // ← 추가
+        />
+      );
+
+    case 'fieldCount':
+      return (
+        <FieldCountPage
+          userName={userName}
+          jobs={fieldCountJobs}
+          setJobs={setFieldCountJobs}
+          activeJobId={activeFieldCountJobId}
+          setActiveJobId={setActiveFieldCountJobId}
+          siteName={siteNameOnly}
+          siteLocation={finalSiteLocation}
+          onDeleteJob={handleDeleteFieldCountJob}
+          apiMode={apiMode}            // ← 추가
+        />
+      );
+
+    case 'drinkingWater':
+      return (
+        <DrinkingWaterPage
+          userName={userName}
+          jobs={drinkingWaterJobs}
+          setJobs={setDrinkingWaterJobs}
+          activeJobId={activeDrinkingWaterJobId}
+          setActiveJobId={setActiveDrinkingWaterJobId}
+          siteName={siteNameOnly}
+          siteLocation={finalSiteLocation}
+          onDeleteJob={handleDeleteDrinkingWaterJob}
+          apiMode={apiMode}            // ← (해당 페이지에서 AI 쓰면 유지, 아니면 제거 가능)
+        />
+      );
+
+    case 'structuralCheck':
+      return (
+        <StructuralCheckPage
+          userName={userName}
+          jobs={structuralCheckJobs}
+          setJobs={setStructuralCheckJobs}
+          activeJobId={activeStructuralCheckJobId}
+          setActiveJobId={setActiveStructuralCheckJobId}
+          siteName={siteNameOnly}
+          onDeleteJob={handleDeleteStructuralCheckJob}
+          currentGpsAddress={currentGpsAddress}
+          apiMode={apiMode}
+        />
+      );
+
+    case 'kakaoTalk':
+      return (
+        <KakaoTalkPage
+          userName={userName}
+          userContact={userContact}
+        />
+      );
+
+    case 'csvGraph':
+      return (
+        <CsvGraphPage
+          userName={userName}
+          jobs={csvGraphJobs}
+          setJobs={setCsvGraphJobs}
+          activeJobId={activeCsvGraphJobId}
+          setActiveJobId={setActiveCsvGraphJobId}
+          siteLocation={finalSiteLocation}
+          onDeleteJob={handleDeleteCsvGraphJob}
+          apiMode={apiMode}
+        />
+      );
+
+    default:
+      return null;
+  }
+};
 
   const showTaskManagement = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck', 'csvGraph'].includes(activePage);
 
