@@ -290,12 +290,14 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isDownloadingStamped, setIsDownloadingStamped] = useState<boolean>(false);
   const [processingError, setProcessingError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const [isSendingToClaydox, setIsSendingToClaydox] = useState<boolean>(false);
   const [isKtlPreflightModalOpen, setIsKtlPreflightModalOpen] = useState<boolean>(false);
   const [ktlPreflightData, setKtlPreflightData] = useState<KtlPreflightData | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState<number>(-1);
   const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
+  const [singleAnalysisDate, setSingleAnalysisDate] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -310,6 +312,19 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     }
     return 'idle';
   }, [activeJob]);
+
+  useEffect(() => {
+    setSingleAnalysisDate('');
+    setSuccessMessage(null);
+    setProcessingError(null);
+  }, [activeJobId]);
+
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
 
   useEffect(() => {
     if (activeJob) {
@@ -673,6 +688,94 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     }
   }, [activeJob, siteLocation, updateActiveJob]);
 
+  const handleAnalyzeSinglePhoto = useCallback(async () => {
+    if (!activeJob || currentImageIndex < 0) {
+      setProcessingError("먼저 분석할 사진을 선택해주세요.");
+      return;
+    }
+    if (!singleAnalysisDate) {
+      setProcessingError("분석 기준 날짜를 입력해주세요.");
+      return;
+    }
+
+    setIsLoading(true);
+    setProcessingError(null);
+    setSuccessMessage(null);
+
+    const photoToAnalyze = activeJob.photos[currentImageIndex];
+    let newRawEntries: RawEntryUnion[] = [];
+
+    try {
+        let responseSchema;
+        if (activeJob.selectedItem === "TN/TP") {
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING } }, required: ["time"] } };
+        } else {
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value: { type: Type.STRING } }, required: ["time", "value"] } };
+        }
+        
+        const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, singleAnalysisDate);
+        const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
+        const jsonStr = await extractTextFromImage(photoToAnalyze.base64, photoToAnalyze.mimeType, prompt, modelConfig);
+        const jsonData = JSON.parse(jsonStr) as RawEntryUnion[];
+        
+        if (Array.isArray(jsonData)) {
+            newRawEntries.push(...jsonData);
+        } else {
+            throw new Error(`AI가 유효한 배열을 반환하지 않았습니다.`);
+        }
+        
+        if (newRawEntries.length > 0) {
+            const newExtractedEntries: ExtractedEntry[] = newRawEntries.map((rawEntry: RawEntryUnion) => {
+                let primaryValue = '', tpValue: string | undefined = undefined;
+                if (activeJob.selectedItem === "TN/TP") {
+                    primaryValue = (rawEntry as RawEntryTnTp).value_tn || '';
+                    tpValue = (rawEntry as RawEntryTnTp).value_tp;
+                } else {
+                    primaryValue = (rawEntry as RawEntrySingle).value || '';
+                }
+
+                const aiTime = rawEntry.time;
+                let timePart = "00:00"; // Default
+                // Robustly find HH:MM:SS or HH:MM, not matching parts of dates like '24' in '2024'.
+                // Looks for a time pattern preceded by a space, 'T', or the start of the string.
+                const timeMatch = aiTime.match(/(?:\s|T|^)(\d{1,2}:\d{2}(?::\d{2})?)/);
+                if (timeMatch && timeMatch[1]) {
+                    timePart = timeMatch[1];
+                } else {
+                    console.warn(`AI response "${aiTime}" did not contain a recognizable time component. Defaulting to '00:00'.`);
+                }
+
+                const finalTimestamp = `${singleAnalysisDate} ${timePart}`;
+                
+                return { id: self.crypto.randomUUID(), time: finalTimestamp.replace(/-/g, '/'), value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
+            });
+
+            const combinedData = [...(activeJob.processedOcrData || []), ...newExtractedEntries];
+
+            combinedData.sort((a, b) => {
+                try {
+                    const dateA = new Date(a.time.replace(/\//g, '-').replace(' ', 'T')).getTime();
+                    const dateB = new Date(b.time.replace(/\//g, '-').replace(' ', 'T')).getTime();
+                    if (isNaN(dateA) || isNaN(dateB)) return a.time.localeCompare(b.time);
+                    return dateA - dateB;
+                } catch {
+                    return a.time.localeCompare(b.time);
+                }
+            });
+
+            updateActiveJob(j => ({ ...j, processedOcrData: combinedData }));
+            setSuccessMessage("현재 사진 분석이 완료되었습니다.");
+
+        } else {
+            setProcessingError("AI가 현재 사진에서 유효한 데이터를 추출하지 못했습니다.");
+        }
+    } catch (e: any) {
+        setProcessingError(e.message || "데이터 추출 중 알 수 없는 오류가 발생했습니다.");
+    } finally {
+        setIsLoading(false);
+    }
+  }, [activeJob, currentImageIndex, singleAnalysisDate, siteLocation, updateActiveJob]);
+
   const generatePromptForLogFileAnalysis = (): string => {
     return `You are an expert data extraction assistant. Your task is to analyze an image of a data log screen titled 'FrmViewLog' and extract the tabular data into a structured JSON format.
   
@@ -820,6 +923,14 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             isRuleMatched: false
         };
         const updatedData = [...(job.processedOcrData || []), newEntry];
+        return { ...job, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined };
+    });
+  }, [updateActiveJob]);
+
+  const handleDeleteEntry = useCallback((entryId: string) => {
+    updateActiveJob(job => {
+        if (!job.processedOcrData) return job;
+        const updatedData = job.processedOcrData.filter(entry => entry.id !== entryId);
         return { ...job, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined };
     });
   }, [updateActiveJob]);
@@ -1261,6 +1372,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             ktlApiCallStatus={ocrControlsKtlStatus}
             onAutoAssignIdentifiers={showAutoAssignIdentifiers ? handleAutoAssignIdentifiers : undefined}
             isAutoAssignDisabled={isControlsDisabled || !activeJob.processedOcrData}
+            onAnalyzeSinglePhoto={handleAnalyzeSinglePhoto}
+            isAnalyzeSingleDisabled={isControlsDisabled || currentImageIndex === -1 || !singleAnalysisDate}
+            singleAnalysisDate={singleAnalysisDate}
+            onSingleAnalysisDateChange={setSingleAnalysisDate}
           />
   
           {showRangeDifferenceDisplay && (
@@ -1270,6 +1385,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
           <OcrResultDisplay
             ocrData={activeJob.processedOcrData}
             error={processingError}
+            successMessage={successMessage}
             isLoading={isLoading}
             contextProvided={!!(activeJob.receiptNumber && siteLocation)}
             hasImage={activeJob.photos.length > 0}
@@ -1280,6 +1396,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             onEntryPrimaryValueChange={(id, val) => handleEntryChange(id, 'value', val)}
             onEntryValueTPChange={(id, val) => handleEntryChange(id, 'valueTP', val)}
             onAddEntry={handleAddEntry}
+            onDeleteEntry={handleDeleteEntry}
             onReorderRows={handleReorderRows}
             availableIdentifiers={availableIdentifiers}
             tnIdentifiers={availableTnIdentifiers}
