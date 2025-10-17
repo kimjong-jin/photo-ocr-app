@@ -21,6 +21,10 @@ interface OcrControlsProps {
   isAutoAssignDisabled?: boolean;
   onExtractLogFile?: () => void;
   isExtractLogFileDisabled?: boolean;
+  onAnalyzeSinglePhoto?: () => void;
+  isAnalyzeSingleDisabled?: boolean;
+  singleAnalysisDate?: string;
+  onSingleAnalysisDateChange?: (date: string) => void;
 }
 
 const SparklesIcon: React.FC = () => (
@@ -75,53 +79,88 @@ export const OcrControls: React.FC<OcrControlsProps> = ({
   onAutoAssignIdentifiers,
   isAutoAssignDisabled,
   onExtractLogFile,
-  isExtractLogFileDisabled
+  isExtractLogFileDisabled,
+  onAnalyzeSinglePhoto,
+  isAnalyzeSingleDisabled,
+  singleAnalysisDate,
+  onSingleAnalysisDateChange,
 }) => {
   const [startRow, setStartRow] = useState('');
   const [endRow, setEndRow] = useState('');
-  const baseInputClassSmall = "w-full bg-slate-700 p-2 border border-slate-600 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400 text-slate-200";
+  const baseInputClassSmall = "w-full bg-slate-700 p-2.5 border border-slate-500 rounded-md text-sm focus:ring-sky-500 focus:border-sky-500 placeholder-slate-400 text-slate-200";
 
   return (
     <div className="space-y-4 pt-2">
-      {(onExtract || onExtractLogFile) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {onExtract && (
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {onExtract && (
+          <ActionButton
+            onClick={onExtract}
+            disabled={isExtractDisabled}
+            icon={<SparklesIcon />}
+            fullWidth
+            variant="primary"
+            aria-label="실시간 계측기 화면 이미지에서 시간과 값 데이터를 추출합니다."
+          >
+            전체 분석
+          </ActionButton>
+        )}
+        {onExtractLogFile && (
+          <ActionButton
+            onClick={onExtractLogFile}
+            disabled={isExtractLogFileDisabled}
+            icon={<LogFileIcon />}
+            fullWidth
+            variant="secondary"
+            aria-label="표 형식의 로그 파일 이미지에서 전체 데이터를 추출합니다."
+          >
+            표 분석(위코테크 등)
+          </ActionButton>
+        )}
+      </div>
+
+      {onAnalyzeSinglePhoto && onSingleAnalysisDateChange && (
+        <div className="p-3 bg-slate-700/30 rounded-md border border-slate-600/50">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+            <div>
+              <label htmlFor="single-analysis-date" className="block text-sm font-medium text-slate-300 mb-1">
+                분석 기준 날짜
+              </label>
+              <input
+                type="date"
+                id="single-analysis-date"
+                value={singleAnalysisDate}
+                onChange={(e) => onSingleAnalysisDateChange(e.target.value)}
+                className={baseInputClassSmall}
+                aria-label="현재 사진 분석 기준 날짜"
+                disabled={isExtractDisabled}
+              />
+            </div>
             <ActionButton
-              onClick={onExtract}
-              disabled={isExtractDisabled}
+              onClick={onAnalyzeSinglePhoto}
+              disabled={isAnalyzeSingleDisabled}
               icon={<SparklesIcon />}
-              fullWidth
               variant="primary"
-              aria-label="실시간 계측기 화면 이미지에서 시간과 값 데이터를 추출합니다."
-            >
-              화면 분석
-            </ActionButton>
-          )}
-          {onExtractLogFile && (
-            <ActionButton
-              onClick={onExtractLogFile}
-              disabled={isExtractLogFileDisabled}
-              icon={<LogFileIcon />}
               fullWidth
-              variant="secondary"
-              aria-label="표 형식의 로그 파일 이미지에서 전체 데이터를 추출합니다."
+              className="bg-violet-600 hover:bg-violet-500 focus:ring-violet-500"
+              aria-label="현재 선택된 사진 한 장만 분석하여 기존 데이터에 추가합니다."
             >
-              표 분석
+              현재 사진 분석(시마즈 등)
             </ActionButton>
-          )}
-          {onDownloadStampedImages && (
-            <ActionButton
-              onClick={onDownloadStampedImages}
-              disabled={isDownloadStampedDisabled}
-              icon={isDownloadingStamped ? <Spinner size="sm" /> : <DownloadIcon />}
-              fullWidth
-              variant="secondary"
-              aria-label="입력 정보가 스탬프된 이미지 다운로드"
-            >
-              {isDownloadingStamped ? '다운로드 중...' : '스탬프 이미지 다운로드'}
-            </ActionButton>
-          )}
+          </div>
         </div>
+      )}
+
+      {onDownloadStampedImages && (
+        <ActionButton
+          onClick={onDownloadStampedImages}
+          disabled={isDownloadStampedDisabled}
+          icon={isDownloadingStamped ? <Spinner size="sm" /> : <DownloadIcon />}
+          fullWidth
+          variant="secondary"
+          aria-label="입력 정보가 스탬프된 이미지 다운로드"
+        >
+          {isDownloadingStamped ? '다운로드 중...' : '스탬프 이미지 다운로드'}
+        </ActionButton>
       )}
 
       {onAutoAssignIdentifiers && (
