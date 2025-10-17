@@ -3,6 +3,7 @@
 
 
 
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -37,6 +38,7 @@ import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { ChecklistSnapshot } from './components/structural/ChecklistSnapshot';
 import PasswordModal from './components/PasswordModal';
 import MapView from './components/MapView';
+import { preprocessImageForGemini } from './services/imageProcessingService';
 
 
 export interface JobPhoto extends ImageInfo {
@@ -553,7 +555,7 @@ If TWO OR MORE labels exist (e.g., 탁도 + 잔류염소 각각의 형식승인�
 
 1) **Descriptor-first rule (한글 서술문 우선)**
    - Read the Korean descriptor sentence inside/near the label (e.g., "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기",
-     "총질소 연속자동측정기와 그 부속기기", "총인 연속자동측정기와 그 부속기기").
+     "총질소 연속자동측정기와 그 부속기기", "총인   연속자동측정기와 그 부속기기").
    - Choose the label whose descriptor BEST MATCHES "${mainItemName}".
      • 탁도 ↔ "탁도 연속자동측정기와 그 부속기기"
      • 잔류염소 ↔ "잔류염소 연속자동측정기와 그 부속기기"
@@ -676,7 +678,12 @@ OUTPUT FORMAT:
     }
 
     try {
-        const resultText = (await extractTextFromImage(photoToProcess.base64, photoToProcess.mimeType, prompt, modelConfig)).trim();
+        const { base64: processedBase64, mimeType: processedMimeType } = await preprocessImageForGemini(photoToProcess.file, {
+            maxWidth: 1600,
+            jpegQuality: 0.9,
+            grayscale: true,
+        });
+        const resultText = (await extractTextFromImage(processedBase64, processedMimeType, prompt, modelConfig)).trim();
         
         if (itemNameForAnalysis === "정도검사 증명서") {
             const newCertDetails = JSON.parse(resultText) as Partial<CertificateDetails>;
