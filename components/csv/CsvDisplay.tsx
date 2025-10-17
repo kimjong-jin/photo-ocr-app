@@ -120,7 +120,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   const [dragStart, setDragStart] = useState<{ x: number; timestamp: number } | null>(null);
   const [dragEnd, setDragEnd] = useState<{ x: number } | null>(null);
-  const touchState = useRef<{ lastTouches: React.Touch[] }>({ lastTouches: [] });
+  // FIX: Change React.Touch[] to Touch[] to match the type from DOM touch events, resolving errors when accessing properties like clientX.
+  const touchState = useRef<{ lastTouches: Touch[] }>({ lastTouches: [] });
   const longPressTimer = useRef<number | null>(null);
   const touchStartPos = useRef<{ x: number; y: number; time: number } | null>(null);
 
@@ -461,9 +462,13 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         return null;
     };
 
+    // FIX: Use native event touches (`event.nativeEvent.touches`) to get native Touch objects.
+    // This aligns with the `Touch[]` type expected by `touchState` and resolves the type error.
     const handleTouchStart = (event: React.TouchEvent<HTMLCanvasElement>) => {
         event.preventDefault();
-        const touch = event.touches[0];
+        // FIX: Add a guard to ensure a touch point exists before accessing its properties to resolve type errors.
+        if (event.nativeEvent.touches.length === 0) return;
+        const touch = event.nativeEvent.touches[0];
         touchStartPos.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
 
         if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -479,14 +484,21 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             }
         }, 500);
 
-        touchState.current.lastTouches = Array.from(event.touches);
+        touchState.current.lastTouches = Array.from(event.nativeEvent.touches);
     };
 
+    // FIX: Use native event touches (`event.nativeEvent.touches`) to get native Touch objects.
     const handleTouchMove = (event: React.TouchEvent<HTMLCanvasElement>) => {
         event.preventDefault();
+        
+        // FIX: Add a guard to ensure touch points exist before accessing their properties to resolve type errors.
+        const touch = event.nativeEvent.touches[0];
+        if (!touch) {
+            touchState.current.lastTouches = Array.from(event.nativeEvent.touches); // Update with empty array
+            return;
+        }
 
         if (longPressTimer.current && touchStartPos.current) {
-            const touch = event.touches[0];
             const dx = Math.abs(touch.clientX - touchStartPos.current.x);
             const dy = Math.abs(touch.clientY - touchStartPos.current.y);
             if (dx > 10 || dy > 10) {
@@ -496,7 +508,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
         
         if (draggingPoint) {
-            const touch = event.touches[0];
             const { x } = getCanvasCoords(touch.clientX, touch.clientY, event.currentTarget);
             const closestDataPoint = findClosestDataPointToX(x);
             if (closestDataPoint) {
@@ -509,7 +520,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
 
         const last = touchState.current.lastTouches;
-        const current = Array.from(event.touches);
+        const current = Array.from(event.nativeEvent.touches);
         const padding = { top: 50, right: 80, bottom: 40, left: 60 };
         const graphWidth = width - padding.left - padding.right;
         if (graphWidth <= 0) return;
@@ -536,13 +547,16 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         touchState.current.lastTouches = current;
     };
 
+    // FIX: Use native event touches (`event.nativeEvent.touches` and `event.nativeEvent.changedTouches`).
     const handleTouchEnd = (event: React.TouchEvent<HTMLCanvasElement>) => {
         if (longPressTimer.current) {
             clearTimeout(longPressTimer.current);
             longPressTimer.current = null;
             if (touchStartPos.current) {
                 const duration = Date.now() - touchStartPos.current.time;
-                const lastTouch = event.changedTouches[0];
+                // FIX: Add a guard to ensure a touch point exists before accessing its properties to resolve type errors.
+                if (event.nativeEvent.changedTouches.length === 0) return;
+                const lastTouch = event.nativeEvent.changedTouches[0];
                 const dx = Math.abs(lastTouch.clientX - touchStartPos.current.x);
                 const dy = Math.abs(lastTouch.clientY - touchStartPos.current.y);
                 if (duration < 300 && dx < 10 && dy < 10) {
@@ -553,7 +567,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
         if (draggingPoint) setDraggingPoint(null);
         touchStartPos.current = null;
-        touchState.current.lastTouches = Array.from(event.touches);
+        touchState.current.lastTouches = Array.from(event.nativeEvent.touches);
     };
 
   useEffect(() => {
@@ -1715,7 +1729,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                     <div className="space-y-3">
                         <h3 className="text-lg font-semibold text-slate-100">분석 단계</h3>
                         {isUnderConstruction && (
-                            <div className="p-3 bg-amber-800/30 border border-amber-600/50 text-amber-300 rounded-md text-center text-sm">
+                            <div className="p-3 bg-amber-800/30 border border-amber-600/50 text-amber-300 rounded-md text-sm">
                                 <p><strong>'{activeJob.sensorType}'</strong> 기능은 현재 구축 중입니다.</p>
                                 <p>수동 분석 및 초기화만 사용 가능합니다.</p>
                             </div>
