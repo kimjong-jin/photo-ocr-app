@@ -1315,15 +1315,43 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                       <label htmlFor="inspection-start-date" className="block text-sm font-medium text-slate-300 mb-1">검사 시작일 (선택)</label>
-                      <input type="date" id="inspection-start-date" value={activeJob.inspectionStartDate || ''}
-                             onChange={(e) => updateActiveJob(j => ({ ...j, inspectionStartDate: e.target.value }))}
-                             className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm" />
+                      <div className="relative">
+                        <input type="date" id="inspection-start-date" value={activeJob.inspectionStartDate || ''}
+                                onChange={(e) => updateActiveJob(j => ({ ...j, inspectionStartDate: e.target.value }))}
+                                className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm pr-9" />
+                        {activeJob.inspectionStartDate && (
+                            <button
+                                type="button"
+                                onClick={() => updateActiveJob(j => ({ ...j, inspectionStartDate: undefined }))}
+                                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white"
+                                aria-label="검사 시작일 지우기"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                </svg>
+                            </button>
+                        )}
+                      </div>
                   </div>
                   <div>
                       <label htmlFor="inspection-end-date" className="block text-sm font-medium text-slate-300 mb-1">검사 종료일 (선택)</label>
-                      <input type="date" id="inspection-end-date" value={activeJob.inspectionEndDate || ''}
-                             onChange={(e) => updateActiveJob(j => ({ ...j, inspectionEndDate: e.target.value }))}
-                             className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm" />
+                      <div className="relative">
+                        <input type="date" id="inspection-end-date" value={activeJob.inspectionEndDate || ''}
+                                onChange={(e) => updateActiveJob(j => ({ ...j, inspectionEndDate: e.target.value }))}
+                                className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm pr-9" />
+                        {activeJob.inspectionEndDate && (
+                            <button
+                                type="button"
+                                onClick={() => updateActiveJob(j => ({ ...j, inspectionEndDate: undefined }))}
+                                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white"
+                                aria-label="검사 종료일 지우기"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                </svg>
+                            </button>
+                        )}
+                      </div>
                   </div>
               </div>
                <p className="text-xs text-slate-400">검사 시작/종료일은 AI 분석 시 시간(Time) 값의 날짜 부분을 완성하는 데 사용됩니다.</p>
