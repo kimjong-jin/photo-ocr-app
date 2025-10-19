@@ -1,5 +1,5 @@
 // FIX: The ExtractedEntry type should be imported from the shared types definition file.
-import type { ExtractedEntry } from '../shared/types';
+import { ExtractedEntry } from '../shared/types';
 
 interface ConcentrationBoundaries {
     overallMin: number;
@@ -168,12 +168,43 @@ export const autoAssignIdentifiersByConcentration = (
         }
     }
 
-    // 5순위: LH 패턴 (가장 먼저 발견되는 하나만)
-    findAndAssignConsecutivePattern(
-        ['low', 'high'],
-        ['Z5', 'S5'],
-        ['Z5P', 'S5P']
-    );
+    // 5순위: LH 패턴 (우선순위 구간에서 하나만)
+    const assignLHInWindow = (start: number, end: number) => {
+        for (let i = start; i <= end - 1; i++) {
+            const a = dataWithMeta[i];
+            const b = dataWithMeta[i + 1];
+            if (!a || !b) continue;
+            if (consumedIndices.has(a.index) || consumedIndices.has(b.index)) continue;
+            if (a.concentration === 'low' && b.concentration === 'high') {
+                assignments[a.index].tn = 'Z5';
+                assignments[b.index].tn = 'S5';
+                if (isTpMode) {
+                    assignments[a.index].tp = 'Z5P';
+                    assignments[b.index].tp = 'S5P';
+                }
+                consumedIndices.add(a.index);
+                consumedIndices.add(b.index);
+                return true;
+            }
+        }
+        return false;
+    };
+
+    (() => {
+        if (dataWithMeta.length < 2) return;
+        const used = Array.from(consumedIndices).sort((x, y) => x - y);
+        const firstUsed = used.length ? used[0] : 0;
+        const lastUsed = used.length ? used[used.length - 1] : (dataWithMeta.length - 1);
+
+        // 1) 소비된 블록 사이(갭) 우선
+        if (assignLHInWindow(firstUsed, lastUsed)) return;
+
+        // 2) 마지막 소비 이후
+        if (assignLHInWindow(lastUsed + 1, dataWithMeta.length - 1)) return;
+
+        // 3) 처음 소비 이전
+        assignLHInWindow(0, Math.max(0, firstUsed - 1));
+    })();
 
     return assignments;
 };
