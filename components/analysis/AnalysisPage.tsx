@@ -37,6 +37,7 @@ import type {
   ExtractedEntry,
   ConcentrationBoundaries,
 } from '../../shared/types';
+import { preprocessImageForGemini } from '../../services/imageProcessingService';
 
 type AppRangeResults = DisplayRangeResults;
 type KtlApiCallStatus = 'idle' | 'success' | 'error';
@@ -575,7 +576,16 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                 const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, activeJob.inspectionStartDate, activeJob.inspectionEndDate);
                 const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
                 
-                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
+                const { base64: processedBase64, mimeType: processedMimeType } = await preprocessImageForGemini(
+                    image.file,
+                    {
+                        maxWidth: 1600,
+                        jpegQuality: 0.9,
+                        grayscale: true,
+                    }
+                );
+                
+                jsonStr = await extractTextFromImage(processedBase64, processedMimeType, prompt, modelConfig);
                 
                 const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
                 if (Array.isArray(jsonDataFromImage)) {
@@ -715,7 +725,17 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         
         const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, singleAnalysisDate);
         const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
-        const jsonStr = await extractTextFromImage(photoToAnalyze.base64, photoToAnalyze.mimeType, prompt, modelConfig);
+
+        const { base64: processedBase64, mimeType: processedMimeType } = await preprocessImageForGemini(
+            photoToAnalyze.file,
+            {
+                maxWidth: 1600,
+                jpegQuality: 0.9,
+                grayscale: true,
+            }
+        );
+
+        const jsonStr = await extractTextFromImage(processedBase64, processedMimeType, prompt, modelConfig);
         const jsonData = JSON.parse(jsonStr) as RawEntryUnion[];
         
         if (Array.isArray(jsonData)) {
@@ -836,7 +856,15 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const imageProcessingPromises = activeJob.photos.map(async (image) => {
             let jsonStr: string = "";
             try {
-                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
+                const { base64: processedBase64, mimeType: processedMimeType } = await preprocessImageForGemini(
+                    image.file,
+                    {
+                        maxWidth: 1600,
+                        jpegQuality: 0.9,
+                        grayscale: true,
+                    }
+                );
+                jsonStr = await extractTextFromImage(processedBase64, processedMimeType, prompt, modelConfig);
                 const jsonDataFromImage = JSON.parse(jsonStr) as RawLogEntry[];
                 if (Array.isArray(jsonDataFromImage)) {
                     return { status: 'fulfilled', value: jsonDataFromImage };
