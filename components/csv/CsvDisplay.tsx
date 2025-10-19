@@ -492,11 +492,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         event.preventDefault();
         
         // FIX: Add a guard to ensure touch points exist before accessing their properties to resolve type errors.
-        const touch = event.nativeEvent.touches[0];
-        if (!touch) {
+        if (event.nativeEvent.touches.length === 0) {
             touchState.current.lastTouches = Array.from(event.nativeEvent.touches); // Update with empty array
             return;
         }
+        const touch = event.nativeEvent.touches[0];
 
         if (longPressTimer.current && touchStartPos.current) {
             const dx = Math.abs(touch.clientX - touchStartPos.current.x);
