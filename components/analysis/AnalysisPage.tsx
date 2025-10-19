@@ -37,7 +37,6 @@ import type {
   ExtractedEntry,
   ConcentrationBoundaries,
 } from '../../shared/types';
-import { preprocessImageForGemini } from '../../services/imageProcessingService';
 
 type AppRangeResults = DisplayRangeResults;
 type KtlApiCallStatus = 'idle' | 'success' | 'error';
@@ -573,16 +572,10 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const imageProcessingPromises = activeJob.photos.map(async (image) => {
             let jsonStr: string = "";
             try {
-                const { base64: processedBase64, mimeType: processedMimeType } = await preprocessImageForGemini(image.file, {
-                    maxWidth: 1600,
-                    jpegQuality: 0.9,
-                    grayscale: true,
-                });
-
                 const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, activeJob.inspectionStartDate, activeJob.inspectionEndDate);
                 const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
                 
-                jsonStr = await extractTextFromImage(processedBase64, processedMimeType, prompt, modelConfig);
+                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
                 
                 const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
                 if (Array.isArray(jsonDataFromImage)) {
@@ -713,12 +706,6 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
     let newRawEntries: RawEntryUnion[] = [];
 
     try {
-        const { base64: processedBase64, mimeType: processedMimeType } = await preprocessImageForGemini(photoToAnalyze.file, {
-            maxWidth: 1600,
-            jpegQuality: 0.9,
-            grayscale: true,
-        });
-
         let responseSchema;
         if (activeJob.selectedItem === "TN/TP") {
             responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING } }, required: ["time"] } };
@@ -728,7 +715,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         
         const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, singleAnalysisDate);
         const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
-        const jsonStr = await extractTextFromImage(processedBase64, processedMimeType, prompt, modelConfig);
+        const jsonStr = await extractTextFromImage(photoToAnalyze.base64, photoToAnalyze.mimeType, prompt, modelConfig);
         const jsonData = JSON.parse(jsonStr) as RawEntryUnion[];
         
         if (Array.isArray(jsonData)) {
@@ -1316,41 +1303,41 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                   <div>
                       <label htmlFor="inspection-start-date" className="block text-sm font-medium text-slate-300 mb-1">검사 시작일 (선택)</label>
                       <div className="relative">
-                        <input type="date" id="inspection-start-date" value={activeJob.inspectionStartDate || ''}
-                                onChange={(e) => updateActiveJob(j => ({ ...j, inspectionStartDate: e.target.value }))}
-                                className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm pr-9" />
-                        {activeJob.inspectionStartDate && (
-                            <button
-                                type="button"
-                                onClick={() => updateActiveJob(j => ({ ...j, inspectionStartDate: undefined }))}
-                                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white"
-                                aria-label="검사 시작일 지우기"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                                </svg>
-                            </button>
-                        )}
+                          <input type="date" id="inspection-start-date" value={activeJob.inspectionStartDate || ''}
+                                 onChange={(e) => updateActiveJob(j => ({ ...j, inspectionStartDate: e.target.value }))}
+                                 className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm pr-9" />
+                          {activeJob.inspectionStartDate && (
+                              <button
+                                  type="button"
+                                  onClick={() => updateActiveJob(j => ({ ...j, inspectionStartDate: '' }))}
+                                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white"
+                                  aria-label="검사 시작일 지우기"
+                              >
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                  </svg>
+                              </button>
+                          )}
                       </div>
                   </div>
                   <div>
                       <label htmlFor="inspection-end-date" className="block text-sm font-medium text-slate-300 mb-1">검사 종료일 (선택)</label>
                       <div className="relative">
-                        <input type="date" id="inspection-end-date" value={activeJob.inspectionEndDate || ''}
-                                onChange={(e) => updateActiveJob(j => ({ ...j, inspectionEndDate: e.target.value }))}
-                                className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm pr-9" />
-                        {activeJob.inspectionEndDate && (
-                            <button
-                                type="button"
-                                onClick={() => updateActiveJob(j => ({ ...j, inspectionEndDate: undefined }))}
-                                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white"
-                                aria-label="검사 종료일 지우기"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                                </svg>
-                            </button>
-                        )}
+                          <input type="date" id="inspection-end-date" value={activeJob.inspectionEndDate || ''}
+                                 onChange={(e) => updateActiveJob(j => ({ ...j, inspectionEndDate: e.target.value }))}
+                                 className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm pr-9" />
+                          {activeJob.inspectionEndDate && (
+                              <button
+                                  type="button"
+                                  onClick={() => updateActiveJob(j => ({ ...j, inspectionEndDate: '' }))}
+                                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white"
+                                  aria-label="검사 종료일 지우기"
+                              >
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                  </svg>
+                              </button>
+                          )}
                       </div>
                   </div>
               </div>
