@@ -4,6 +4,8 @@
 
 
 
+
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -375,6 +377,14 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
         
         if (job.mainItemKey === 'Cl' && itemName === '검출장치') {
           updatedItemData.specialNotes = newStatus === '적합' ? '(전극식/시약식)에 따른 구성요소 확인 및 내식성 재질 사용, 세척 가능' : '';
+        }
+
+        if (job.mainItemKey === 'Cl' && itemName === '측정방법확인') {
+          if (newStatus === '적합' && !updatedItemData.notes) {
+            updatedItemData.notes = `${OTHER_DIRECT_INPUT_OPTION} (고시에 명시된 측정방법 확인 완료)`;
+          } else if (newStatus !== '적합' && updatedItemData.notes === `${OTHER_DIRECT_INPUT_OPTION} (고시에 명시된 측정방법 확인 완료)`) {
+            updatedItemData.notes = '';
+          }
         }
 
       } else {
