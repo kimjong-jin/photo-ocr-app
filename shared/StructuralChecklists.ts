@@ -145,7 +145,7 @@ export const MEASUREMENT_METHOD_OPTIONS: Partial<Record<MainStructuralItemKey, s
   PH: ["유리전극법", "안티몬전극법", OTHER_DIRECT_INPUT_OPTION],
   DO: ["격막형 포라로그라프식", "격막형 갈바니 전지식", "광학식", OTHER_DIRECT_INPUT_OPTION],
   TU: ["산란된 빛 검출", OTHER_DIRECT_INPUT_OPTION],
-  Cl: ["폴라로그래프전극법", "갈바닉전극법", "DPD-비색방식", "전류방식", OTHER_DIRECT_INPUT_OPTION],
+  Cl: ["고시에 명시된 측정방법 확인 완료", OTHER_DIRECT_INPUT_OPTION],
 };
 
 export const PREFERRED_MEASUREMENT_METHODS: Partial<Record<MainStructuralItemKey, string>> = {
@@ -154,6 +154,7 @@ export const PREFERRED_MEASUREMENT_METHODS: Partial<Record<MainStructuralItemKey
     SS: "광산란법",
     PH: "유리전극법",
     TU: "산란된 빛 검출",
+    Cl: "고시에 명시된 측정방법 확인 완료"
 };
 
 const sortRanges = (ranges: string[]): string[] => {
