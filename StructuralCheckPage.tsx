@@ -1,9 +1,4 @@
-
-
-
-
-
-
+"use client";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
@@ -33,13 +28,35 @@ import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightMo
 import { ImagePreview } from './components/ImagePreview';
 import { extractTextFromImage } from './services/geminiService';
 import type { GenerateContentParameters } from "@google/genai";
-import { Type } from '@google/genai';
 import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { ChecklistSnapshot } from './components/structural/ChecklistSnapshot';
 import PasswordModal from './components/PasswordModal';
-import MapView from './components/MapView';
 import { preprocessImageForGemini } from './services/imageProcessingService';
 
+const genUUID = (): string => {
+  if (typeof self !== 'undefined' && self.crypto?.randomUUID) {
+    return self.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+};
+
+async function captureWithRetry(
+  element: HTMLElement,
+  options: any,
+  retries = 2,
+  delay = 100
+): Promise<HTMLCanvasElement> {
+  try {
+    return await html2canvas(element, options);
+  } catch (error) {
+    if (retries > 0) {
+      console.warn(`html2canvas capture failed, retrying in ${delay}ms...`, error);
+      await new Promise(res => setTimeout(res, delay));
+      return captureWithRetry(element, options, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
 
 export interface JobPhoto extends ImageInfo {
   uid: string;
@@ -82,7 +99,14 @@ const CalendarIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 
 const sanitizeFilenameComponent = (component: string): string => {
   if (!component) return '';
-  return component.replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_').replace(/__+/g, '_');
+  let s = component
+    .replace(/[^\w.\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_');
+  s = s
+    .replace(/__+/g, '_')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^\.+/, '')
+    .replace(/\.+$/, '');
+  return s || 'untitled';
 };
 
 
@@ -320,7 +344,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
   }, [activeJobId, resetActiveJobSubmissionStatus]);
 
   const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
-    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: self.crypto.randomUUID() };
+    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: genUUID() };
     updateActiveJob(job => {
         const newPhotos = [...job.photos, capturedImageInfo];
         setCurrentPhotoIndexOfActiveJob(newPhotos.length - 1);
@@ -334,7 +358,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
 
   const handleActiveJobPhotosSet = useCallback((images: ImageInfo[]) => {
     if (!activeJobId || images.length === 0) return;
-    const photosWithId: JobPhoto[] = images.map(img => ({...img, uid: self.crypto.randomUUID()}));
+    const photosWithId: JobPhoto[] = images.map(img => ({...img, uid: genUUID()}));
     updateActiveJob(job => {
         const combined = [...job.photos, ...photosWithId];
         const unique = Array.from(new Map(combined.map(p => [`${p.file.name}-${p.file.size}`, p])).values());
@@ -513,15 +537,15 @@ CRITICAL FORMATTING RULES:
         modelConfig = {
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.OBJECT,
+            type: 'OBJECT',
             properties: {
-              productName: { type: Type.STRING, description: "품명 또는 모델명" },
-              manufacturer: { type: Type.STRING, description: "제작사" },
-              serialNumber: { type: Type.STRING, description: "제작번호 또는 기기번호" },
-              typeApprovalNumber: { type: Type.STRING, description: "The type approval number (형식승인번호). CRITICAL: Ensure the final value starts with '제' and ends with '호'." },
-              inspectionDate: { type: Type.STRING, description: "검사일자. CRITICAL: Format as YYYY-MM-DD." },
-              validity: { type: Type.STRING, description: "유효기간. CRITICAL: Format as YYYY-MM-DD." },
-              previousReceiptNumber: { type: Type.STRING, description: "직전 접수번호 (핵심 번호만)" },
+              productName: { type: 'STRING', description: "품명 또는 모델명" },
+              manufacturer: { type: 'STRING', description: "제작사" },
+              serialNumber: { type: 'STRING', description: "제작번호 또는 기기번호" },
+              typeApprovalNumber: { type: 'STRING', description: "The type approval number (형식승인번호). CRITICAL: Ensure the final value starts with '제' and ends with '호'." },
+              inspectionDate: { type: 'STRING', description: "검사일자. CRITICAL: Format as YYYY-MM-DD." },
+              validity: { type: 'STRING', description: "유효기간. CRITICAL: Format as YYYY-MM-DD." },
+              previousReceiptNumber: { type: 'STRING', description: "직전 접수번호 (핵심 번호만)" },
             },
             required: ["productName", "manufacturer", "serialNumber", "typeApprovalNumber", "inspectionDate", "validity", "previousReceiptNumber"],
           },
@@ -624,15 +648,16 @@ OUTPUT FORMAT:
         modelConfig = {
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.OBJECT,
+            type: 'OBJECT',
             properties: {
-              "제조회사": { type: Type.STRING },
-              "기기형식": { type: Type.STRING },
-              "형식승인번호": { type: Type.STRING },
-              "형식승인일": { type: Type.STRING },
-              "기기고유번호": { type: Type.STRING },
+              "제조회사": { type: 'STRING' },
+              "기기형식": { type: 'STRING' },
+              "형식승인번호": { type: 'STRING' },
+              "형식승인일": { type: 'STRING' },
+              "기기고유번호": { type: 'STRING' },
             },
             required: ["제조회사", "기기형식", "형식승인번호", "형식승인일", "기기고유번호"],
+            // @ts-ignore
             additionalProperties: false
           },
         };
@@ -757,8 +782,11 @@ OUTPUT FORMAT:
             setAnalysisStatusForPhotos(prev => {
                 const newStatus = { ...prev };
                 if (!newStatus[activeJobId!]) newStatus[activeJobId!] = {};
-                if (!newStatus[activeJobId!][currentPhotoIndexOfActiveJob]) newStatus[activeJobId!][currentPhotoIndexOfActiveJob] = new Set();
-                newStatus[activeJobId!][currentPhotoIndexOfActiveJob].add(itemNameForAnalysis);
+                const newJobStatus = { ...(newStatus[activeJobId!] || {}) };
+                const newPhotoSet = new Set(newJobStatus[currentPhotoIndexOfActiveJob] || []);
+                newPhotoSet.add(itemNameForAnalysis);
+                newJobStatus[currentPhotoIndexOfActiveJob] = newPhotoSet;
+                newStatus[activeJobId!] = newJobStatus;
                 return newStatus;
             });
             
@@ -806,7 +834,7 @@ OUTPUT FORMAT:
         }
 
         try {
-            const canvas = await html2canvas(elementToCapture, {
+            const canvas = await captureWithRetry(elementToCapture, {
                 backgroundColor: '#1e293b',
                 width: elementToCapture.offsetWidth,
                 height: elementToCapture.offsetHeight,
@@ -941,7 +969,7 @@ OUTPUT FORMAT:
                 const elementToCapture = document.getElementById(`snapshot-container-for-${job.id}`);
                 if (elementToCapture) {
                     try {
-                        const canvas = await html2canvas(elementToCapture, {
+                        const canvas = await captureWithRetry(elementToCapture, {
                             backgroundColor: '#1e293b',
                             width: elementToCapture.offsetWidth,
                             height: elementToCapture.offsetHeight,
