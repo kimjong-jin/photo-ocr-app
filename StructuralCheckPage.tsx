@@ -890,7 +890,8 @@ OUTPUT FORMAT:
         siteName,
         userName,
         currentGpsAddress,
-        onProgress
+        onProgress,
+        'p1_check'
       );
 
       if (result && result.success) {
@@ -978,7 +979,7 @@ OUTPUT FORMAT:
         setBatchSendProgress(`모든 체크리스트 이미지 생성 완료. KTL 서버로 전송합니다...`);
 
         try {
-            const results = await sendBatchStructuralChecksToKtlApi(jobs, generatedChecklistImages, siteName, userName, currentGpsAddress);
+            const results = await sendBatchStructuralChecksToKtlApi(jobs, generatedChecklistImages, siteName, userName, currentGpsAddress, 'p1_check');
             results.forEach(result => {
                 setJobs(prev => prev.map(j => (j.receiptNumber === result.receiptNo && (MAIN_STRUCTURAL_ITEMS.find(it => it.key === j.mainItemKey)?.name || j.mainItemKey) === result.mainItem)
                     ? { ...j, submissionStatus: result.success ? 'success' : 'error', submissionMessage: result.message }
