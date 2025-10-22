@@ -1,5 +1,6 @@
 import { ImageInfo as BaseImageInfo } from '../components/ImageInput';
 import { RangeResults } from '../components/RangeDifferenceDisplay';
+import { MainStructuralItemKey, StructuralCheckSubItemData } from './StructuralChecklists';
 
 export interface JobPhoto extends BaseImageInfo {
   uid: string;
@@ -42,4 +43,17 @@ export interface PhotoLogJob {
   submissionMessage?: string;
   inspectionStartDate?: string;
   inspectionEndDate?: string;
+}
+
+export interface StructuralJob {
+  id: string;
+  receiptNumber: string;
+  mainItemKey: MainStructuralItemKey;
+  checklistData: Record<string, StructuralCheckSubItemData>;
+  photos: JobPhoto[];
+  photoComments: Record<string, string>;
+  postInspectionDate: string; 
+  postInspectionDateConfirmedAt: string | null;
+  submissionStatus: 'idle' | 'sending' | 'success' | 'error';
+  submissionMessage?: string;
 }
