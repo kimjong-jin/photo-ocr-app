@@ -1,1198 +1,848 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import MapView from './components/MapView';
-import PhotoLogPage from './PhotoLogPage';
-import type { PhotoLogJob } from './shared/types';
-import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
-import FieldCountPage from './FieldCountPage';
-import StructuralCheckPage, { type StructuralJob } from './StructuralCheckPage';
-import { KakaoTalkPage } from './KakaoTalkPage';
-// FIX: Import CsvGraphJob and SensorType from their source file `types/csvGraph.ts`
-import CsvGraphPage from './CsvGraphPage';
-import type { CsvGraphJob, SensorType } from './types/csvGraph';
-import { Header } from './components/Header';
-import { Footer } from './components/Footer';
-import { ActionButton } from './components/ActionButton';
-import { UserRole } from './components/UserNameInput';
-import AdminPanel from './components/admin/AdminPanel';
-import { callSaveTempApi, callLoadTempApi, SaveDataPayload, LoadedData, SavedValueEntry } from './services/apiService';
-import { Spinner } from './components/Spinner';
-import {
-  MAIN_STRUCTURAL_ITEMS,
-  MainStructuralItemKey,
-  STRUCTURAL_ITEM_GROUPS,
-  CHECKLIST_DEFINITIONS,
-  CertificateDetails,
-  StructuralCheckSubItemData,
-  PREFERRED_MEASUREMENT_METHODS
-} from './shared/StructuralChecklists';
+
+
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { createRoot } from 'react-dom/client';
+import { OcrControls } from './components/OcrControls';
+import { OcrResultDisplay } from './components/OcrResultDisplay';
+import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview, getFileExtensionFromMime } from './services/claydoxApiService';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
-import { getKakaoAddress } from './services/kakaoService';
-import ApplicationOcrSection, { type Application } from './components/ApplicationOcrSection';
+import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
+import { ActionButton } from './components/ActionButton';
+import { ImageInput, ImageInfo } from './components/ImageInput';
+import { CameraView } from './components/CameraView';
+import { ImagePreview } from './components/ImagePreview';
+import { ThumbnailGallery } from './components/ThumbnailGallery';
+import { generateCompositeImage, generateStampedImage, dataURLtoBlob, compressImage } from './services/imageStampingService';
+import JSZip from 'jszip';
+import html2canvas from 'html2canvas';
+import { ExtractedEntry } from './shared/types';
+import PasswordModal from './components/PasswordModal';
+import { DrinkingWaterSnapshot } from './components/DrinkingWaterSnapshot';
+import { Spinner } from './components/Spinner';
 
 
-type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
-export type ApiMode = 'gemini' | 'vllm';
-
-interface PageContainerProps {
-  userName: string;
-  userRole: UserRole;
-  userContact: string;
-  onLogout: () => void;
+// --- Interfaces ---
+export interface DrinkingWaterJob {
+id: string;
+receiptNumber: string;
+selectedItem: string;
+details: string; // 상세 위치 (예: 배수지)
+processedOcrData: ExtractedEntry[] | null;
+decimalPlaces: number;
+decimalPlacesCl?: number;
+photos: ImageInfo[];
+submissionStatus: 'idle' | 'sending' | 'success' | 'error';
+submissionMessage?: string;
 }
 
-const LogoutIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props} className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m-3-3l-3 3m0 0l3 3m-3-3h12.75" />
-  </svg>
-);
-
-const SaveIcon: React.FC = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-  </svg>
-);
-
-const LoadIcon: React.FC = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-  </svg>
-);
-
-const GpsIcon: React.FC = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 01-9-9 9 9 0 019-9 9 9 0 019 9 9 9 0 01-9 9z" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m8-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707" />
-  </svg>
-);
-
-const ChevronDownIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-  </svg>
-);
-
-const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userContact, onLogout }) => {
-  const [activePage, setActivePage] = useState<Page>('structuralCheck');
-  const [receiptNumberCommon, setReceiptNumberCommon] = useState('');
-  const [receiptNumberDetail, setReceiptNumberDetail] = useState('');
-  const [siteName, setSiteName] = useState('');
-
-  const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [draftMessage, setDraftMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-
-  const [newItemKey, setNewItemKey] = useState<string>('');
-  const [newSensorType, setNewSensorType] = useState<SensorType>('먹는물 (TU/Cl)');
-  const [apiMode, setApiMode] = useState<ApiMode>('gemini');
-
-  const [photoLogJobs, setPhotoLogJobs] = useState<PhotoLogJob[]>([]);
-  const [activePhotoLogJobId, setActivePhotoLogJobId] = useState<string | null>(null);
-
-  const [fieldCountJobs, setFieldCountJobs] = useState<PhotoLogJob[]>([]);
-  const [activeFieldCountJobId, setActiveFieldCountJobId] = useState<string | null>(null);
-
-  const [drinkingWaterJobs, setDrinkingWaterJobs] = useState<DrinkingWaterJob[]>([]);
-  const [activeDrinkingWaterJobId, setActiveDrinkingWaterJobId] = useState<string | null>(null);
-
-  const [structuralCheckJobs, setStructuralCheckJobs] = useState<StructuralJob[]>([]);
-  const [activeStructuralCheckJobId, setActiveStructuralCheckJobId] = useState<string | null>(null);
-
-  const [csvGraphJobs, setCsvGraphJobs] = useState<CsvGraphJob[]>([]);
-  const [activeCsvGraphJobId, setActiveCsvGraphJobId] = useState<string | null>(null);
-  
-  const [selectedAppId, setSelectedAppId] = useState<number | null>(null);
-
-  const [currentGpsAddress, setCurrentGpsAddress] = useState('');
-  const [isFetchingAddress, setIsFetchingAddress] = useState(false);
-
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-
-  const [openSections, setOpenSections] = useState<string[]>([]);
-
-  useEffect(() => {
-    const savedMode = localStorage.getItem('apiMode') as ApiMode;
-    if (savedMode && (savedMode === 'gemini' || savedMode === 'vllm')) {
-      setApiMode(savedMode);
-    }
-  }, []);
-
-  const handleApiModeChange = (mode: ApiMode) => {
-    setApiMode(mode);
-    localStorage.setItem('apiMode', mode);
-  };
-  
-  const handleApplicationSelect = useCallback((app: Application) => {
-    const receiptNo = app.receipt_no || '';
-    const parts = receiptNo.split('-');
-
-    // Common format is XX-XXXXXX-XX (3 parts). Anything after is detail.
-    if (parts.length > 3) {
-      const detailPart = parts.pop() || '';
-      const commonPart = parts.join('-');
-      setReceiptNumberCommon(commonPart);
-      setReceiptNumberDetail(detailPart);
-    } else {
-      setReceiptNumberCommon(receiptNo);
-      setReceiptNumberDetail('');
-    }
-
-    setSiteName(app.site_name);
-    setSelectedAppId(app.id);
-  }, []);
-
-  const finalSiteLocation = useMemo(() => {
-    const site = siteName.trim();
-    const gps = currentGpsAddress.trim();
-    const isValidGps = gps && !gps.includes("오류") && !gps.includes("찾는 중") && !gps.includes("지원하지 않습니다");
-
-    if (site && isValidGps) {
-      return `${site} (${gps})`;
-    }
-    if (isValidGps) {
-      return gps;
-    }
-    return site;
-  }, [siteName, currentGpsAddress]);
-
-  const toggleSection = (sectionName: string) => {
-    setOpenSections(prevOpenSections => {
-      const isOpen = prevOpenSections.includes(sectionName);
-      if (isOpen) {
-        return prevOpenSections.filter(s => s !== sectionName);
-      } else {
-        return [...prevOpenSections, sectionName];
-      }
-    });
-  };
-
-  const handleDeletePhotoLogJob = useCallback((jobIdToDelete: string) => {
-    setPhotoLogJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
-    setActivePhotoLogJobId(prev => (prev === jobIdToDelete ? null : prev));
-  }, []);
-
-  const handleDeleteFieldCountJob = useCallback((jobIdToDelete: string) => {
-    setFieldCountJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
-    setActiveFieldCountJobId(prev => (prev === jobIdToDelete ? null : prev));
-  }, []);
-
-  const handleDeleteDrinkingWaterJob = useCallback((jobIdToDelete: string) => {
-    setDrinkingWaterJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
-    setActiveDrinkingWaterJobId(prev => (prev === jobIdToDelete ? null : prev));
-  }, []);
-
-  const handleDeleteStructuralCheckJob = useCallback((jobIdToDelete: string) => {
-    setStructuralCheckJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
-    setActiveStructuralCheckJobId(prev => (prev === jobIdToDelete ? null : prev));
-  }, []);
-
-  const handleDeleteCsvGraphJob = useCallback((jobIdToDelete: string) => {
-    setCsvGraphJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
-    setActiveCsvGraphJobId(prev => (prev === jobIdToDelete ? null : prev));
-  }, []);
-
-  const receiptNumber = useMemo(() => {
-    const common = receiptNumberCommon.trim();
-    const detail = receiptNumberDetail.trim();
-    if (!common && !detail) return '';
-    if (!common) return detail;
-    if (!detail) return common;
-    return `${common}-${detail}`;
-  }, [receiptNumberCommon, receiptNumberDetail]);
-
-  const clearDraftMessage = () => {
-    if (draftMessage) {
-      setTimeout(() => setDraftMessage(null), 4000);
-    }
-  };
-
-    const getReceiptNumberForSaveLoad = useCallback(() => {
-    let receiptForOperation: string | null = receiptNumber;
-    if (activePage === 'photoLog' && activePhotoLogJobId) {
-        receiptForOperation = photoLogJobs.find(j => j.id === activePhotoLogJobId)?.receiptNumber || receiptNumber;
-    } else if (activePage === 'fieldCount' && activeFieldCountJobId) {
-        receiptForOperation = fieldCountJobs.find(j => j.id === activeFieldCountJobId)?.receiptNumber || receiptNumber;
-    } else if (activePage === 'drinkingWater' && activeDrinkingWaterJobId) {
-        receiptForOperation = drinkingWaterJobs.find(j => j.id === activeDrinkingWaterJobId)?.receiptNumber || receiptNumber;
-    } else if (activePage === 'structuralCheck' && activeStructuralCheckJobId) {
-        receiptForOperation = structuralCheckJobs.find(j => j.id === activeStructuralCheckJobId)?.receiptNumber || receiptNumber;
-    } else if (activePage === 'csvGraph' && activeCsvGraphJobId) {
-        receiptForOperation = csvGraphJobs.find(j => j.id === activeCsvGraphJobId)?.receiptNumber || receiptNumber;
-    }
-    return receiptForOperation;
-  }, [activePage, receiptNumber, photoLogJobs, activePhotoLogJobId, fieldCountJobs, activeFieldCountJobId, drinkingWaterJobs, activeDrinkingWaterJobId, structuralCheckJobs, activeStructuralCheckJobId, csvGraphJobs, activeCsvGraphJobId]);
-  
-  const handleSaveDraft = useCallback(async () => {
-    const receiptToSave = getReceiptNumberForSaveLoad();
-    if (!receiptToSave || !receiptToSave.trim()) {
-      setDraftMessage({ type: 'error', text: '저장하려면 접수번호를 입력하세요.' });
-      clearDraftMessage();
-      return;
-    }
-
-    setIsSaving(true);
-    setDraftMessage(null);
-
-    try {
-        const jobsToSaveP1 = photoLogJobs.filter(j => j.receiptNumber === receiptToSave);
-        const jobsToSaveP2 = fieldCountJobs.filter(j => j.receiptNumber === receiptToSave);
-        const jobsToSaveP3 = drinkingWaterJobs.filter(j => j.receiptNumber === receiptToSave);
-        const jobsToSaveP4 = structuralCheckJobs.filter(j => j.receiptNumber === receiptToSave);
-        const jobsToSaveP6 = csvGraphJobs.filter(j => j.receiptNumber === receiptToSave);
-        
-        const allP1P2JobsForDate = [...photoLogJobs, ...fieldCountJobs].filter(j => j.receiptNumber === receiptToSave);
-        const firstJobWithDates = allP1P2JobsForDate.find(j => j.inspectionStartDate);
-
-        const inspectionStartDateToSave = firstJobWithDates?.inspectionStartDate;
-        const inspectionEndDateToSave = firstJobWithDates?.inspectionEndDate;
-
-        const allItems = new Set<string>();
-        const apiPayload: SaveDataPayload['values'] = {};
-        
-        const globalMetadata = {
-            site: siteName,
-            gps_address: currentGpsAddress.trim() || undefined,
-            inspectionStartDate: inspectionStartDateToSave,
-            inspectionEndDate: inspectionEndDateToSave,
-        };
-        apiPayload['_global_metadata'] = {
-            data: {
-                val: JSON.stringify(globalMetadata),
-                time: new Date().toISOString(),
-            }
-        };
-        allItems.add('_global_metadata');
-        
-        const p1p2Jobs = [...jobsToSaveP1, ...jobsToSaveP2];
-        p1p2Jobs.forEach(job => {
-            if (job.selectedItem === 'TN/TP') {
-                allItems.add('TN');
-                allItems.add('TP');
-            } else {
-                allItems.add(job.selectedItem);
-            }
-
-            if (job.selectedItem === "TN/TP") {
-                const tnData: Record<string, SavedValueEntry> = {};
-                const tpData: Record<string, SavedValueEntry> = {};
-                (job.processedOcrData || []).forEach(entry => {
-                    if (entry.identifier && entry.value.trim()) tnData[entry.identifier] = { val: entry.value, time: entry.time };
-                    if (entry.identifierTP && entry.valueTP?.trim()) tpData[entry.identifierTP] = { val: entry.valueTP, time: entry.time };
-                });
-                if (Object.keys(tnData).length > 0) apiPayload['TN'] = { ...(apiPayload['TN'] || {}), ...tnData };
-                if (Object.keys(tpData).length > 0) apiPayload['TP'] = { ...(apiPayload['TP'] || {}), ...tpData };
-            } else {
-                const itemData: Record<string, SavedValueEntry> = {};
-                (job.processedOcrData || []).forEach(entry => {
-                    if (entry.identifier && entry.value.trim()) itemData[entry.identifier] = { val: entry.value, time: entry.time };
-                });
-                if (Object.keys(itemData).length > 0) apiPayload[job.selectedItem] = { ...(apiPayload[job.selectedItem] || {}), ...itemData };
-            }
-        });
-
-        jobsToSaveP3.forEach(job => {
-            const itemsToProcess = job.selectedItem === 'TU/CL' ? ['TU', 'Cl'] : [job.selectedItem];
-            allItems.add(job.selectedItem);
-            itemsToProcess.forEach(item => allItems.add(item));
-            
-            const p3Metadata = {
-                details: job.details,
-                decimalPlaces: job.decimalPlaces,
-                decimalPlacesCl: job.decimalPlacesCl,
-            };
-
-            if (!apiPayload[job.selectedItem]) {
-                apiPayload[job.selectedItem] = {};
-            }
-            apiPayload[job.selectedItem]['_p3_metadata'] = { val: JSON.stringify(p3Metadata), time: new Date().toISOString() };
-            
-            itemsToProcess.forEach(subItem => {
-                if (!apiPayload[subItem]) apiPayload[subItem] = {};
-                (job.processedOcrData || []).forEach(entry => {
-                    if (!entry.identifier || entry.identifier.includes('시작') || entry.identifier.includes('완료')) return;
-                    
-                    let valueSource;
-                    if (job.selectedItem === 'TU/CL') {
-                        valueSource = (subItem === 'TU') ? entry.value : entry.valueTP;
-                    } else {
-                        valueSource = entry.value;
-                    }
-
-                    if (entry.identifier && valueSource && valueSource.trim()) {
-                        let key = entry.identifier;
-                        if(subItem === 'Cl' && key === '응답시간_Cl') key = '응답시간';
-
-                        apiPayload[subItem]![key] = { val: valueSource.trim(), time: entry.time };
-                    }
-                });
-            });
-        });
-        
-        jobsToSaveP4.forEach(job => {
-            allItems.add(job.mainItemKey);
-            const timestamp = new Date().toISOString();
-            
-            const currentItemData = apiPayload[job.mainItemKey] || {};
-            apiPayload[job.mainItemKey] = {
-                ...currentItemData,
-                '_checklistData': { val: JSON.stringify(job.checklistData), time: timestamp },
-                '_postInspectionDate': { val: job.postInspectionDate, time: timestamp }
-            };
-        });
-
-        jobsToSaveP6.forEach(job => {
-            const key = `_csv_${job.id}`;
-            allItems.add(key);
-            const dataToSave = {
-                fileName: job.fileName,
-                channelAnalysis: job.channelAnalysis,
-                selectedChannelId: job.selectedChannelId,
-                timeRangeInMs: job.timeRangeInMs,
-                viewEndTimestamp: job.viewEndTimestamp,
-                sensorType: job.sensorType,
-            };
-            apiPayload[key] = {
-                '_data': { val: JSON.stringify(dataToSave), time: new Date().toISOString() }
-            };
-        });
-
-      if (allItems.size === 0) {
-        setDraftMessage({ type: 'error', text: '저장할 데이터가 없습니다.' });
-        setIsSaving(false);
-        clearDraftMessage();
-        return;
-      }
-      
-      await callSaveTempApi({
-        receipt_no: receiptToSave,
-        site: siteName,
-        gps_address: currentGpsAddress.trim() || undefined,
-        item: Array.from(allItems),
-        user_name: userName,
-        values: apiPayload,
-      });
-
-      setDraftMessage({ type: 'success', text: `'${receiptToSave}'으로 저장되었습니다.`});
-      clearDraftMessage();
-    } catch (error: any) {
-      setDraftMessage({ type: 'error', text: `저장 실패: ${error.message}`});
-      clearDraftMessage();
-    } finally {
-      setIsSaving(false);
-    }
-  }, [getReceiptNumberForSaveLoad, userName, photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs, siteName, currentGpsAddress]);
-
-  const handleLoadDraft = useCallback(async () => {
-    const receiptToLoad = receiptNumber;
-    if (!receiptToLoad || !receiptToLoad.trim()) {
-        setDraftMessage({ type: 'error', text: '불러오려면 접수번호를 입력하세요.' });
-        clearDraftMessage();
-        return;
-    }
-
-    setIsLoading(true);
-    setDraftMessage(null);
-
-    try {
-        const loadedData = await callLoadTempApi(receiptToLoad);
-        const { receipt_no, site, item: loadedItems, values, gps_address } = loadedData;
-
-        const receiptParts = receipt_no.split('-');
-        const detail = receiptParts.pop() || '';
-        const common = receiptParts.join('-');
-        setReceiptNumberCommon(common);
-        setReceiptNumberDetail(detail);
-
-        let loadedSite = site;
-        let loadedGpsAddress = gps_address || "";
-        let loadedInspectionStartDate: string | undefined = undefined;
-        let loadedInspectionEndDate: string | undefined = undefined;
-
-
-        const globalMetadataRecord = values?._global_metadata;
-        const globalMetadataEntry = globalMetadataRecord?.['data'];
-        if (globalMetadataEntry?.val) {
-            try {
-                const parsedMeta = JSON.parse(globalMetadataEntry.val);
-                if (typeof parsedMeta.site === 'string') {
-                    loadedSite = parsedMeta.site;
-                }
-                if (typeof parsedMeta.gps_address === 'string') {
-                    loadedGpsAddress = parsedMeta.gps_address;
-                }
-                if (typeof parsedMeta.inspectionStartDate === 'string' && parsedMeta.inspectionStartDate) {
-                    loadedInspectionStartDate = parsedMeta.inspectionStartDate;
-                }
-                if (typeof parsedMeta.inspectionEndDate === 'string' && parsedMeta.inspectionEndDate) {
-                    loadedInspectionEndDate = parsedMeta.inspectionEndDate;
-                }
-            } catch (e) {
-                console.warn("[LOAD] Global metadata parsing failed:", e);
-            }
-        }
-        setSiteName(loadedSite);
-        setCurrentGpsAddress(loadedGpsAddress);
-
-        const p1Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
-        const p2Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '현장 계수')?.items || [];
-        const p3Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '먹는물')?.items || [];
-        const p4Items = MAIN_STRUCTURAL_ITEMS.map(i => i.key);
-
-        const available = {
-            photoLog: new Set<string>(),
-            fieldCount: new Set<string>(),
-            drinkingWater: new Set<string>(),
-            structuralCheck: new Set<string>(),
-        };
-
-        if (loadedData.values.TN && loadedData.values.TP) {
-            if (p1Items.includes('TN/TP')) available.photoLog.add('TN/TP');
-            if (p2Items.includes('TN/TP')) available.fieldCount.add('TN/TP');
-        }
-        
-        loadedItems.forEach(item => {
-            if (p1Items.includes(item)) available.photoLog.add(item);
-            if (p2Items.includes(item)) available.fieldCount.add(item);
-            if (p3Items.includes(item)) available.drinkingWater.add(item);
-            if (p4Items.includes(item as any)) available.structuralCheck.add(item);
-        });
-    
-        if(loadedData.values.TU && loadedData.values.Cl && p3Items.includes('TU/CL')) {
-            available.drinkingWater.add('TU/CL');
-            available.drinkingWater.delete('TU');
-            available.drinkingWater.delete('Cl');
-        }
-
-        const allSelections = {
-            photoLog: Array.from(available.photoLog),
-            fieldCount: Array.from(available.fieldCount),
-            drinkingWater: Array.from(available.drinkingWater),
-            structuralCheck: Array.from(available.structuralCheck),
-        };
-        
-        const createP1P2Job = (itemName: string): PhotoLogJob => {
-            const reconstructedOcrData: PhotoLogJob['processedOcrData'] = [];
-            if (itemName === "TN/TP") {
-                const tnData = values.TN || {};
-                const tpData = values.TP || {};
-                const timeToEntryMap: Record<string, Partial<PhotoLogJob['processedOcrData'][0]>> = {};
-                
-                Object.entries(tnData).forEach(([id, data]) => {
-                    if (id === '_checklistData' || id === '_postInspectionDate') return;
-                    const key = (data as any).time || id;
-                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
-                    (timeToEntryMap[key] as any).value = (data as any).val;
-                    (timeToEntryMap[key] as any).identifier = id;
-                });
-                Object.entries(tpData).forEach(([id, data]) => {
-                    if (id === '_checklistData' || id === '_postInspectionDate') return;
-                    const key = (data as any).time || id;
-                    if (!timeToEntryMap[key]) timeToEntryMap[key] = { id: self.crypto.randomUUID(), time: (data as any).time };
-                    (timeToEntryMap[key] as any).valueTP = (data as any).val;
-                    (timeToEntryMap[key] as any).identifierTP = id;
-                });
-                Object.values(timeToEntryMap).sort((a,b) => (a.time || '').localeCompare(b.time || '')).forEach(partialEntry => {
-                    reconstructedOcrData.push({
-                        id: partialEntry.id!, time: partialEntry.time || '', value: (partialEntry as any).value || '',
-                        valueTP: (partialEntry as any).valueTP, identifier: (partialEntry as any).identifier, identifierTP: (partialEntry as any).identifierTP,
-                    });
-                });
-            } else {
-                const itemData: Record<string, SavedValueEntry> = (values as any)[itemName] || {};
-                Object.entries(itemData).sort(([,a],[,b]) => {
-                    const timeA = a?.time || '';
-                    const timeB = b?.time || '';
-                    return timeA.localeCompare(timeB);
-                }).forEach(([id, entryData]) => {
-                    if (id === '_checklistData' || id === '_postInspectionDate') return;
-                    if (entryData) {
-                        reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: String(entryData.time), value: String(entryData.val), identifier: id });
-                    }
-                });
-            }
-            return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, siteLocation: site, selectedItem: itemName, photos: [], photoComments: {}, processedOcrData: reconstructedOcrData, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', decimalPlacesCl: undefined, ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined, inspectionStartDate: loadedInspectionStartDate, inspectionEndDate: loadedInspectionEndDate };
-        };
-
-        const createDrinkingWaterJob = (itemName: string, data: LoadedData): DrinkingWaterJob => {
-            const { receipt_no: local_receipt_no, site: local_site, values: local_values } = data;
-            
-            let details = '';
-            let decimalPlaces = 2;
-            let decimalPlacesCl: number | undefined = undefined;
-
-            const metadataEntry = local_values[itemName]?._p3_metadata;
-            if (metadataEntry?.val) {
-                try {
-                    const parsedMeta = JSON.parse(metadataEntry.val);
-                    details = parsedMeta.details || '';
-                    decimalPlaces = parsedMeta.decimalPlaces ?? 2;
-                    if (itemName === 'TU/CL') {
-                        decimalPlacesCl = parsedMeta.decimalPlacesCl ?? 2;
-                    }
-                } catch (e) {
-                    console.warn(`[LOAD] P3 메타데이터 파싱 실패 (항목: ${itemName}):`, e);
-                }
-            }
-
-            const reconstructedOcrData = DRINKING_WATER_IDENTIFIERS.map(identifier => {
-                const entry: DrinkingWaterJob['processedOcrData'][0] = { id: self.crypto.randomUUID(), time: '', value: '', identifier };
-                if (itemName === 'TU/CL') entry.valueTP = '';
-                const tuData = local_values.TU || {}; const clData = local_values.Cl || {};
-                let pVal, sVal, tVal;
-                if (itemName === 'TU') { pVal = tuData[identifier]?.val; tVal = tuData[identifier]?.time; } 
-                else if (itemName === 'Cl') { pVal = clData[identifier]?.val; tVal = clData[identifier]?.time; } 
-                else if (itemName === 'TU/CL') { pVal = tuData[identifier]?.val; sVal = clData[identifier]?.val; tVal = tuData[identifier]?.time || clData[identifier]?.time; }
-                entry.value = pVal || '';
-                if (entry.valueTP !== undefined) entry.valueTP = sVal || '';
-                entry.time = tVal || '';
-                return entry;
-            });
-            return {
-                id: self.crypto.randomUUID(),
-                receiptNumber: local_receipt_no,
-                selectedItem: itemName,
-                details: details,
-                processedOcrData: reconstructedOcrData,
-                decimalPlaces: decimalPlaces,
-                photos: [],
-                submissionStatus: 'idle',
-                submissionMessage: undefined,
-                ...(itemName === 'TU/CL' && { decimalPlacesCl: decimalPlacesCl })
-            };
-        };
-
-        const newP1Jobs = allSelections.photoLog.map(createP1P2Job);
-        if (newP1Jobs.length > 0) {
-            setPhotoLogJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP1Jobs]);
-            if (activePage === 'photoLog') setActivePhotoLogJobId(newP1Jobs[0]?.id || null);
-        }
-        
-        const newP2Jobs = allSelections.fieldCount.map(createP1P2Job);
-        if (newP2Jobs.length > 0) {
-            setFieldCountJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP2Jobs]);
-            if (activePage === 'fieldCount') setActiveFieldCountJobId(newP2Jobs[0]?.id || null);
-        }
-    
-        const newP3Jobs: DrinkingWaterJob[] = allSelections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
-        if (newP3Jobs.length > 0) {
-            setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
-            if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
-        }
-    
-        const newP4Jobs = allSelections.structuralCheck.map(itemName => {
-            const itemData = (values as any)[itemName as MainStructuralItemKey];
-            if (!itemData || !itemData['_checklistData']) return null;
-            return { 
-                id: self.crypto.randomUUID(), 
-                receiptNumber: receipt_no, 
-                mainItemKey: itemName as MainStructuralItemKey, 
-                checklistData: JSON.parse(itemData['_checklistData'].val), 
-                postInspectionDate: itemData['_postInspectionDate']?.val || '선택 안됨', 
-                postInspectionDateConfirmedAt: null, 
-                photos: [], 
-                photoComments: {},
-                submissionStatus: 'idle',
-                submissionMessage: undefined,
-            } as StructuralJob;
-        }).filter(Boolean) as StructuralJob[];
-    
-        if (newP4Jobs.length > 0) {
-            setStructuralCheckJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP4Jobs]);
-            if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP4Jobs[0]?.id || null);
-        }
-
-        setDraftMessage({ type: 'success', text: `'${receipt_no}' 데이터를 모두 불러왔습니다.`});
-        clearDraftMessage();
-
-    } catch (error: any) {
-        setDraftMessage({ type: 'error', text: `불러오기 실패: ${error.message}` });
-        clearDraftMessage();
-    } finally {
-        setIsLoading(false);
-    }
-  }, [receiptNumber, activePage]);
-
-  const handleAddTask = useCallback(() => {
-    // CSV 페이지는 접수번호 없이 추가 가능하도록 예외 처리
-    if (activePage !== 'csvGraph') {
-        if (!receiptNumberCommon.trim() || !receiptNumberDetail.trim()) {
-            alert("접수번호 (공통)와 (세부)를 모두 입력해주세요.");
-            return;
-        }
-        if (!newItemKey) {
-            alert("항목을 선택해주세요.");
-            return;
-        }
-    }
-
-    if (activePage === 'photoLog' || activePage === 'fieldCount') {
-        const newJob: PhotoLogJob = { id: self.crypto.randomUUID(), receiptNumber, siteLocation: finalSiteLocation, selectedItem: newItemKey, photos: [], photoComments: {}, processedOcrData: null, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined };
-        if (activePage === 'photoLog') {
-            setPhotoLogJobs(prev => [...prev, newJob]);
-            setActivePhotoLogJobId(newJob.id);
-        } else {
-            setFieldCountJobs(prev => [...prev, newJob]);
-            setActiveFieldCountJobId(newJob.id);
-        }
-    } else if (activePage === 'drinkingWater') {
-        const initialData = DRINKING_WATER_IDENTIFIERS.map(id => ({ id: self.crypto.randomUUID(), time: '', value: '', identifier: id, isRuleMatched: false, ...(newItemKey === 'TU/CL' && { valueTP: '' }) }));
-        const newJob: DrinkingWaterJob = {
-            id: self.crypto.randomUUID(),
-            receiptNumber,
-            selectedItem: newItemKey,
-            details: '',
-            processedOcrData: initialData,
-            decimalPlaces: 2,
-            photos: [],
-            submissionStatus: 'idle',
-            submissionMessage: undefined,
-            ...(newItemKey === 'TU/CL' && { decimalPlacesCl: 2 })
-        };
-        setDrinkingWaterJobs(prev => [...prev, newJob]);
-        setActiveDrinkingWaterJobId(newJob.id);
-    } else if (activePage === 'structuralCheck') {
-        const key = newItemKey as MainStructuralItemKey;
-        const newChecklist = Object.fromEntries(CHECKLIST_DEFINITIONS[key].map(itemName => {
-            let defaultNotes = '';
-            if (itemName === "정도검사 증명서") {
-                defaultNotes = JSON.stringify({ presence: 'not_selected' } as CertificateDetails);
-            }
-            if (itemName === "측정방법확인") {
-                const preferredMethod = PREFERRED_MEASUREMENT_METHODS[key];
-                if (preferredMethod) {
-                    defaultNotes = preferredMethod;
-                }
-            }
-            return [itemName, { status: '선택 안됨', notes: defaultNotes, confirmedAt: null, specialNotes: '' } as StructuralCheckSubItemData];
-        }));
-        if (key === 'PH') newChecklist["측정범위확인"].notes = "pH 0-14";
-        if (key === 'TU') newChecklist["측정범위확인"].notes = "0-10 NTU";
-        if (key === 'Cl') newChecklist["측정범위확인"].notes = "0-2 mg/L";
-        
-        const isFixedDateItem = key === 'PH' || key === 'TU' || key === 'Cl';
-
-        const newJob: StructuralJob = { 
-            id: self.crypto.randomUUID(), 
-            receiptNumber, 
-            mainItemKey: key, 
-            checklistData: newChecklist, 
-            postInspectionDate: isFixedDateItem ? '2년 후' : '선택 안됨', 
-            postInspectionDateConfirmedAt: null, 
-            photos: [], 
-            photoComments: {},
-            submissionStatus: 'idle',
-            submissionMessage: undefined,
-        };
-        setStructuralCheckJobs(prev => [...prev, newJob]);
-        setActiveStructuralCheckJobId(newJob.id);
-    } else if (activePage === 'csvGraph') {
-        const newJob: CsvGraphJob = {
-            id: self.crypto.randomUUID(),
-            receiptNumber,
-            fileName: null,
-            parsedData: null,
-            channelAnalysis: {},
-            autoMinMaxResults: null,
-            selectedChannelId: null,
-            timeRangeInMs: 'all',
-            viewEndTimestamp: null,
-            submissionStatus: 'idle',
-            sensorType: newSensorType,
-        };
-        setCsvGraphJobs(prev => [...prev, newJob]);
-        setActiveCsvGraphJobId(newJob.id);
-    }
-
-    const currentDetailNum = parseInt(receiptNumberDetail, 10);
-    if (!isNaN(currentDetailNum) && receiptNumberDetail.length > 0) {
-      setReceiptNumberDetail(String(currentDetailNum + 1).padStart(receiptNumberDetail.length, '0'));
-    }
-    setNewItemKey('');
-  }, [newItemKey, receiptNumber, receiptNumberCommon, receiptNumberDetail, activePage, finalSiteLocation, newSensorType]);
-
-  const handleFetchGpsAddress = useCallback(() => {
-    setIsFetchingAddress(true);
-    setCurrentGpsAddress("주소 찾는 중...");
-
-    if (!navigator.geolocation) {
-      setCurrentGpsAddress("이 브라우저에서는 GPS를 지원하지 않습니다.");
-      setIsFetchingAddress(false);
-      return;
-    }
-
-    const onSuccess = async (position: GeolocationPosition) => {
-      const { latitude, longitude } = position.coords;
-      setCoords({ lat: latitude, lng: longitude });
-
-      try {
-        const addr = await getKakaoAddress(latitude, longitude);
-        setCurrentGpsAddress(addr);
-      } catch (err: any) {
-        console.error("GPS 주소 오류:", err);
-        setCurrentGpsAddress(`주소 탐색 중 오류 발생: ${err.message}`);
-      } finally {
-        setIsFetchingAddress(false);
-      }
-    };
-
-    const onError = (error: GeolocationPositionError) => {
-      console.error(
-        "Geolocation error:",
-        `Code: ${error.code}, Message: ${error.message}`
-      );
-      setCurrentGpsAddress(
-        error.code === error.PERMISSION_DENIED
-          ? "GPS 위치 권한이 거부되었습니다."
-          : "GPS 위치를 가져올 수 없습니다."
-      );
-      setIsFetchingAddress(false);
-    };
-
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 0,
-    });
-  }, []);
-
-  const handleResetGps = useCallback(() => {
-    setCoords(null);
-    setCurrentGpsAddress("");
-    setIsFetchingAddress(false);
-  }, []);
-
-  const itemOptionsForNewTask = useMemo(() => {
-    if (activePage === 'photoLog') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
-    if (activePage === 'fieldCount') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '현장 계수')?.items || [];
-    if (activePage === 'drinkingWater') return ANALYSIS_ITEM_GROUPS.find(g => g.label === '먹는물')?.items || [];
-    if (activePage === 'structuralCheck') return STRUCTURAL_ITEM_GROUPS;
-    return [];
-  }, [activePage]);
-
-  const navButtonBaseStyle = "px-3 py-2 rounded-md font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs sm:text-sm flex-grow sm:flex-grow-0";
-  const activeNavButtonStyle = "bg-sky-500 text-white";
-  const inactiveNavButtonStyle = "bg-slate-700 hover:bg-slate-600 text-slate-300";
-
-  const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
-  const isCsvPage = activePage === 'csvGraph';
-
-  const renderActivePage = () => {
-    switch(activePage) {
-      case 'photoLog':
-        return <PhotoLogPage userName={userName} jobs={photoLogJobs} setJobs={setPhotoLogJobs} activeJobId={activePhotoLogJobId} setActiveJobId={setActivePhotoLogJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeletePhotoLogJob} />;
-      case 'fieldCount':
-        return <FieldCountPage userName={userName} jobs={fieldCountJobs} setJobs={setFieldCountJobs} activeJobId={activeFieldCountJobId} setActiveJobId={setActiveFieldCountJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteFieldCountJob} />;
-      case 'drinkingWater':
-        return <DrinkingWaterPage userName={userName} jobs={drinkingWaterJobs} setJobs={setDrinkingWaterJobs} activeJobId={activeDrinkingWaterJobId} setActiveJobId={setActiveDrinkingWaterJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteDrinkingWaterJob} />;
-      case 'structuralCheck':
-        return <StructuralCheckPage 
-                  userName={userName} 
-                  jobs={structuralCheckJobs} 
-                  setJobs={setStructuralCheckJobs} 
-                  activeJobId={activeStructuralCheckJobId} 
-                  setActiveJobId={setActiveStructuralCheckJobId} 
-                  siteName={siteNameOnly} 
-                  onDeleteJob={handleDeleteStructuralCheckJob}
-                  currentGpsAddress={currentGpsAddress}
-                />;
-      case 'kakaoTalk':
-        return <KakaoTalkPage userName={userName} userContact={userContact} />;
-      case 'csvGraph':
-        return <CsvGraphPage userName={userName} jobs={csvGraphJobs} setJobs={setCsvGraphJobs} activeJobId={activeCsvGraphJobId} setActiveJobId={setActiveCsvGraphJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteCsvGraphJob} />;
-      default:
-        return null;
-    }
-  };
-
-  const showTaskManagement = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck', 'csvGraph'].includes(activePage);
-
-  return (
-    <div className="w-full min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-4 sm:px-8 py-4 sm:py-8 font-[Inter]">
-      <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} />
-
-      <div className="w-full max-w-3xl mb-4 flex flex-col sm:flex-row justify-between items-center bg-slate-800/50 p-3 rounded-lg shadow">
-        <div className="text-sm text-sky-300 mb-2 sm:mb-0">
-          환영합니다, <span className="font-semibold">{userName}</span>님!
-        </div>
-        <div className="flex items-center space-x-2">
-            <div className="flex items-center p-1 bg-slate-700 rounded-lg">
-            <ActionButton
-              onClick={onLogout}
-              variant="secondary"
-              className="bg-red-600 hover:bg-red-700 focus:ring-red-500 text-white text-xs px-3 py-1.5 h-auto"
-              icon={<LogoutIcon />}
-            >
-              로그아웃
-            </ActionButton>
-        </div>
-      </div>
-    </div>
-
-      {activePage !== 'kakaoTalk' && (
-        <div className="w-full max-w-3xl mb-6 p-4 bg-slate-800/60 rounded-lg border border-slate-700 shadow-sm space-y-2">
-          <div>
-            <button
-              onClick={() => toggleSection('applicationOcr')}
-              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-              aria-expanded={openSections.includes('applicationOcr')}
-            >
-              <h3 className="text-lg font-semibold text-slate-100">목록</h3>
-              <ChevronDownIcon
-                className={`w-5 h-5 text-slate-400 transition-transform ${
-                  openSections.includes('applicationOcr') ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-            <div
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                openSections.includes('applicationOcr') ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
-              }`}
-            >
-              <ApplicationOcrSection 
-                userName={userName}
-                userContact={userContact}
-                onApplicationSelect={handleApplicationSelect}
-                siteNameToSync={siteName}
-                appIdToSync={selectedAppId}
-                receiptNumberCommonToSync={receiptNumberCommon}
-              />
-            </div>
-          </div>
-          
-          {/* 공통 정보 및 작업 추가 */}
-          <div>
-            <button
-              onClick={() => toggleSection('addTask')}
-              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-              aria-expanded={openSections.includes('addTask')}
-            >
-              <h3 className="text-lg font-semibold text-slate-100">공통 정보 및 작업 관리</h3>
-              <ChevronDownIcon
-                className={`w-5 h-5 text-slate-400 transition-transform ${
-                  openSections.includes('addTask') ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-
-            <div
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                openSections.includes('addTask') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
-              }`}
-            >
-              <div className="pt-4 px-2 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-4 items-end">
-                  <div className={isCsvPage ? 'sm:col-span-4' : 'sm:col-span-3'}>
-                    <label
-                      htmlFor="global-receipt-common"
-                      className="block text-sm font-medium text-slate-300 mb-1"
-                    >
-                      접수번호 (공통) <span className="text-amber-400 font-bold">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      id="global-receipt-common"
-                      value={receiptNumberCommon}
-                      onChange={(e) => setReceiptNumberCommon(e.target.value)}
-                      className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
-                      placeholder="예: 25-000000-01"
-                    />
-                  </div>
-
-                  <div className={isCsvPage ? 'sm:col-span-2' : 'sm:col-span-1'}>
-                    <label
-                      htmlFor="global-receipt-detail"
-                      className="block text-sm font-medium text-slate-300 mb-1"
-                    >
-                      (세부) <span className="text-amber-400 font-bold">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      id="global-receipt-detail"
-                      value={receiptNumberDetail}
-                      onChange={(e) => setReceiptNumberDetail(e.target.value)}
-                      className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
-                      placeholder="예: 1"
-                    />
-                  </div>
-
-                  <div className={isCsvPage ? 'sm:col-span-6' : 'sm:col-span-8'}>
-                    <label
-                      htmlFor="global-site-location"
-                      className="block text-sm font-medium text-slate-300 mb-1"
-                    >
-                      현장 위치 (공통)
-                    </label>
-                    <input
-                      type="text"
-                      id="global-site-location"
-                      value={siteName}
-                      onChange={(e) => setSiteName(e.target.value)}
-                      className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm"
-                      placeholder="예: OO처리장"
-                    />
-                  </div>
-
-                  {!isCsvPage && showTaskManagement && (
-                    <div className="sm:col-span-12">
-                      <label
-                        htmlFor="new-task-item"
-                        className="block text-sm font-medium text-slate-300 mb-1"
-                      >
-                        항목
-                      </label>
-                      <select
-                        id="new-task-item"
-                        value={newItemKey}
-                        onChange={(e) => setNewItemKey(e.target.value)}
-                        className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]"
-                      >
-                        <option value="" disabled>
-                          선택...
-                        </option>
-                        {Array.isArray(itemOptionsForNewTask) &&
-                        itemOptionsForNewTask.length > 0 &&
-                        typeof itemOptionsForNewTask[0] === 'object' &&
-                        itemOptionsForNewTask[0] !== null &&
-                        'label' in (itemOptionsForNewTask[0] as any)
-                          ? (
-                              itemOptionsForNewTask as {
-                                label: string;
-                                items: { key: string; name: string }[];
-                              }[]
-                            ).map((group) => (
-                              <optgroup key={group.label} label={group.label}>
-                                {group.items.map((item) => (
-                                  <option key={item.key} value={item.key}>
-                                    {item.name}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            ))
-                          : (itemOptionsForNewTask as string[]).map((item) => (
-                              <option key={item} value={item}>
-                                {item}
-                              </option>
-                            ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {isCsvPage && (
-                    <div className="sm:col-span-12">
-                      <label htmlFor="new-task-sensor-type" className="block text-sm font-medium text-slate-300 mb-1">센서 타입</label>
-                      <select
-                        id="new-task-sensor-type"
-                        value={newSensorType}
-                        onChange={(e) => setNewSensorType(e.target.value as SensorType)}
-                        className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]"
-                      >
-                        <option value="먹는물 (TU/Cl)">먹는물 (TU/Cl)</option>
-                        <option value="수질 (SS)">수질 (SS)</option>
-                        <option value="수질 (PH)">수질 (PH)</option>
-                      </select>
-                    </div>
-                  )}
-
-                  {showTaskManagement && (
-                    <div className="sm:col-span-12">
-                      <ActionButton onClick={handleAddTask} fullWidth>
-                        추가
-                      </ActionButton>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {activePage === 'structuralCheck' && (
-             <div>
-              <button
-                onClick={() => toggleSection('locationHelper')}
-                className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-                aria-expanded={openSections.includes('locationHelper')}
-              >
-                <h3 className="text-lg font-semibold text-slate-100">위치 도우미 (GPS 주소)</h3>
-                <ChevronDownIcon
-                  className={`w-5 h-5 text-slate-400 transition-transform ${
-                    openSections.includes('locationHelper') ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-
-              <div
-                className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                  openSections.includes('locationHelper') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
-                }`}
-              >
-                <div className="pt-4 px-2 space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-2 items-center">
-                    <div className="sm:col-span-6">
-                      <label htmlFor="current-gps-address" className="sr-only">
-                        현재 주소 (GPS)
-                      </label>
-                      <input
-                        type="text"
-                        id="current-gps-address"
-                        value={currentGpsAddress}
-                        onChange={(e) => setCurrentGpsAddress(e.target.value)}
-                        className="block w-full p-2.5 bg-slate-800 border border-slate-600 rounded-md shadow-sm text-slate-300 text-sm placeholder-slate-400"
-                        placeholder="GPS 주소 또는 직접 입력"
-                      />
-                    </div>
-                    <div className="sm:col-span-6">
-                      <div className="grid grid-cols-2 gap-2">
-                        <ActionButton
-                          onClick={handleFetchGpsAddress}
-                          disabled={isFetchingAddress}
-                          fullWidth
-                          icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />}
-                          className="!px-2 !py-2.5 !text-xs"
-                        >
-                          GPS로 주소 찾기
-                        </ActionButton>
-                        <ActionButton
-                          onClick={handleResetGps}
-                          disabled={isFetchingAddress}
-                          fullWidth
-                          variant="secondary"
-                          className="!px-2 !py-2.5 !text-xs"
-                        >
-                          지도 닫기
-                        </ActionButton>
-                      </div>
-                    </div>
-                  </div>
-                  {coords && (
-                    <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
-                    <MapView
-                        latitude={coords.lat}
-                        longitude={coords.lng}
-                        address={currentGpsAddress}
-                        onAddressSelect={(addr, lat, lng) => {
-                          setCurrentGpsAddress(addr);
-                          setCoords({ lat, lng });
-                        }}
-                      />
-                      </div>
-                    )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 데이터 관리 */}
-          <div>
-            <button
-              onClick={() => toggleSection('data')}
-              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-              aria-expanded={openSections.includes('data')}
-            >
-              <h3 className="text-lg font-semibold text-slate-100">데이터 관리</h3>
-              <ChevronDownIcon
-                className={`w-5 h-5 text-slate-400 transition-transform ${
-                  openSections.includes('data') ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-
-            <div
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                openSections.includes('data') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
-              }`}
-            >
-              <div className="pt-4 px-2 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <ActionButton
-                    onClick={handleSaveDraft}
-                    variant="secondary"
-                    icon={isSaving ? <Spinner size="sm" /> : <SaveIcon />}
-                    disabled={isSaving || isLoading}
-                  >
-                    {isSaving ? '저장 중...' : '임시 저장'}
-                  </ActionButton>
-                  <ActionButton
-                    onClick={handleLoadDraft}
-                    variant="secondary"
-                    icon={isLoading ? <Spinner size="sm" /> : <LoadIcon />}
-                    disabled={isSaving || isLoading}
-                  >
-                    {isLoading ? '로딩 중...' : '불러오기'}
-                  </ActionButton>
-                </div>
-
-                {draftMessage && (
-                  <p
-                    className={`text-xs text-center ${
-                      draftMessage.type === 'success' ? 'text-green-400' : 'text-red-400'
-                    }`}
-                    role="status"
-                  >
-                    {draftMessage.type === 'success' ? '✅' : '❌'} {draftMessage.text}
-                  </p>
-                )}
-
-                <p className="text-xs text-slate-500 text-center">
-                  임시 저장은 현재 활성 작업의 접수번호와 동일한 모든 작업을 함께 저장/불러오기 합니다.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 네비게이션 */}
-      <nav className="w-full max-w-5xl mb-6 flex justify-center space-x-1 sm:space-x-2 p-2 bg-slate-800 rounded-lg shadow-md">
-        <button
-          onClick={() => setActivePage('structuralCheck')}
-          className={`${navButtonBaseStyle} ${activePage === 'structuralCheck' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'structuralCheck'}
-        >
-          구조 확인 (P1)
-        </button>
-        <button
-          onClick={() => setActivePage('photoLog')}
-          className={`${navButtonBaseStyle} ${activePage === 'photoLog' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'photoLog'}
-        >
-          수질 분석 (P2)
-        </button>
-        <button
-          onClick={() => setActivePage('fieldCount')}
-          className={`${navButtonBaseStyle} ${activePage === 'fieldCount' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'fieldCount'}
-        >
-          현장 계수 (P3)
-        </button>
-        <button
-          onClick={() => setActivePage('drinkingWater')}
-          className={`${navButtonBaseStyle} ${activePage === 'drinkingWater' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'drinkingWater'}
-        >
-          먹는물 분석 (P4)
-        </button>
-        <button
-          onClick={() => setActivePage('kakaoTalk')}
-          className={`${navButtonBaseStyle} ${activePage === 'kakaoTalk' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'kakaoTalk'}
-        >
-          카톡 전송 (P5)
-        </button>
-        <button
-          onClick={() => setActivePage('csvGraph')}
-          className={`${navButtonBaseStyle} ${activePage === 'csvGraph' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'csvGraph'}
-        >
-          CSV 그래프 (P6)
-        </button>
-      </nav>
-
-      {renderActivePage()}
-      
-      {userRole === 'admin' && <AdminPanel adminUserName={userName} />}
-
-      <Footer />
-    </div>
-  );
+type KtlApiCallStatus = 'idle' | 'success' | 'error';
+
+// --- Helper Functions ---
+const formatSite = (site: string, details?: string) =>
+  details && details.trim() ? `${site.trim()}_(${details.trim()})` : site.trim();
+
+const getCurrentTimestampForInput = (): string => {
+const now = new Date();
+const year = now.getFullYear();
+const month = String(now.getMonth() + 1).padStart(2, '0');
+const day = String(now.getDate()).padStart(2, '0');
+const hours = String(now.getHours()).padStart(2, '0');
+const minutes = String(now.getMinutes()).padStart(2, '0');
+return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
-export default PageContainer;
+const sanitizeFilenameComponent = (component: string): string => {
+if (!component) return '';
+return component.replace(/[/\\:?*\"<>|]/g, '').replace(/__+/g, '_');
+};
+
+const getCurrentLocalDateTimeString = (): string => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+};
+
+// --- Component ---
+interface DrinkingWaterPageProps {
+  userName: string;
+  jobs: DrinkingWaterJob[];
+  setJobs: React.Dispatch<React.SetStateAction<DrinkingWaterJob[]>>;
+  activeJobId: string | null;
+  setActiveJobId: (id: string | null) => void;
+  siteName: string;
+  siteLocation: string;
+  onDeleteJob: (jobId: string) => void;
+}
+
+const TrashIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
+    </svg>
+);
+
+const CalendarIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18M-4.5 12h22.5" />
+  </svg>
+);
+
+const TableIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+ <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+  </svg>
+);
+
+
+const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob }) => {
+const [isLoading, setIsLoading] = useState<boolean>(false);
+const [processingError, setProcessingError] = useState<string | null>(null);
+const [isKtlPreflightModalOpen, setIsKtlPreflightModalOpen] = useState<boolean>(false);
+const [ktlPreflightData, setKtlPreflightData] = useState<KtlPreflightData | null>(null);
+const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
+const fileInputRef = useRef<HTMLInputElement>(null);
+const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
+const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+const [isDateOverrideUnlocked, setIsDateOverrideUnlocked] = useState(false);
+const [overrideDateTime, setOverrideDateTime] = useState('');
+const snapshotHostRef = useRef<HTMLDivElement | null>(null);
+const [isSendingToClaydox, setIsSendingToClaydox] = useState<boolean>(false);
+const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
+
+const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
+
+const ocrControlsKtlStatus = useMemo<KtlApiCallStatus>(() => {
+    if (!activeJob) return 'idle';
+    if (activeJob.submissionStatus === 'success' || activeJob.submissionStatus === 'error') {
+        return activeJob.submissionStatus;
+    }
+    return 'idle';
+}, [activeJob]);
+  
+const updateActiveJob = useCallback((updater: (job: DrinkingWaterJob) => DrinkingWaterJob) => {
+    if (!activeJobId) return;
+    setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
+  }, [activeJobId, setJobs]);
+
+const resetSubmissionState = useCallback(() => {
+    setProcessingError(null);
+}, []);
+  
+useEffect(() => {
+  if (activeJob && activeJob.photos.length > 0) {
+      if (currentPhotoIndexOfActiveJob < 0 || currentPhotoIndexOfActiveJob >= activeJob.photos.length) {
+          setCurrentPhotoIndexOfActiveJob(0);
+      }
+  } else {
+      setCurrentPhotoIndexOfActiveJob(-1);
+  }
+}, [activeJob, currentPhotoIndexOfActiveJob]);
+
+useEffect(() => {
+  setIsDateOverrideUnlocked(false);
+}, [activeJobId]);
+
+const hypotheticalKtlFileNamesForPreview = useMemo(() => {
+if (!activeJob) return [];
+
+const fileNames: string[] = [];
+const baseName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}`;
+
+if (activeJob.photos.length > 0) {
+  fileNames.push(`${baseName}_composite.jpg`);
+  fileNames.push(`${baseName}_압축.zip`);
+}
+
+if (activeJob.processedOcrData?.some(d => d.value.trim() !== '' || (d.valueTP && d.valueTP.trim() !== ''))) {
+    fileNames.push(`${baseName}_datatable.png`);
+}
+
+return fileNames;
+}, [activeJob]);
+
+const ktlJsonPreview = useMemo(() => {
+if (!activeJob || !userName || !siteLocation.trim()) return null;
+const { receiptNumber, selectedItem, processedOcrData, details, decimalPlaces, decimalPlacesCl } = activeJob;
+
+const finalSiteLocationForData = formatSite(siteLocation, details);
+const finalSiteLocationForDesc = formatSite(siteName, details);
+
+const payload: ClaydoxPayload = {
+  receiptNumber,
+  siteLocation: finalSiteLocationForData,
+  siteNameOnly: finalSiteLocationForDesc,
+  item: selectedItem,
+  ocrData: processedOcrData || [],
+  updateUser: userName,
+  pageType: 'DrinkingWater',
+  maxDecimalPlaces: decimalPlaces,
+  maxDecimalPlacesCl: decimalPlacesCl,
+};
+return generateKtlJsonForPreview(payload, selectedItem, hypotheticalKtlFileNamesForPreview);
+}, [activeJob, userName, siteName, siteLocation, hypotheticalKtlFileNamesForPreview]);
+
+const handleJobDetailChange = (field: keyof Pick<DrinkingWaterJob, 'decimalPlaces' | 'decimalPlacesCl' | 'details'>, value: number | string) => {
+    updateActiveJob(j => ({ ...j, [field]: value, submissionStatus: 'idle', submissionMessage: undefined }));
+    resetSubmissionState();
+};
+
+const handleClear = useCallback(() => {
+if (!activeJobId) return;
+updateActiveJob(job => {
+    const clearedData = (job.processedOcrData || []).map(entry => ({
+        ...entry,
+        time: '',
+        value: '',
+        valueTP: entry.valueTP !== undefined ? '' : undefined,
+    }));
+    return { ...job, processedOcrData: clearedData, photos: [], submissionStatus: 'idle', submissionMessage: undefined };
+});
+setCurrentPhotoIndexOfActiveJob(-1);
+if (fileInputRef.current) {
+fileInputRef.current.value = '';
+}
+resetSubmissionState();
+setIsDateOverrideUnlocked(false);
+}, [activeJobId, resetSubmissionState, updateActiveJob]);
+
+const handleEntryValueChange = (entryId: string, valueType: 'primary' | 'tp', newValue: string) => {
+if (!activeJob || !activeJob.processedOcrData) return;
+
+const updatedData = activeJob.processedOcrData.map(entry => {
+  if (entry.id === entryId) {
+    const updatedEntry = {
+      ...entry,
+      ...(valueType === 'primary' ? { value: newValue } : { valueTP: newValue })
+    };
+    const hasPrimaryValue = (valueType === 'primary' ? newValue : (entry.value || '')).trim() !== '';
+    const hasTPValue = (valueType === 'tp' ? newValue : (entry.valueTP || ''))?.trim() !== '';
+    
+    if (hasPrimaryValue || hasTPValue) {
+        if (!entry.time) {
+          updatedEntry.time = getCurrentTimestampForInput();
+        }
+    } else {
+        updatedEntry.time = '';
+    }
+    return updatedEntry;
+  }
+  return entry;
+});
+updateActiveJob(j => ({ ...j, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined }));
+};
+
+const handleEntryValueBlur = (entryId: string, valueType: 'primary' | 'tp') => {
+if (!activeJob || !activeJob.processedOcrData) return;
+
+const formatValue = (value: string | undefined, places: number): string => {
+    if (value === null || value === undefined || value.trim() === '') return '';
+    const num = parseFloat(value);
+    if (isNaN(num)) return value;
+    return num.toFixed(places);
+};
+
+const updatedData = activeJob.processedOcrData.map(entry => {
+    if (entry.id === entryId) {
+        const updatedEntry = { ...entry };
+        const isResponseTime = entry.identifier?.startsWith('응답');
+        
+        if (!isResponseTime) { 
+            if (valueType === 'primary') {
+                updatedEntry.value = formatValue(entry.value, activeJob.decimalPlaces);
+            } else if (valueType === 'tp' && activeJob.selectedItem === 'TU/CL') {
+                updatedEntry.valueTP = formatValue(entry.valueTP, activeJob.decimalPlacesCl ?? activeJob.decimalPlaces);
+            }
+        }
+        return updatedEntry;
+    }
+    return entry;
+});
+updateActiveJob(j => ({ ...j, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined }));
+};
+
+const handleOpenCamera = useCallback(() => {
+if (!activeJobId) {
+alert('먼저 사진을 추가할 작업을 선택해주세요.');
+return;
+}
+setIsCameraOpen(true);
+setProcessingError(null);
+}, [activeJobId]);
+
+const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
+
+const handleActiveJobPhotosSet = useCallback((images: ImageInfo[]) => {
+if (!activeJobId || images.length === 0) return;
+updateActiveJob(job => {
+    const wasInitialSet = job.photos.length === 0;
+    const combined = [...job.photos, ...images];
+    
+    const uniqueImageMap = new Map<string, ImageInfo>();
+    combined.forEach(img => {
+        const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
+        if (!uniqueImageMap.has(key)) {
+            uniqueImageMap.set(key, img);
+        }
+    });
+    const finalPhotos = Array.from(uniqueImageMap.values());
+
+    if (wasInitialSet && finalPhotos.length > 0) {
+        setCurrentPhotoIndexOfActiveJob(0);
+    }
+
+    return { ...job, photos: finalPhotos, submissionStatus: 'idle', submissionMessage: undefined };
+});
+resetSubmissionState();
+}, [activeJobId, resetSubmissionState, updateActiveJob]);
+
+const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
+if (!activeJobId) return;
+const capturedImageInfo: ImageInfo = { file, base64, mimeType };
+
+let newIndex = -1;
+updateActiveJob(job => {
+    const newPhotos = [...job.photos, capturedImageInfo];
+    newIndex = job.photos.length;
+    return { ...job, photos: newPhotos, submissionStatus: 'idle', submissionMessage: undefined };
+});
+
+if (newIndex !== -1) {
+  setCurrentPhotoIndexOfActiveJob(newIndex);
+}
+setIsCameraOpen(false);
+resetSubmissionState();
+}, [activeJobId, resetSubmissionState, updateActiveJob]);
+
+const handleDeleteImage = useCallback((indexToDelete: number) => {
+if (!activeJobId || indexToDelete < 0) return;
+
+const currentJob = jobs.find(j => j.id === activeJobId);
+if (!currentJob || indexToDelete >= currentJob.photos.length) return;
+
+const newPhotos = currentJob.photos.filter((_, index) => index !== indexToDelete);
+
+let newCurrentIndex = currentPhotoIndexOfActiveJob;
+if (newPhotos.length === 0) {
+    newCurrentIndex = -1;
+} else if (newCurrentIndex >= newPhotos.length) {
+    newCurrentIndex = newPhotos.length - 1;
+} else if (newCurrentIndex > indexToDelete && newCurrentIndex > 0) {
+    newCurrentIndex = newCurrentIndex - 1;
+}
+
+updateActiveJob(job => ({ ...job, photos: newPhotos, submissionStatus: 'idle', submissionMessage: undefined }));
+setCurrentPhotoIndexOfActiveJob(newCurrentIndex);
+resetSubmissionState();
+}, [activeJobId, jobs, currentPhotoIndexOfActiveJob, resetSubmissionState, updateActiveJob]);
+
+const handleInitiateSendToKtl = useCallback(() => {
+if (!activeJob || !userName || !siteLocation.trim()) return;
+if (userName === "게스트") {
+alert("게스트 사용자는 KTL로 전송할 수 없습니다.");
+return;
+}
+const hasValues = activeJob.processedOcrData?.some(entry =>
+(entry.value && entry.value.trim() !== '') || (entry.valueTP && entry.valueTP.trim() !== '')
+);
+if (!hasValues) {
+alert("전송할 입력된 데이터가 없습니다.");
+return;
+}
+const finalSiteLocationForData = formatSite(siteLocation, activeJob.details);
+
+setKtlPreflightData({
+  jsonPayload: ktlJsonPreview || "JSON 미리보기를 생성할 수 없습니다.",
+  fileNames: hypotheticalKtlFileNamesForPreview,
+  context: {
+    receiptNumber: activeJob.receiptNumber,
+    siteLocation: finalSiteLocationForData,
+    selectedItem: activeJob.selectedItem,
+    userName
+  }
+});
+setIsKtlPreflightModalOpen(true);
+}, [activeJob, userName, ktlJsonPreview, siteName, siteLocation, hypotheticalKtlFileNamesForPreview]);
+
+const handleSendToClaydoxConfirmed = useCallback(async () => {
+    setIsKtlPreflightModalOpen(false);
+    if (!activeJob || !userName || !siteLocation.trim()) {
+        updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: "KTL 전송을 위한 필수 데이터가 누락되었습니다." }));
+        return;
+    }
+
+    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(1/4) 전송 준비 중..." }));
+
+    const finalSiteLocationForData = formatSite(siteLocation, activeJob.details);
+    const finalSiteLocationForDesc = formatSite(siteName, activeJob.details);
+
+    const payload: ClaydoxPayload = {
+        receiptNumber: activeJob.receiptNumber,
+        siteLocation: finalSiteLocationForData,
+        siteNameOnly: finalSiteLocationForDesc,
+        item: activeJob.selectedItem,
+        ocrData: activeJob.processedOcrData || [],
+        updateUser: userName,
+        pageType: 'DrinkingWater',
+        maxDecimalPlaces: activeJob.decimalPlaces,
+        maxDecimalPlacesCl: activeJob.decimalPlacesCl,
+    };
+
+    let filesToUpload: File[] = [];
+    let actualKtlFileNames: string[] = [];
+
+    try {
+        let dataTableFile: File | null = null;
+        if (snapshotHostRef.current) {
+            updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(2/4) 데이터 테이블 이미지 생성 중..." }));
+            const snapshotRoot = createRoot(snapshotHostRef.current);
+            await new Promise<void>(resolve => {
+                snapshotRoot.render(<DrinkingWaterSnapshot job={activeJob} siteName={siteName} />);
+                setTimeout(resolve, 100);
+            });
+
+            const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
+            if (elementToCapture) {
+                const canvas = await html2canvas(elementToCapture, { backgroundColor: '#1e293b', scale: 1.5 });
+                const dataUrl = canvas.toDataURL('image/png');
+                const blob = dataURLtoBlob(dataUrl);
+                const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
+                dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
+            }
+            snapshotRoot.unmount();
+        }
+
+        if (activeJob.photos.length > 0) {
+            updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(3/4) 보고서 및 압축 파일 생성 중..." }));
+            const imageInfosForComposite = activeJob.photos.map(img => ({ base64: img.base64, mimeType: img.mimeType }));
+            const baseName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}`;
+
+            const compositeDataUrl = await generateCompositeImage(
+                imageInfosForComposite,
+                { receiptNumber: activeJob.receiptNumber, siteLocation: finalSiteLocationForDesc, item: activeJob.selectedItem },
+                'image/jpeg',
+                0.7
+            );
+            const compositeBlob = dataURLtoBlob(compositeDataUrl);
+            const compositeKtlFileName = `${baseName}_composite.jpg`;
+            const compositeFile = new File([compositeBlob], compositeKtlFileName, { type: 'image/jpeg' });
+            filesToUpload.push(compositeFile);
+            actualKtlFileNames.push(compositeKtlFileName);
+
+            const zip = new JSZip();
+            for (let i = 0; i < activeJob.photos.length; i++) {
+                const imageInfo = activeJob.photos[i];
+                const stampedDataUrl = await generateStampedImage(
+                    imageInfo.base64, imageInfo.mimeType, activeJob.receiptNumber, finalSiteLocationForDesc, '', activeJob.selectedItem
+                );
+                const compressedDataUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
+                const stampedBlob = dataURLtoBlob(compressedDataUrl);
+                const extension = 'jpg';
+                const fileNameInZip = `${baseName}_${i + 1}.${extension}`;
+                zip.file(fileNameInZip, stampedBlob);
+            }
+
+            if (Object.keys(zip.files).length > 0) {
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+                const zipKtlFileName = `${baseName}_압축.zip`;
+                const zipFile = new File([zipBlob], zipKtlFileName, { type: 'application/zip' });
+                filesToUpload.push(zipFile);
+                actualKtlFileNames.push(zipKtlFileName);
+            }
+        }
+
+        if (dataTableFile) {
+            filesToUpload.push(dataTableFile);
+            actualKtlFileNames.push(dataTableFile.name);
+        }
+        
+        updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(4/4) KTL 서버로 업로드 중..." }));
+        const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, actualKtlFileNames, 'p4_check');
+        updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
+    } catch (error: any) {
+        updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
+    }
+}, [activeJob, userName, siteName, siteLocation, updateActiveJob]);
+
+const handleBatchSendToKtl = async () => {
+    const jobsToSend = jobs.filter(j => j.processedOcrData?.some(d => d.value.trim() !== '' || (d.valueTP && d.valueTP.trim() !== '')));
+    if (jobsToSend.length === 0) {
+        alert("전송할 데이터가 있는 작업이 없습니다.");
+        return;
+    }
+
+    setIsSendingToClaydox(true);
+    setBatchSendProgress(`(0/${jobsToSend.length}) 작업 처리 시작...`);
+    setJobs(prev => prev.map(j => jobsToSend.find(jts => jts.id === j.id) ? { ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' } : j));
+
+    for (let i = 0; i < jobsToSend.length; i++) {
+        const job = jobsToSend[i];
+        setBatchSendProgress(`(${(i + 1)}/${jobsToSend.length}) '${job.receiptNumber}' 전송 중...`);
+        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionMessage: '파일 생성 및 전송 중...' } : j));
+        
+        try {
+            const finalSiteLocationForData = formatSite(siteLocation, job.details);
+            const finalSiteLocationForDesc = formatSite(siteName, job.details);
+
+            const payload: ClaydoxPayload = {
+                receiptNumber: job.receiptNumber,
+                siteLocation: finalSiteLocationForData,
+                siteNameOnly: finalSiteLocationForDesc,
+                item: job.selectedItem,
+                ocrData: job.processedOcrData || [],
+                updateUser: userName,
+                pageType: 'DrinkingWater',
+                maxDecimalPlaces: job.decimalPlaces,
+                maxDecimalPlacesCl: job.decimalPlacesCl,
+            };
+
+            let filesToUpload: File[] = [];
+            let actualKtlFileNames: string[] = [];
+
+            if (snapshotHostRef.current) {
+                const snapshotRoot = createRoot(snapshotHostRef.current);
+                await new Promise<void>(resolve => {
+                    snapshotRoot.render(<DrinkingWaterSnapshot job={job} siteName={siteName} />);
+                    setTimeout(resolve, 100);
+                });
+
+                const elementToCapture = document.getElementById(`snapshot-container-for-${job.id}`);
+                if (elementToCapture) {
+                    const canvas = await html2canvas(elementToCapture, { backgroundColor: '#1e293b', scale: 1.5 });
+                    const blob = dataURLtoBlob(canvas.toDataURL('image/png'));
+                    const dataTableFileName = `${job.receiptNumber}_먹는물_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}_datatable.png`;
+                    const dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
+                    filesToUpload.push(dataTableFile);
+                    actualKtlFileNames.push(dataTableFile.name);
+                }
+                snapshotRoot.unmount();
+            }
+
+            if (job.photos.length > 0) {
+                const baseName = `${job.receiptNumber}_먹는물_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}`;
+                const compositeDataUrl = await generateCompositeImage(job.photos, { receiptNumber: job.receiptNumber, siteLocation: finalSiteLocationForDesc, item: job.selectedItem }, 'image/jpeg', 0.7);
+                const compositeFile = new File([dataURLtoBlob(compositeDataUrl)], `${baseName}_composite.jpg`, { type: 'image/jpeg' });
+                filesToUpload.push(compositeFile);
+                actualKtlFileNames.push(compositeFile.name);
+
+                const zip = new JSZip();
+                for (let i = 0; i < job.photos.length; i++) {
+                    const stampedDataUrl = await generateStampedImage(job.photos[i].base64, job.photos[i].mimeType, job.receiptNumber, finalSiteLocationForDesc, '', job.selectedItem);
+                    const compressedDataUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
+                    zip.file(`${baseName}_${i + 1}.jpg`, dataURLtoBlob(compressedDataUrl));
+                }
+                const zipFile = new File([await zip.generateAsync({ type: "blob" })], `${baseName}_압축.zip`, { type: 'application/zip' });
+                filesToUpload.push(zipFile);
+                actualKtlFileNames.push(zipFile.name);
+            }
+
+            const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, actualKtlFileNames, 'p4_check');
+            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message } : j));
+        } catch (error: any) {
+            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
+        }
+    }
+
+    setBatchSendProgress('일괄 전송 완료.');
+    setIsSendingToClaydox(false);
+    setTimeout(() => setBatchSendProgress(null), 5000);
+};
+
+const handleOverrideDateTimeChange = useCallback((newDateTime: string) => {
+    if (!activeJob || !activeJob.processedOcrData || !newDateTime) return;
+    
+    const formattedDateTime = newDateTime.replace('T', ' ');
+
+    const updatedData = activeJob.processedOcrData.map(entry => {
+        if (entry.time) { // Only update entries that already have a time
+            return { ...entry, time: formattedDateTime };
+        }
+        return entry;
+    });
+
+    updateActiveJob(j => ({ ...j, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined }));
+}, [activeJob, updateActiveJob]);
+
+const handleDateTimeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newDateTime = e.target.value;
+    setOverrideDateTime(newDateTime);
+    handleOverrideDateTimeChange(newDateTime);
+};
+
+const representativeActiveJobPhoto = useMemo(() =>
+activeJob && activeJob.photos.length > 0 && currentPhotoIndexOfActiveJob !== -1
+? activeJob.photos[currentPhotoIndexOfActiveJob]
+: null
+, [activeJob, currentPhotoIndexOfActiveJob]);
+
+const isControlsDisabled = isLoading || isSendingToClaydox || !!batchSendProgress || activeJob?.submissionStatus === 'sending';
+const isClaydoxDisabled = !activeJob || isControlsDisabled || !siteLocation.trim() || !activeJob.processedOcrData?.some(e => e.value.trim() || (e.valueTP && e.valueTP.trim()));
+
+const StatusIndicator: React.FC<{ status: DrinkingWaterJob['submissionStatus'], message?: string }> = ({ status, message }) => {
+    if (status === 'idle' || !message) return null;
+    if (status === 'sending') return <span className="text-xs text-sky-400 animate-pulse">{message}</span>;
+    if (status === 'success') return <span className="text-xs text-green-400">✅ {message}</span>;
+    if (status === 'error') return <span className="text-xs text-red-400" title={message}>❌ {message.length > 30 ? message.substring(0, 27) + '...' : message}</span>;
+    return null;
+  };
+
+return (
+<div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
+  <div ref={snapshotHostRef} style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}></div>
+  <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">
+    먹는물 분석 (P4)
+  </h2>
+
+  {jobs.length > 0 && (
+    <div className="space-y-2">
+      <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
+      <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
+        {jobs.map(job => (
+          <div
+            key={job.id}
+            className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
+          >
+            <div className="flex justify-between items-center">
+                <div className="flex-grow cursor-pointer" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); setIsDateOverrideUnlocked(false); }}>
+                    <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>
+                    {job.receiptNumber} / {job.selectedItem} {job.details && `(${job.details})`}
+                    </span>
+                </div>
+                <button
+                onClick={(e) => { e.stopPropagation(); onDeleteJob(job.id); }}
+                className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0"
+                aria-label={`${job.receiptNumber} 작업 삭제`}
+                disabled={isControlsDisabled}
+                >
+                    <TrashIcon />
+                </button>
+            </div>
+             <div className="mt-1 text-right cursor-pointer self-start" onClick={() => { setActiveJobId(job.id); resetSubmissionState(); setIsDateOverrideUnlocked(false); }}>
+                <StatusIndicator status={job.submissionStatus} message={job.submissionMessage} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )}
+
+    {!activeJob && jobs.length > 0 && <p className="text-center text-slate-400 p-4">계속하려면 위 목록에서 작업을 선택하세요.</p>}
+    {!activeJob && jobs.length === 0 && <p className="text-center text-slate-400 p-4">시작하려면 '공통 정보 및 작업 관리' 섹션에서 작업을 추가하세요.</p>}
+
+  {activeJob && (
+    <div className="space-y-4 pt-4 border-t border-slate-700">
+      <h3 className="text-lg font-semibold text-slate-100">
+        활성 작업: {activeJob.receiptNumber} / {activeJob.selectedItem}
+      </h3>
+      
+      <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 space-y-4">
+        <div>
+          <label htmlFor="job-details" className="block text-sm font-medium text-slate-300 mb-1">현장_상세 (편집 가능)</label>
+            <input
+              id="job-details"
+              value={activeJob.details}
+              onChange={(e) => handleJobDetailChange('details', e.target.value)}
+              disabled={isControlsDisabled}
+              className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm"
+              placeholder="현장_상세 (예: 강남배수지)"
+            />
+        </div>
+         {activeJob.selectedItem === 'TU/CL' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                  <label htmlFor="decimal-places-select-tu" className="block text-sm font-medium text-slate-300 mb-1">소수점 자릿수 (TU)</label>
+                  <select
+                    id="decimal-places-select-tu"
+                    value={activeJob.decimalPlaces}
+                    onChange={(e) => handleJobDetailChange('decimalPlaces', Number(e.target.value))}
+                    disabled={isControlsDisabled}
+                    className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm"
+                  >
+                    {[1, 2, 3, 4].map(p => <option key={p} value={p}>{p}자리</option>)}
+                  </select>
+              </div>
+              <div>
+                  <label htmlFor="decimal-places-select-cl" className="block text-sm font-medium text-slate-300 mb-1">소수점 자릿수 (Cl)</label>
+                  <select
+                    id="decimal-places-select-cl"
+                    value={activeJob.decimalPlacesCl ?? 2}
+                    onChange={(e) => handleJobDetailChange('decimalPlacesCl', Number(e.target.value))}
+                    disabled={isControlsDisabled}
+                    className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm"
+                  >
+                     {[1, 2, 3, 4].map(p => <option key={p} value={p}>{p}자리</option>)}
+                  </select>
+              </div>
+          </div>
+        ) : (
+          <div>
+            <label htmlFor="decimal-places-select" className="block text-sm font-medium text-slate-300 mb-1">소수점 자릿수 선택</label>
+            <select
+              id="decimal-places-select"
+              value={activeJob.decimalPlaces}
+              onChange={(e) => handleJobDetailChange('decimalPlaces', Number(e.target.value))}
+              disabled={isControlsDisabled}
+              className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm"
+            >
+              {[1, 2, 3, 4].map(p => <option key={p} value={p}>{p}자리 (0.{'0'.repeat(p - 1)}1)</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+      
+       <div className="mt-4 pt-4 border-t border-slate-600 space-y-3">
+        <h4 className="text-md font-semibold text-slate-200">
+            '{activeJob.selectedItem}' 작업 참고 사진
+        </h4>
+        {isCameraOpen ? (
+            <CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} />
+        ) : (
+            <>
+                <ImageInput
+                    onImagesSet={handleActiveJobPhotosSet}
+                    onOpenCamera={handleOpenCamera}
+                    isLoading={isControlsDisabled}
+                    ref={fileInputRef}
+                    selectedImageCount={activeJob.photos.length}
+                />
+                {representativeActiveJobPhoto && (
+                    <div className="self-start">
+<ImagePreview
+                        imageBase64={representativeActiveJobPhoto.base64}
+                        fileName={representativeActiveJobPhoto.file.name}
+                        mimeType={representativeActiveJobPhoto.mimeType}
+                        receiptNumber={activeJob.receiptNumber}
+                        item={activeJob.selectedItem}
+                        showOverlay={true}
+                        totalSelectedImages={activeJob.photos.length}
+                        currentImageIndex={currentPhotoIndexOfActiveJob}
+                        onDelete={() => handleDeleteImage(currentPhotoIndexOfActiveJob)}
+                    />
+</div>
+                )}
+                <ThumbnailGallery
+                    images={activeJob.photos}
+                    currentIndex={currentPhotoIndexOfActiveJob}
+                    onSelectImage={setCurrentPhotoIndexOfActiveJob}
+                    onDeleteImage={handleDeleteImage}
+                    disabled={isControlsDisabled}
+                />
+            </>
+        )}
+        </div>
+
+
+      <OcrControls
+        onClear={handleClear}
+        isClearDisabled={isControlsDisabled}
+        onInitiateSendToKtl={handleInitiateSendToKtl}
+        isClaydoxDisabled={isClaydoxDisabled}
+        isSendingToClaydox={activeJob.submissionStatus === 'sending'}
+        sendingMessage={activeJob.submissionMessage}
+        ktlApiCallStatus={ocrControlsKtlStatus}
+      />
+
+      <div className="data-table-container space-y-2">
+        <div className="flex justify-between items-center">
+            <h3 className="text-xl font-semibold text-sky-400 flex items-center">
+                <TableIcon className="w-6 h-6 mr-2"/> 데이터 입력
+            </h3>
+            <div className="flex items-center gap-2">
+                {isDateOverrideUnlocked ? (
+                  <input
+                    type="datetime-local"
+                    value={overrideDateTime}
+                    onChange={handleDateTimeInputChange}
+                    className="p-2 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm"
+                  />
+                ) : (
+                  activeJob.processedOcrData?.some(e => e.time) && (
+                    <button
+                        onClick={() => setIsPasswordModalOpen(true)}
+                        className="p-1.5 text-slate-400 hover:text-sky-400 rounded-full transition-colors"
+                        aria-label="날짜/시간 일괄 변경"
+                    >
+                        <CalendarIcon className="w-5 h-5" />
+                    </button>
+                  )
+                )}
+            </div>
+        </div>
+        <OcrResultDisplay
+            ocrData={activeJob.processedOcrData}
+            error={processingError}
+            isLoading={isLoading}
+            contextProvided={!!(activeJob.receiptNumber && siteLocation)}
+            hasImage={true} // In P4, we always show the table
+            isManualEntryMode={true}
+            selectedItem={activeJob.selectedItem}
+            onEntryIdentifierChange={() => {}} // Not used in P4
+            onEntryIdentifierTPChange={() => {}} // Not used in P4
+            onEntryTimeChange={(id, val) => handleEntryValueChange(id, 'primary', val)} // Time is also a value here
+            onEntryPrimaryValueChange={(id, val) => handleEntryValueChange(id, 'primary', val)}
+            onEntryValueTPChange={(id, val) => handleEntryValueChange(id, 'tp', val)}
+            onEntryValueBlur={handleEntryValueBlur}
+            onAddEntry={() => {}} // P4 has a fixed set of identifiers
+            onReorderRows={() => {}} // Not used in P4
+            availableIdentifiers={[]}
+            tnIdentifiers={[]}
+            tpIdentifiers={[]}
+            rawJsonForCopy={activeJob.processedOcrData ? JSON.stringify(activeJob.processedOcrData.filter(e => e.value.trim() || (e.valueTP && e.valueTP.trim())), null, 2) : null}
+            ktlJsonToPreview={ktlJsonPreview}
+            timeColumnHeader="최종 저장 시간"
+            decimalPlaces={activeJob.decimalPlaces}
+        />
+      </div>
+
+       {isPasswordModalOpen && (
+            <PasswordModal
+                isOpen={isPasswordModalOpen}
+                onClose={() => setIsPasswordModalOpen(false)}
+                onSuccess={() => {
+                    setIsDateOverrideUnlocked(true);
+                    const newDateTime = getCurrentLocalDateTimeString();
+                    setOverrideDateTime(newDateTime);
+                    handleOverrideDateTimeChange(newDateTime);
+                    setIsPasswordModalOpen(false);
+                }}
+            />
+        )}
+    </div>
+  )}
+  
+  {isKtlPreflightModalOpen && ktlPreflightData && (
+    <KtlPreflightModal
+      isOpen={isKtlPreflightModalOpen}
+      onClose={() => setIsKtlPreflightModalOpen(false)}
+      onConfirm={handleSendToClaydoxConfirmed}
+      preflightData={ktlPreflightData}
+    />
+  )}
+
+  {jobs.length > 0 && (
+    <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
+        <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
+        <p className="text-sm text-slate-400">
+            이 페이지의 모든 작업을 KTL로 전송합니다. 각 작업에 입력된 데이터가 있어야 합니다.
+        </p>
+        {batchSendProgress && (
+            <div className="p-3 bg-slate-700/50 rounded-md text-sky-300 text-sm flex items-center gap-2">
+                <Spinner size="sm" />
+                <span>{batchSendProgress}</span>
+            </div>
+        )}
+        <ActionButton
+            onClick={handleBatchSendToKtl}
+            disabled={isControlsDisabled}
+            fullWidth
+            variant="secondary"
+            className="bg-teal-600 hover:bg-teal-500"
+        >
+            {batchSendProgress ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.length}건)`}
+        </ActionButton>
+    </div>
+  )}
+
+</div>
+);
+};
+
+export default DrinkingWaterPage;
