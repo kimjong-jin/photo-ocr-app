@@ -9,7 +9,7 @@ import {
   RangeResults as DisplayRangeResults,
   RangeStat,
 } from '../RangeDifferenceDisplay';
-import { extractTextFromImage } from '../../services/geminiService';
+import { extractTextFromImage } from '../../Services/geminiService';
 import {
   sendToClaydoxApi,
   ClaydoxPayload,
