@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
@@ -454,7 +455,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
         }
         
         updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(4/4) KTL 서버로 업로드 중..." }));
-        const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, actualKtlFileNames);
+        const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, actualKtlFileNames, 'p4_check');
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
     } catch (error: any) {
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
@@ -533,7 +534,7 @@ const handleBatchSendToKtl = async () => {
                 actualKtlFileNames.push(zipFile.name);
             }
 
-            const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, actualKtlFileNames);
+            const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, actualKtlFileNames, 'p4_check');
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message } : j));
         } catch (error: any) {
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
