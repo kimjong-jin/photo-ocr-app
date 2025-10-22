@@ -12,7 +12,7 @@ import { ImageInput, ImageInfo } from './components/ImageInput';
 import { CameraView } from './components/CameraView';
 import { ImagePreview } from './components/ImagePreview';
 import { ThumbnailGallery } from './components/ThumbnailGallery';
-import { generateCompositeImage, generateStampedImage, dataURLtoBlob, compressImage } from './services/imageStampingService';
+import { generateCompositeImage, generateStampedImage, dataURLtoBlob, compressImage } from './Services/imageStampingService';
 import JSZip from 'jszip';
 import html2canvas from 'html2canvas';
 import { ExtractedEntry } from './shared/types';
