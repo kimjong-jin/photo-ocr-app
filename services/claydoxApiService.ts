@@ -18,6 +18,7 @@ import { ImageInfo } from '../components/ImageInput';
 import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput, compressImage } from './imageStampingService';
 import JSZip from 'jszip';
 import type { StructuralJob } from '../StructuralCheckPage';
+import { supabase } from './supabaseClient';
 
 // --- Global Constants & Helpers ---
 const KTL_API_BASE_URL = 'https://mobile.ktl.re.kr/labview/api';
@@ -319,7 +320,8 @@ export const sendToClaydoxApi = async (
   payload: ClaydoxPayload,
   filesToUploadWithOriginalNames: File[],
   selectedItem: string,
-  actualKtlFileNamesOnServer: string[]
+  actualKtlFileNamesOnServer: string[],
+  p_key?: string
 ): Promise<{ message: string; data?: KtlApiResponseData }> => {
   const formData = new FormData();
   filesToUploadWithOriginalNames.forEach((file) => {
@@ -369,6 +371,20 @@ export const sendToClaydoxApi = async (
       `${pageIdentifier} JSON Data Send to /env`
     );
     console.log(`${logIdentifier} JSON sent successfully. Response:`, jsonResponse.data);
+
+    if (supabase && p_key && payload.receiptNumber) {
+        const { data, error: updateError } = await supabase
+            .from('applications')
+            .update({ [p_key]: true })
+            .eq('receipt_no', payload.receiptNumber)
+            .select();
+        if (updateError) {
+            console.warn(`[Supabase Check] Failed to update ${p_key} for ${payload.receiptNumber}:`, updateError.message);
+        } else if (data && data.length > 0) {
+            window.dispatchEvent(new CustomEvent('applicationsUpdated'));
+        }
+    }
+
     return { message: jsonResponse.data?.message || `데이터 및 파일 전송 완료 (${pageIdentifier})`, data: jsonResponse.data };
   } catch (error: any) {
     let errorMsg = `알 수 없는 오류 발생 (${pageIdentifier})`;
@@ -723,7 +739,8 @@ export const sendSingleStructuralCheckToKtlApi = async (
   siteNameGlobal: string,
   userNameGlobal: string,
   gpsAddressGlobal: string,
-  onProgress: (message: string) => void
+  onProgress: (message: string) => void,
+  p_key?: string
 ): Promise<{ success: boolean; message: string }> => {
   const filesToUpload: File[] = [];
   let compositeFileNameOnServer: string | undefined;
@@ -837,6 +854,18 @@ export const sendSingleStructuralCheckToKtlApi = async (
       () => axios.post(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, { timeout: KTL_API_TIMEOUT }),
       2, 2000, 'P1 Single JSON Send'
     );
+     if (supabase && p_key && job.receiptNumber) {
+        const { data, error: updateError } = await supabase
+            .from('applications')
+            .update({ [p_key]: true })
+            .eq('receipt_no', job.receiptNumber)
+            .select();
+        if (updateError) {
+            console.warn(`[Supabase Check] Failed to update ${p_key} for ${job.receiptNumber}:`, updateError.message);
+        } else if (data && data.length > 0) {
+            window.dispatchEvent(new CustomEvent('applicationsUpdated'));
+        }
+    }
     return { success: true, message: jsonResponse.data?.message || '데이터 전송 완료' };
   } catch (e: any) {
     throw new Error(`JSON 데이터 전송 실패: ${e.message}`);
@@ -849,6 +878,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
   siteNameGlobal: string,
   userNameGlobal: string,
   gpsAddressGlobal: string,
+  p_key?: string
 ): Promise<{ receiptNo: string; mainItem: string; success: boolean; message: string }[]> => {
   const results: { receiptNo: string; mainItem: string; success: boolean; message: string }[] = [];
   const filesToUploadDirectly: File[] = [];
@@ -1132,6 +1162,20 @@ export const sendBatchStructuralChecksToKtlApi = async (
         `P1 JSON Send for ${receiptNo}`
       );
       console.log(`[ClaydoxAPI - P1] JSON for ${receiptNo} sent successfully. Response:`, jsonResponse.data);
+
+       if (supabase && p_key && receiptNo) {
+            const { data, error: updateError } = await supabase
+                .from('applications')
+                .update({ [p_key]: true })
+                .eq('receipt_no', receiptNo)
+                .select();
+            if (updateError) {
+                console.warn(`[Supabase Check] Failed to update ${p_key} for ${receiptNo}:`, updateError.message);
+            } else if (data && data.length > 0) {
+                 window.dispatchEvent(new CustomEvent('applicationsUpdated'));
+            }
+        }
+
       currentGroupOfJobs.forEach((jobPayload) => {
         results.push({
           receiptNo: jobPayload.receiptNumber,
@@ -1159,50 +1203,64 @@ export const sendBatchStructuralChecksToKtlApi = async (
 
 // --- START: Page 5 (KakaoTalk) Functionality ---
 
-// FIX: Add missing 'sendKakaoTalkMessage' function.
+const KAKAO_API_KEY = '9f04ece57d9f1f613b8888dae1997c57d3f';
+
+interface KakaoTalkInnerPayload {
+  APIKEY: string;
+  MSG: string;
+  PHONE: string;
+  RESERVETIME?: string;
+}
+
 export const sendKakaoTalkMessage = async (
   message: string,
-  phone: string,
+  phoneNumbers: string,
   reservationTime?: string
-): Promise<{ message: string }> => {
-  const payload: { MSG: string; PHONE: string; reservation_time?: string } = {
+): Promise<{ message: string; data?: KtlApiResponseData }> => {
+  const innerPayload: KakaoTalkInnerPayload = {
+    APIKEY: KAKAO_API_KEY,
     MSG: message,
-    PHONE: phone,
+    PHONE: phoneNumbers,
   };
+
   if (reservationTime) {
-    payload.reservation_time = reservationTime;
+    innerPayload.RESERVETIME = reservationTime;
   }
 
-  console.log('[ClaydoxAPI - Page 5] Sending KakaoTalk message:', payload);
+  const labviewItemValue = JSON.stringify(innerPayload);
+
+  const payloadForJsonRequest = {
+    LABVIEW_ITEM: labviewItemValue,
+  };
 
   try {
-    const response = await retryKtlApiCall<{ message: string }>(
-      () =>
-        axios.post<{ message: string }>(`${KTL_API_BASE_URL}${KTL_KAKAO_API_ENDPOINT}`, payload, {
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          timeout: 30000, // Shorter timeout for this API
-        }),
-      1, // Less aggressive retries
-      1500,
-      'KakaoTalk Message Send'
+    console.log('[KtlApiService] Sending KakaoTalk message with payload:', labviewItemValue);
+    const response = await retryKtlApiCall<KtlApiResponseData>(
+      () => axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_KAKAO_API_ENDPOINT}`, payloadForJsonRequest, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000, // Use a specific timeout for KakaoTalk
+      }),
+      2, 2000, "KakaoTalk Send"
     );
+    console.log('[KtlApiService] KakaoTalk message sent. Response:', response.data);
+    return { message: response.data?.message || '카카오톡 메시지 전송 요청 완료', data: response.data };
 
-    console.log('[ClaydoxAPI - Page 5] KakaoTalk message sent successfully. Response:', response.data);
-    return { message: response.data?.message || '카카오톡 메시지가 예약되었습니다.' };
   } catch (error: any) {
-    let errorMsg = '알 수 없는 오류 발생 (Page 5)';
+    let errorMsg = '알 수 없는 오류 발생';
     if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError;
-      const responseData = axiosError.response?.data as any;
-      console.error('[ClaydoxAPI - Page 5] KakaoTalk API Error:', responseData || axiosError.message);
-      errorMsg = responseData?.message || axiosError.message || `KTL API와 통신 중 오류가 발생했습니다.`;
-    } else {
-      errorMsg = error.message || '알 수 없는 비-Axios 오류 발생';
+        const axiosError = error as AxiosError;
+        const responseData = axiosError.response?.data;
+         if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof (responseData as any).message === 'string') {
+            errorMsg = (responseData as any).message;
+        } else if (typeof responseData === 'string' && responseData.length < 500 && responseData.trim()) {
+            errorMsg = responseData.trim();
+        } else if (axiosError.message) {
+            errorMsg = axiosError.message;
+        }
+    } else if (error.message) {
+        errorMsg = error.message;
     }
-    console.error('[ClaydoxAPI - Page 5] Final error to throw:', errorMsg);
+    console.error('[KtlApiService] Final error message to throw:', errorMsg);
     throw new Error(errorMsg);
   }
 };
