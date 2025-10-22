@@ -7,6 +7,7 @@ import { Type } from '@google/genai';
 import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
+import { CameraView } from './CameraView';
 
 export interface Application {
   id: number;
@@ -73,6 +74,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [newApplicationData, setNewApplicationData] = useState<Partial<Application>>({});
     const [ocrApiMode, setOcrApiMode] = useState<'gemini' | 'vllm'>('vllm');
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
 
     const clearMessages = () => {
         setError(null);
@@ -194,6 +196,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
 
     const handleImagesSet = useCallback((images: ImageInfo[]) => {
         setImage(images[0] || null);
+        clearMessages();
+    }, []);
+
+    const handleOpenCamera = useCallback(() => setIsCameraOpen(true), []);
+    const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
+    const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
+        const capturedImage: ImageInfo = { file, base64, mimeType };
+        setImage(capturedImage);
+        setIsCameraOpen(false);
         clearMessages();
     }, []);
 
@@ -484,13 +495,17 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
         <div className="pt-4 px-2 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-3">
-                      <ImageInput onImagesSet={handleImagesSet} onOpenCamera={()=>{}} isLoading={isProcessing} selectedImageCount={image ? 1 : 0} />
-                      {image && (
-                          <div className="mt-2">
+                    {isCameraOpen ? (
+                        <CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} />
+                    ) : (
+                        <ImageInput onImagesSet={handleImagesSet} onOpenCamera={handleOpenCamera} isLoading={isProcessing} selectedImageCount={image ? 1 : 0} />
+                    )}
+                    {!isCameraOpen && image && (
+                        <div className="mt-2">
                             <p className="text-xs text-sky-400 truncate mb-2">선택된 파일: {image.file.name}</p>
                             <img src={`data:${image.mimeType};base64,${image.base64}`} alt="신청서 미리보기" className="max-h-48 w-auto rounded-md border border-slate-600 object-contain" />
-                          </div>
-                      )}
+                        </div>
+                    )}
                 </div>
                 <div className="flex flex-col justify-end space-y-3">
                     <div className="flex justify-between items-center w-full px-1">
