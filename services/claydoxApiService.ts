@@ -17,7 +17,7 @@ import {
 import { ImageInfo } from '../components/ImageInput';
 import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput, compressImage } from './imageStampingService';
 import JSZip from 'jszip';
-import type { StructuralJob } from '../StructuralCheckPage';
+import type { StructuralJob } from '../shared/types';
 import { supabase } from './supabaseClient';
 
 // --- Global Constants & Helpers ---
