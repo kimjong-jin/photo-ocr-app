@@ -1,15 +1,28 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const urlRaw = import.meta.env.VITE_SUPABASE_URL?.trim();
+const keyRaw = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+
+function assertEnv() {
+  if (!urlRaw || !keyRaw) {
+    throw new Error(
+      '[Supabase] Missing env: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY ' +
+      '(빌드 시점에 주입되어야 함. .env.*와 배포 환경변수 확인)'
+    );
+  }
+  if (!/^https?:\/\//.test(urlRaw)) {
+    throw new Error('[Supabase] URL 형식 오류');
+  }
+}
 
 let supabase: SupabaseClient | null = null;
 
-if (url && key) {
-  supabase = createClient(url, key);
-} else {
-  // ❗여기서 throw 하지 말 것
-  console.warn('[Supabase] Missing env vars: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY. Running without Supabase.');
+try {
+  assertEnv();
+  supabase = createClient(urlRaw!, keyRaw!);
+} catch (e) {
+  console.error(e);
+  supabase = null;
 }
 
 export { supabase };
