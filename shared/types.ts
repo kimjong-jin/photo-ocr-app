@@ -1,6 +1,21 @@
-import { ImageInfo as BaseImageInfo } from '../components/ImageInput';
-import { RangeResults } from '../components/RangeDifferenceDisplay';
-import { MainStructuralItemKey, StructuralCheckSubItemData } from './StructuralChecklists';
+// ❌ import 금지: StructuralChecklists를 여기서 가져오면 순환 발생
+// import { MainStructuralItemKey, StructuralCheckSubItemData } from './StructuralChecklists';
+
+// 여기에 타입을 직접 선언
+export type MainStructuralItemKey = 'TN' | 'TP' | 'TOC' | 'PH' | 'TU' | 'Cl';
+
+export type ChecklistStatus = '선택 안됨' | '적합' | '부적합';
+
+export interface StructuralCheckSubItemData {
+  status: ChecklistStatus;
+  notes?: string;
+  specialNotes?: string;
+  confirmedAt?: string | null;
+}
+
+// ⬇️ 네가 가진 기존 타입들 계속 유지
+import type { ImageInfo as BaseImageInfo } from '../components/ImageInput';
+import type { RangeResults } from '../components/RangeDifferenceDisplay';
 
 export interface JobPhoto extends BaseImageInfo {
   uid: string;
@@ -52,7 +67,7 @@ export interface StructuralJob {
   checklistData: Record<string, StructuralCheckSubItemData>;
   photos: JobPhoto[];
   photoComments: Record<string, string>;
-  postInspectionDate: string; 
+  postInspectionDate: string;
   postInspectionDateConfirmedAt: string | null;
   submissionStatus: 'idle' | 'sending' | 'success' | 'error';
   submissionMessage?: string;
