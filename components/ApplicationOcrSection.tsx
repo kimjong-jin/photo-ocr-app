@@ -7,7 +7,6 @@ import { Type } from '@google/genai';
 import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
-import type { ApiMode } from '../PageContainer';
 
 export interface Application {
   id: number;
@@ -73,11 +72,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
     const [kakaoSendingId, setKakaoSendingId] = useState<number | null>(null);
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [newApplicationData, setNewApplicationData] = useState<Partial<Application>>({});
-    const [ocrApiMode, setOcrApiMode] = useState<ApiMode>('vllm');
-
-    const handleOcrApiModeToggle = () => {
-        setOcrApiMode(prev => (prev === 'gemini' ? 'vllm' : 'gemini'));
-    };
 
     const clearMessages = () => {
         setError(null);
@@ -209,9 +203,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
         setIsProcessing(true);
         clearMessages();
 
-        const originalApiMode = localStorage.getItem('apiMode') || 'gemini';
-        localStorage.setItem('apiMode', ocrApiMode);
-
         try {
             const currentApps = [...applications];
             const maxSlot = Math.max(0, ...currentApps.filter(app => app.queue_slot !== null).map(app => app.queue_slot!));
@@ -263,20 +254,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
             );
 
             const jsonString = await extractTextFromImage(preprocessedBase64, preprocessedMimeType, geminiPrompt, modelConfig);
-            const ocrResultRaw = JSON.parse(jsonString);
-
-            // Clean data: remove "(인)" from string values and trim whitespace.
-            const ocrResult: Partial<Application> = {};
-            for (const key in ocrResultRaw) {
-                if (Object.prototype.hasOwnProperty.call(ocrResultRaw, key)) {
-                    const value = ocrResultRaw[key];
-                    if (typeof value === 'string') {
-                        (ocrResult as any)[key] = value.replace(/\(인\)/g, '').trim();
-                    } else {
-                        (ocrResult as any)[key] = value;
-                    }
-                }
-            }
+            const ocrResult = JSON.parse(jsonString);
             
             const existingApp = applications.find(app => app.receipt_no === ocrResult.receipt_no && ocrResult.receipt_no);
             
@@ -310,7 +288,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
             setError('작업 실패: ' + (err.message || '알 수 없는 오류가 발생했습니다.'));
         } finally {
             setIsProcessing(false);
-            localStorage.setItem('apiMode', originalApiMode); // 원래 모드로 복원
         }
     };
 
@@ -500,37 +477,20 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
 
     return (
         <div className="pt-4 px-2 space-y-4">
-            <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-600/50 space-y-4">
-                <div className="flex justify-between items-center">
-                    <h4 className="text-md font-semibold text-slate-200">신청서 분석</h4>
-                    <div className="flex items-center gap-2">
-                        <span className="text-slate-300 font-semibold text-xs">
-                          분석 : {ocrApiMode === 'gemini' ? '외부 AI' : '내부 AI'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleOcrApiModeToggle}
-                          className={`px-3 py-1.5 text-xs font-bold text-white rounded-lg shadow-md transition-colors bg-green-500 hover:bg-green-600`}
-                        >
-                          {ocrApiMode === 'gemini' ? '전환 → 내부 AI' : '전환 → 외부 AI'}
-                        </button>
-                    </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                      <ImageInput onImagesSet={handleImagesSet} onOpenCamera={()=>{}} isLoading={isProcessing} selectedImageCount={image ? 1 : 0} />
+                      {image && (
+                          <div className="mt-2">
+                            <p className="text-xs text-sky-400 truncate mb-2">선택된 파일: {image.file.name}</p>
+                            <img src={`data:${image.mimeType};base64,${image.base64}`} alt="신청서 미리보기" className="max-h-48 w-auto rounded-md border border-slate-600 object-contain" />
+                          </div>
+                      )}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-3">
-                        <ImageInput onImagesSet={handleImagesSet} onOpenCamera={()=>{}} isLoading={isProcessing} selectedImageCount={image ? 1 : 0} />
-                        {image && (
-                            <div className="mt-2">
-                                <p className="text-xs text-sky-400 truncate mb-2">선택된 파일: {image.file.name}</p>
-                                <img src={`data:${image.mimeType};base64,${image.base64}`} alt="신청서 미리보기" className="max-h-48 w-auto rounded-md border border-slate-600 object-contain" />
-                            </div>
-                        )}
-                    </div>
-                    <div className="flex flex-col justify-end">
-                        <ActionButton onClick={handleAnalyzeAndSave} fullWidth disabled={isProcessing || !image} icon={isProcessing ? <Spinner size="sm" /> : undefined}>
-                            {isProcessing ? '처리 중...' : '분석 및 저장'}
-                        </ActionButton>
-                    </div>
+                <div className="flex flex-col justify-end">
+                    <ActionButton onClick={handleAnalyzeAndSave} fullWidth disabled={isProcessing || !image} icon={isProcessing ? <Spinner size="sm" /> : undefined}>
+                        {isProcessing ? '처리 중...' : '분석 및 저장'}
+                    </ActionButton>
                 </div>
             </div>
 
