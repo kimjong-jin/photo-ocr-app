@@ -72,6 +72,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
     const [kakaoSendingId, setKakaoSendingId] = useState<number | null>(null);
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [newApplicationData, setNewApplicationData] = useState<Partial<Application>>({});
+    const [ocrApiMode, setOcrApiMode] = useState<'gemini' | 'vllm'>('vllm');
 
     const clearMessages = () => {
         setError(null);
@@ -203,6 +204,9 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
         setIsProcessing(true);
         clearMessages();
 
+        const originalApiMode = localStorage.getItem('apiMode') || 'gemini';
+        localStorage.setItem('apiMode', ocrApiMode);
+
         try {
             const currentApps = [...applications];
             const maxSlot = Math.max(0, ...currentApps.filter(app => app.queue_slot !== null).map(app => app.queue_slot!));
@@ -287,6 +291,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
         } catch (err: any) {
             setError('작업 실패: ' + (err.message || '알 수 없는 오류가 발생했습니다.'));
         } finally {
+            localStorage.setItem('apiMode', originalApiMode);
             setIsProcessing(false);
         }
     };
@@ -487,7 +492,20 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
                           </div>
                       )}
                 </div>
-                <div className="flex flex-col justify-end">
+                <div className="flex flex-col justify-end space-y-3">
+                    <div className="flex justify-between items-center w-full px-1">
+                        <span className="text-slate-300 font-semibold text-sm">
+                        분석 모드: {ocrApiMode === 'gemini' ? '외부 AI' : '내부 AI'}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setOcrApiMode(prev => prev === 'gemini' ? 'vllm' : 'gemini')}
+                            className={`px-3 py-1.5 text-xs font-bold text-white rounded-lg shadow-md transition-colors bg-green-500 hover:bg-green-600`}
+                            disabled={isProcessing}
+                        >
+                            {ocrApiMode === 'gemini' ? '→ 내부 AI' : '→ 외부 AI'}
+                        </button>
+                    </div>
                     <ActionButton onClick={handleAnalyzeAndSave} fullWidth disabled={isProcessing || !image} icon={isProcessing ? <Spinner size="sm" /> : undefined}>
                         {isProcessing ? '처리 중...' : '분석 및 저장'}
                     </ActionButton>
