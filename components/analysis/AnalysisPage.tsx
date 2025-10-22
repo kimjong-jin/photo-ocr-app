@@ -444,7 +444,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     
     const photosWithUids: JobPhoto[] = newlySelectedImages.map(img => ({
         ...img,
-        uid: self.crypto.randomUUID()
+        uid: crypto.randomUUID()
     }));
 
     updateActiveJob(job => {
@@ -468,7 +468,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
   const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
 
   const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
-    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: self.crypto.randomUUID() };
+    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: crypto.randomUUID() };
     updateActiveJob(job => {
         const newPhotos = [...(job.photos || []), capturedImageInfo];
         setCurrentImageIndex(newPhotos.length - 1);
@@ -693,7 +693,7 @@ ${timeRules}
                 } else {
                     primaryValue = (rawEntry as RawEntrySingle).value || '';
                 }
-                return { id: self.crypto.randomUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
+                return { id: crypto.randomUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
             });
 
             updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
@@ -767,7 +767,7 @@ ${timeRules}
 
                 const finalTimestamp = `${singleAnalysisDate} ${timePart}`;
                 
-                return { id: self.crypto.randomUUID(), time: finalTimestamp.replace(/-/g, '/'), value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
+                return { id: crypto.randomUUID(), time: finalTimestamp.replace(/-/g, '/'), value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
             });
 
             const combinedData = [...(activeJob.processedOcrData || []), ...newExtractedEntries];
@@ -890,7 +890,7 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
                 const primaryValue = rawEntry.values?.[0] || '';
                 const tpValue = isTnTpMode ? (rawEntry.values?.[1] || '') : undefined;
                 return {
-                  id: self.crypto.randomUUID(),
+                  id: crypto.randomUUID(),
                   time: rawEntry.time,
                   value: primaryValue,
                   valueTP: tpValue,
@@ -926,7 +926,7 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
     updateActiveJob(job => {
         if (!job) return job;
         const newEntry: ExtractedEntry = {
-            id: self.crypto.randomUUID(),
+            id: crypto.randomUUID(),
             time: '',
             value: '',
             valueTP: job.selectedItem === "TN/TP" ? '' : undefined,
