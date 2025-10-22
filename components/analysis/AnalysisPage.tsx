@@ -490,66 +490,84 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     setProcessingError(null);
   }, [activeJob, updateActiveJob]);
 
-  const generatePromptForProAnalysis = ( receiptNum: string, siteLoc: string, item: string, inspectionStartDate?: string, inspectionEndDate?: string ): string => {
-    let prompt = `제공된 측정 장비의 이미지를 분석해주세요.
-컨텍스트:`;
-    if (receiptNum) prompt += `\n- 접수번호: ${receiptNum}`;
-    if (siteLoc) prompt += `\n- 현장/위치: ${siteLoc}`;
-    if (inspectionStartDate && inspectionEndDate) {
-      prompt += `\n- 검사 기간: ${inspectionStartDate} ~ ${inspectionEndDate}. 모든 시간(time) 값은 이 기간 내에 있어야 합니다. 자정을 넘기면 날짜가 증가해야 합니다.`
-    } else if (inspectionStartDate) {
-      prompt += `\n- 검사 시작 날짜: ${inspectionStartDate}. 모든 시간(time) 값은 이 날짜로 시작해야 합니다. 이미지의 시간(HH:MM)과 이 날짜를 조합하세요.`
-    }
+  const generatePromptForProAnalysis = (
+    receiptNum: string,
+    siteLoc: string,
+    item: string,
+    inspectionStartDate?: string,
+    inspectionEndDate?: string
+  ): string => {
+    
+    const timeRules = `시간 규칙:
+- 표 상단 등 한 날짜가 전체에 적용되면 그 날짜 + 각 행의 시간(HH:MM 또는 HH:MM:SS)을 합쳐
+  최종 "YYYY/MM/DD HH:MM(:SS)"로 만듭니다(분이 없으면 00). 2자리 연도는 20xx로 확장.
+- 개별 행에 날짜가 이미 있으면 그대로 사용.
+- 날짜가 전혀 없고 시간만 있는 경우 시간만 사용(추출 가능 시).`;
+
     if (item === "TN/TP") {
-        prompt += `\n- 항목/파라미터: TN 및 TP. 이미지에서 TN과 TP 각각의 시간 및 값 쌍을 추출해야 합니다.`;
-        prompt += `\n- 각 시간(time) 항목에 대해 TN 값은 "value_tn" 키에, TP 값은 "value_tp" 키에 할당해야 합니다.`;
-        prompt += `\n\n중요 규칙:\n1.  **두 값 모두 추출:** 같은 시간대에 TN과 TP 값이 모두 표시된 경우, JSON 객체에 "value_tn"과 "value_tp" 키를 **둘 다 포함해야 합니다.**\n    예시: { "time": "...", "value_tn": "1.23", "value_tp": "0.45" }`;
-        prompt += `\n2.  **한 값만 있는 경우:** 특정 시간대에 TN 또는 TP 값 중 하나만 명확하게 식별 가능한 경우 (예를 들어, 다른 값의 칸이 비어 있거나 'null' 또는 '-'로 표시된 경우), 해당 값의 키만 포함하고 다른 키는 **생략(omit)합니다**.\n    예시 (TN만 있고 TP 칸이 비어 있음): { "time": "...", "value_tn": "1.23" }\n    예시 (TP만 있고 TN 칸이 비어 있음): { "time": "...", "value_tp": "0.45" }`;
-        prompt += `\n3.  **값 형식:** 모든 값 필드에는 이미지에서 보이는 **순수한 숫자 값만** 포함해야 합니다. 단위(mg/L, mgN/L 등), 지시자(N, P), 주석(저, 고, [M_] 등)은 **모두 제외**하세요.`;
-        prompt += `\n\nJSON 출력 형식 예시 (항목: TN/TP):\n[\n  { "time": "2025/04/23 05:00", "value_tn": "46.2", "value_tp": "1.2" },\n  { "time": "2025/04/23 06:00", "value_tn": "5.388", "value_tp": "0.1" },\n  { "time": "2025/05/21 09:38", "value_tn": "89.629" },\n  { "time": "2025/05/21 10:25", "value_tp": "2.5" }\n]`;
-    } else { 
-      prompt += `\n- 항목/파라미터: ${item}. 이 항목의 측정값을 이미지에서 추출해주세요.`;
-      prompt += `\n  "value" 필드에는 각 측정 항목의 **순수한 숫자 값만** 포함해야 합니다. 예를 들어, 이미지에 "N 89.629 mgN/L [M_]"라고 표시되어 있다면 "value"에는 "89.629"만 와야 합니다.`;
-      prompt += `\n  항목 지시자(예: "N ", "TOC "), 단위(예: "mgN/L", "mg/L"), 상태 또는 주석(예: "[M_]", "(A)") 등은 **모두 제외**해야 합니다.`;
-      prompt += `\n\nJSON 출력 형식 예시 (항목: ${item}):`;
-      if (item === "TN") {
-        prompt += `\n[\n  { "time": "2025/05/21 09:38", "value": "89.629" },\n  { "time": "2025/05/21 10:25", "value": "44.978" },\n  { "time": "2025/05/21 12:46", "value": "6.488" }\n]`;
-      } else if (item === "TP") {
-        prompt += `\n[\n  { "time": "YYYY/MM/DD HH:MM", "value": "X.XXX" }\n]`;
-      } else { 
-        prompt += `\n[\n  { "time": "YYYY/MM/DD HH:MM", "value": "X.XXX" },\n  { "time": "YYYY/MM/DD HH:MM", "value": "Y.YYY" }\n]`;
-      }
-    }
-    prompt += `
+        let context = `컨텍스트:\n- 접수번호: ${receiptNum}\n- 현장/위치: ${siteLoc}`;
+        if (inspectionStartDate && inspectionEndDate) {
+            context += `\n- 검사 기간(선택): ${inspectionStartDate} ~ ${inspectionEndDate} (기간이 있으면 자정 넘어가면 날짜 증가)`;
+        }
+        
+        return `제공된 측정 장비의 이미지를 분석해주세요.
+${context}
+- 항목/파라미터: TN 및 TP. 이미지에서 TN과 TP 각각의 시간 및 값 쌍을 추출해야 합니다.
+- 각 시간(time) 항목에 대해 TN 값은 "value_tn", TP 값은 "value_tp"에 넣습니다.
+
+중요 규칙:
+1) 같은 시간대에 TN/TP가 둘 다 있으면 두 키를 모두 포함합니다.
+   예: { "time": "...", "value_tn": "1.23", "value_tp": "0.45" }
+2) 한 값만 명확하면 그 값만 포함하고, 없는 키는 생략합니다.
+   예: { "time": "...", "value_tn": "1.23" }  또는  { "time": "...", "value_tp": "0.45" }
+3) 값 필드는 숫자만. 단위/접두사/주석(예: mg/L, mgN/L, N, P, [M_], 저/중/고)은 제외합니다.
 
 작업:
-이미지에서 데이터 테이블이나 목록을 식별해주세요.
-장치 화면에 보이는 모든 "Time"(시각) 및 관련 값 쌍을 추출해주세요.
+- 장치 화면에서 보이는 모든 “Time(시각)”과 관련 값(TN/TP)을 찾아 JSON 배열로만 반환하세요.
 
-JSON 출력 및 데이터 추출을 위한 특정 지침:
-1.  전체 응답은 **반드시** 유효한 단일 JSON 배열이어야 합니다. 응답은 대괄호 '['로 시작해서 대괄호 ']'로 끝나야 하며, 이 배열 구조 외부에는 **어떠한 다른 텍스트도 포함되어서는 안 됩니다.**
-2.  JSON 데이터 자체를 제외하고는, JSON 배열 외부 또는 내부에 \`\`\`json\`\`\`와(과) 같은 마크다운 구분 기호, 소개, 설명, 주석 또는 기타 텍스트를 **절대로 포함하지 마세요.**
-3.  배열 내의 각 JSON 객체는 정확한 JSON 형식이어야 합니다. 특히, 속성 값 뒤 (예: "value": "202.0" 에서 "202.0" 뒤)에는 다음 문자가 와야 합니다:
-    *   쉼표(,) : 객체에 속성이 더 있는 경우
-    *   닫는 중괄호(}) : 객체의 마지막 속성인 경우
-    이 외의 다른 텍스트나 문자를 **절대로 추가하지 마세요.**
-4.  지정된 "항목/파라미터" 관련 데이터를 우선적으로 추출하되, 장치 화면에서 식별 가능한 모든 "Time"(시각) 및 관련 값 쌍을 반드시 추출해야 합니다.
-5.  **"Time"(시각) 추출 규칙:**
-    - **표 전체에 대한 날짜 식별:** 먼저, 데이터 표 전체에 적용되는 주요 날짜(예: \`25/06/30\`)를 화면에서 찾으세요. 이 날짜는 종종 표의 상단이나 근처에 표시됩니다.
-    - **행별 시간 구성:** 표의 각 행에 대해, 행의 시각 표시자(예: \`00\`부터 \`23\`까지의 숫자, 이는 시간(hour)을 나타냄)를 위에서 식별한 주요 날짜와 결합하여 완전한 타임스탬프를 만드세요. 분(minute)은 \`00\`으로 설정하세요. (예: 날짜가 \`25/07/01\`이고 행 표시자가 \`08\`이면, 시간은 \`2025/07/01 08:00\`이 됩니다. 2자리 연도는 현재 세기를 기준으로 \`20xx\`로 변환하세요.)
-    - **최종 시간 형식:** 최종 시간은 \`YYYY/MM/DD HH:MM\` 형식으로 일관되게 포맷해주세요.
-    - **개별 타임스탬프:** 만약 표 전체에 적용되는 날짜가 없고 각 행에 완전한 날짜와 시간이 이미 있다면, 그 값을 그대로 사용하세요. 시간만 표시된 경우 날짜 없이 시간만 추출하세요.
-6.  값 필드 ("value", "value_tn", "value_tp"): **오직 숫자 부분만** 추출해주세요. 이미지에 "N 89.629 mgN/L [M_]"와 같이 표시되어 있다면, 해당 값 필드에는 "89.629"와 같이 순수한 숫자 문자열만 포함해야 합니다. 접두사(예: "N "), 단위(예: "mgN/L"), 텍스트 주석(예: "[M_]", "(A)", "저", "고 S") 등은 **모두 제외**해야 합니다. 만약 숫자 값을 명확히 식별할 수 없다면, 해당 값 필드를 JSON 객체에서 생략하거나 빈 문자열 ""로 설정해주세요.
-7.  항목이 "TN/TP"인 경우:
-    - 각 객체는 "time"을 포함해야 합니다.
-    - TN 데이터가 있으면 "value_tn"을 포함해야 합니다.
-    - TP 데이터가 있으면 "value_tp"를 포함해야 합니다.
-    - 특정 시간 항목에 대해 TN 또는 TP 값 중 하나만 있을 수 있습니다. 해당 값만 포함합니다. (예: {"time": "...", "value_tn": "..."} 또는 {"time": "...", "value_tp": "..."})
-8.  카메라에서 생성된 타임스탬프 및 UI 버튼 텍스트는 실제 데이터의 일부가 아닌 한 제외하세요.
-9.  장치 화면에서 "Time" 및 관련 값 쌍을 전혀 찾을 수 없거나 이미지가 인식 가능한 데이터 표시를 포함하지 않는 경우 빈 JSON 배열([])을 반환하세요.
-10. "reactors_input" 또는 "reactors_output" 또는 유사한 마커를 응답에 포함하지 마세요. JSON 응답은 순수하게 데이터 객체의 배열이어야 합니다.
-`;
-    return prompt;
+${timeRules}
+
+반드시 지킬 출력 형식:
+- 응답 전체는 유효한 JSON **배열 하나**여야 하며, 그 밖의 텍스트/마크다운은 절대 포함하지 마세요.
+- 예: 
+[
+  { "time": "2025/04/23 05:00", "value_tn": "46.2", "value_tp": "1.2" },
+  { "time": "2025/04/23 06:00", "value_tn": "5.388", "value_tp": "0.1" },
+  { "time": "2025/05/21 09:38", "value_tn": "89.629" },
+  { "time": "2025/05/21 10:25", "value_tp": "2.5" }
+]
+
+추출 불가하면 [] 를 반환.`;
+    } else { // Single item
+        let context = `컨텍스트:\n- 접수번호: ${receiptNum}\n- 현장/위치: ${siteLoc}`;
+        if (inspectionStartDate) {
+            context += `\n- 검사 시작일(선택): ${inspectionStartDate}  (시간과 조합)`;
+        }
+        if (inspectionEndDate) {
+            context += `\n- 검사 종료일(선택): ${inspectionEndDate}    (자정 넘어가면 날짜 증가)`;
+        }
+
+        return `제공된 측정 장비의 이미지를 분석해주세요.
+${context}
+
+- 항목/파라미터: ${item} (예: TN, TP, TOC 등)
+- "value"에는 **숫자만** 넣고, 단위/접두사/주석(N, P, mg/L, mgN/L, [M_], (A), 저/중/고 등)은 제외하세요.
+
+작업:
+- 장치 화면에서 보이는 모든 “Time(시각)”과 해당 항목의 값을 찾아 JSON 배열만 반환.
+
+${timeRules}
+
+반드시 지킬 출력 형식:
+- 응답 전체는 유효한 JSON **배열 하나**만.
+- 예:
+[
+  { "time": "2025/05/21 09:38", "value": "89.629" },
+  { "time": "2025/05/21 10:25", "value": "44.978" }
+]
+
+추출 불가하면 [].`;
+    }
   };
   const handleExtractText = useCallback(async () => {
     if (!activeJob || activeJob.photos.length === 0) {
@@ -779,28 +797,20 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
   }, [activeJob, currentImageIndex, singleAnalysisDate, siteLocation, updateActiveJob]);
 
   const generatePromptForLogFileAnalysis = (): string => {
-    return `You are an expert data extraction assistant. Your task is to analyze an image of a data log screen titled 'FrmViewLog' and extract the tabular data into a structured JSON format.
-  
-  CRITICAL INSTRUCTIONS:
-  
-  1.  **Identify the Date:** First, locate the list of dates on the right side of the window. Identify the single date that is currently selected or highlighted. This is the date for ALL data rows in the main table.
-  
-  2.  **Extract Data Rows:** For each row in the main data table on the left, perform the following:
-      a.  **Construct Timestamp:** Take the time from the first column (e.g., \`[06:02:24]\`) and combine it with the single date you identified in step 1. The final format for the 'time' field must be 'YYYY-MM-DD HH:MM:SS'. For example, if the selected date is '2025-09-10' and the time is '[06:02:24]', the timestamp is '2025-09-10 06:02:24'.
-      b.  **Extract Values:** Extract ALL numerical values that appear after the timestamp column in that row. The values should be returned as an array of strings. Remove any commas from numbers (e.g., '2,611.27800' should become '2611.27800').
-  
-  3.  **JSON Output Format:** The final output MUST be a single, valid JSON array. Each object in the array represents a row from the table and must have the following keys:
-      *   \`time\`: The full timestamp string you constructed.
-      *   \`values\`: An array of strings, where each string is a numerical value from the columns following the timestamp.
-  
-  EXAMPLE:
-  If the selected date is '2025-09-10' and a row is \`[06:02:24]   4.333   0.302   2,611.27800\`, the corresponding JSON object should be:
-  {
-    "time": "2025-09-10 06:02:24",
-    "values": ["4.333", "0.302", "2611.27800"]
-  }
-  
-  Respond ONLY with the JSON array. Do not include any other text, explanations, or markdown formatting. If no valid data can be extracted, return an empty array \`[]\`.`;
+    return `You are an expert data extraction assistant. Analyze an image of a data log screen titled "FrmViewLog".
+
+CRITICAL:
+1) On the right, find the list of dates and identify the single selected/highlighted date. This date applies to ALL rows.
+2) For each row in the left table:
+   a) Build timestamp: take the first-column time like "[06:02:24]" and combine with the selected date → "YYYY-MM-DD HH:MM:SS".
+   b) Extract ALL numeric values after the time column as strings. Remove commas (e.g., "2,611.27800" → "2611.27800").
+
+OUTPUT (JSON array only):
+[
+  { "time": "YYYY-MM-DD HH:MM:SS", "values": ["<num1>", "<num2>", ...] }
+]
+
+Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].`;
   };
 
   const handleExtractFromLogFile = useCallback(async () => {
