@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { CsvGraphJob, AiPhase } from "../types/csvGraph";
-import { callVllmApi } from "../services/vllmService";
+import { callVllmApi } from "../Services/vllmService";
 
 /**
  * Phase 분석용 프롬프트 생성
