@@ -27,6 +27,7 @@ import {
 } from './shared/StructuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
 import { getKakaoAddress } from './services/kakaoService';
+import ApplicationOcrSection, { type Application } from './components/ApplicationOcrSection';
 
 
 type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
@@ -98,13 +99,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [csvGraphJobs, setCsvGraphJobs] = useState<CsvGraphJob[]>([]);
   const [activeCsvGraphJobId, setActiveCsvGraphJobId] = useState<string | null>(null);
+  
+  const [selectedAppId, setSelectedAppId] = useState<number | null>(null);
 
   const [currentGpsAddress, setCurrentGpsAddress] = useState('');
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
-  const [openSections, setOpenSections] = useState<string[]>(['addTask']);
+  const [openSections, setOpenSections] = useState<string[]>([]);
 
   useEffect(() => {
     const savedMode = localStorage.getItem('apiMode') as ApiMode;
@@ -117,6 +120,25 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setApiMode(mode);
     localStorage.setItem('apiMode', mode);
   };
+  
+  const handleApplicationSelect = useCallback((app: Application) => {
+    const receiptNo = app.receipt_no || '';
+    const parts = receiptNo.split('-');
+
+    // Common format is XX-XXXXXX-XX (3 parts). Anything after is detail.
+    if (parts.length > 3) {
+      const detailPart = parts.pop() || '';
+      const commonPart = parts.join('-');
+      setReceiptNumberCommon(commonPart);
+      setReceiptNumberDetail(detailPart);
+    } else {
+      setReceiptNumberCommon(receiptNo);
+      setReceiptNumberDetail('');
+    }
+
+    setSiteName(app.site_name);
+    setSelectedAppId(app.id);
+  }, []);
 
   const finalSiteLocation = useMemo(() => {
     const site = siteName.trim();
@@ -807,6 +829,35 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
       {activePage !== 'kakaoTalk' && (
         <div className="w-full max-w-3xl mb-6 p-4 bg-slate-800/60 rounded-lg border border-slate-700 shadow-sm space-y-2">
+          <div>
+            <button
+              onClick={() => toggleSection('applicationOcr')}
+              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
+              aria-expanded={openSections.includes('applicationOcr')}
+            >
+              <h3 className="text-lg font-semibold text-slate-100">목록</h3>
+              <ChevronDownIcon
+                className={`w-5 h-5 text-slate-400 transition-transform ${
+                  openSections.includes('applicationOcr') ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                openSections.includes('applicationOcr') ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <ApplicationOcrSection 
+                userName={userName}
+                userContact={userContact}
+                onApplicationSelect={handleApplicationSelect}
+                siteNameToSync={siteName}
+                appIdToSync={selectedAppId}
+                receiptNumberCommonToSync={receiptNumberCommon}
+              />
+            </div>
+          </div>
+          
           {/* 공통 정보 및 작업 추가 */}
           <div>
             <button
