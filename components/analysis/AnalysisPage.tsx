@@ -453,7 +453,9 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
         const uniqueImageMap = new Map<string, JobPhoto>();
         combined.forEach(img => {
             const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
-            if (!uniqueImageMap.has(key)) uniqueImageMap.set(key, img);
+            if (!uniqueImageMap.has(key)) {
+                uniqueImageMap.set(key, img);
+            }
         });
         const finalPhotos = Array.from(uniqueImageMap.values());
         
@@ -1158,7 +1160,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
         const fileNamesForKtlJson = [...compositeFileNames, zipFile.name];
 
         updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(4/4) KTL 서버로 업로드 중..."}));
-        const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, fileNamesForKtlJson);
+        const p_key = pageType === 'PhotoLog' ? 'p2_check' : 'p3_check';
+        const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, fileNamesForKtlJson, p_key);
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
 
     } catch (error: any) {
@@ -1233,7 +1236,8 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             const filesToUpload = [...compositeFiles, zipFile];
             const fileNamesForKtlJson = [...compositeFileNames, zipFile.name];
 
-            const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, fileNamesForKtlJson);
+            const p_key = pageType === 'PhotoLog' ? 'p2_check' : 'p3_check';
+            const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, fileNamesForKtlJson, p_key);
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message } : j));
         } catch (error: any) {
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
@@ -1369,6 +1373,7 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
                               currentImageIndex={currentImageIndex}
                               onDelete={() => handleDeleteImage(currentImageIndex)}
                               siteName={siteName}
+                              comment={activeJob.photoComments[activeJob.photos[currentImageIndex].uid]}
                               gpsAddress={siteLocation.replace(siteName, '').replace('()','').trim()}
                           />
                       )}
@@ -1429,7 +1434,14 @@ JSON 출력 및 데이터 추출을 위한 특정 지침:
             availableIdentifiers={availableIdentifiers}
             tnIdentifiers={availableTnIdentifiers}
             tpIdentifiers={availableTpIdentifiers}
-            rawJsonForCopy={activeJob.draftJsonPreview}
+            rawJsonForCopy={
+              activeJob.processedOcrData
+                ? JSON.stringify(
+                    activeJob.processedOcrData.filter(e => e.value.trim() || (e.valueTP && e.valueTP.trim())),
+                    null, 2
+                  )
+                : null
+            }
             ktlJsonToPreview={ktlJsonPreview}
           />
         </div>
