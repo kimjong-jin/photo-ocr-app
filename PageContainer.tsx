@@ -29,11 +29,9 @@ import {
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
 import { getKakaoAddress } from './services/kakaoService';
 import ApplicationOcrSection, { type Application } from './components/ApplicationOcrSection';
-import { supabase } from './services/supabaseClient';
-import FtpPage from './FtpPage';
 
 
-type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph' | 'ftp';
+type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
 export type ApiMode = 'gemini' | 'vllm';
 
 interface PageContainerProps {
@@ -103,9 +101,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [csvGraphJobs, setCsvGraphJobs] = useState<CsvGraphJob[]>([]);
   const [activeCsvGraphJobId, setActiveCsvGraphJobId] = useState<string | null>(null);
   
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [isLoadingApplications, setIsLoadingApplications] = useState(false);
-  const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
+  const [selectedAppId, setSelectedAppId] = useState<number | null>(null);
 
   const [currentGpsAddress, setCurrentGpsAddress] = useState('');
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
@@ -113,44 +109,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const [openSections, setOpenSections] = useState<string[]>([]);
-  
-  const loadApplications = useCallback(async (showError?: (msg: string) => void) => {
-    if (!supabase) {
-        if (showError) showError("데이터베이스에 연결할 수 없습니다. Supabase 설정을 확인하세요.");
-        return;
-    }
-    setIsLoadingApplications(true);
-    try {
-        const { data, error: dbError } = await supabase
-            .from('applications')
-            .select('*')
-            .eq('user_name', userName);
-
-        if (dbError) throw dbError;
-
-        if (data) {
-            data.sort((a, b) => {
-                const slotA = a.queue_slot;
-                const slotB = b.queue_slot;
-                if (slotA === null && slotB !== null) return 1;
-                if (slotA !== null && slotB === null) return -1;
-                if (slotA !== null && slotB !== null && slotA !== slotB) {
-                    return slotA - slotB;
-                }
-                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-            });
-            setApplications(data);
-        } else {
-            setApplications([]);
-        }
-    } catch (err: any) {
-        if (showError) showError('데이터를 불러오는 데 실패했습니다: ' + err.message);
-        setApplications([]);
-    } finally {
-        setIsLoadingApplications(false);
-    }
-  }, [userName]);
-
 
   useEffect(() => {
     const savedMode = localStorage.getItem('apiMode') as ApiMode;
@@ -180,7 +138,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
 
     setSiteName(app.site_name);
-    setSelectedApplication(app);
+    setSelectedAppId(app.id);
   }, []);
 
   const finalSiteLocation = useMemo(() => {
@@ -817,8 +775,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
   const isCsvPage = activePage === 'csvGraph';
-  const appIdToSync = selectedApplication ? selectedApplication.id : null;
-
 
   const renderActivePage = () => {
     switch(activePage) {
@@ -838,15 +794,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                   siteName={siteNameOnly} 
                   onDeleteJob={handleDeleteStructuralCheckJob}
                   currentGpsAddress={currentGpsAddress}
-                  applications={applications}
-                  selectedApplication={selectedApplication}
                 />;
       case 'kakaoTalk':
         return <KakaoTalkPage userName={userName} userContact={userContact} />;
       case 'csvGraph':
         return <CsvGraphPage userName={userName} jobs={csvGraphJobs} setJobs={setCsvGraphJobs} activeJobId={activeCsvGraphJobId} setActiveJobId={setActiveCsvGraphJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteCsvGraphJob} />;
-      case 'ftp':
-        return <FtpPage userName={userName} />;
       default:
         return null;
     }
@@ -876,7 +828,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       </div>
     </div>
 
-      { !['kakaoTalk', 'ftp'].includes(activePage) && (
+      {activePage !== 'kakaoTalk' && (
         <div className="w-full max-w-3xl mb-6 p-4 bg-slate-800/60 rounded-lg border border-slate-700 shadow-sm space-y-2">
           <div>
             <button
@@ -901,12 +853,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 userContact={userContact}
                 onApplicationSelect={handleApplicationSelect}
                 siteNameToSync={siteName}
-                appIdToSync={appIdToSync}
+                appIdToSync={selectedAppId}
                 receiptNumberCommonToSync={receiptNumberCommon}
-                applications={applications}
-                setApplications={setApplications}
-                isLoadingApplications={isLoadingApplications}
-                loadApplications={loadApplications}
               />
             </div>
           </div>
@@ -1236,13 +1184,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           aria-pressed={activePage === 'csvGraph'}
         >
           CSV 그래프 (P6)
-        </button>
-        <button
-          onClick={() => setActivePage('ftp')}
-          className={`${navButtonBaseStyle} ${activePage === 'ftp' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'ftp'}
-        >
-          FTP (P7)
         </button>
       </nav>
 
