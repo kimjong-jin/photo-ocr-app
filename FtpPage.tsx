@@ -27,9 +27,35 @@ const FileIcon: React.FC = () => (
   </svg>
 );
 
+const fetchWithTimeout = (url: string, opts: any = {}, ms = 8000) => {
+  const c = new AbortController(); 
+  const t = setTimeout(() => c.abort(), ms);
+  return fetch(url, { ...opts, signal: c.signal }).finally(() => clearTimeout(t));
+};
+
+async function ensureOk(res: Response) {
+  if (res.ok) return;
+  let msg = `HTTP ${res.status}`;
+  try {
+    const bodyText = await res.text();
+    try {
+      const jsonBody = JSON.parse(bodyText);
+      if (jsonBody?.error) {
+        msg = jsonBody.error;
+      } else if (bodyText) {
+        msg = bodyText;
+      }
+    } catch (e) {
+      if (bodyText) msg = bodyText;
+    }
+  } catch (e) {}
+  throw new Error(msg);
+}
+
 const FtpPage: React.FC<FtpPageProps> = ({ userName }) => {
   const [host, setHost] = useState('192.168.230.1');
   const [port, setPort] = useState('21');
+  const [bridgeUrl, setBridgeUrl] = useState('http://192.168.0.34:4000');
   const [transferMode, setTransferMode] = useState<'passive' | 'active'>('passive');
   const [useTls12, setUseTls12] = useState(false);
   const [useTls13, setUseTls13] = useState(false);
@@ -59,72 +85,57 @@ const FtpPage: React.FC<FtpPageProps> = ({ userName }) => {
   };
 
   const fetchDirectory = useCallback(async (path: string) => {
-    setIsBusy(true);
-    addLog(`Fetching directory: ${path}`);
+    setIsBusy(true); 
+    addLog(`Fetching: ${path}`);
     try {
-      // This is a hypothetical API endpoint. A backend proxy is required.
-      const response = await fetch(`/api/ftp/list?path=${encodeURIComponent(path)}`);
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to list directory' }));
-        throw new Error(errorData.message);
-      }
-      const data = await response.json();
-      setCwd(data.path);
-      const sortedFiles = data.files.sort((a: FileEntry, b: FileEntry) => {
-        if (a.isDir && !b.isDir) return -1;
-        if (!a.isDir && b.isDir) return 1;
-        return a.name.localeCompare(b.name, 'en', { numeric: true });
-      });
-      setFiles(sortedFiles);
-      addLog(`Listed ${data.path}. Found ${data.files.length} items.`);
-    } catch (error: any) {
-      addLog(`Error listing directory: ${error.message}`);
-      setStatus('error');
-    } finally {
-      setIsBusy(false);
+      const r = await fetchWithTimeout(`${bridgeUrl}/api/ftp/list`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host, port: Number(port), user: 'anonymous', password: '', path })
+      }, 8000);
+      await ensureOk(r);
+      const data = await r.json();
+      setCwd(data.path); 
+      setFiles(
+         data.files.sort((a: FileEntry, b: FileEntry) =>
+           a.isDir===b.isDir ? a.name.localeCompare(b.name, 'en', {numeric:true}) : (a.isDir?-1:1))
+       );
+    } catch (e:any) { 
+        setStatus('error'); 
+        addLog(`List error: ${e.message}`); 
     }
-  }, [addLog]);
+    finally { setIsBusy(false); }
+  }, [bridgeUrl, host, port, addLog]);
 
   const handleConnect = useCallback(async () => {
     setIsBusy(true);
     setStatus('connecting');
     setLogs([]);
-    addLog(`Connecting to ${host}:${port}...`);
-
-    // This is a mock implementation because browsers can't directly make FTP connections.
-    // It simulates a connection and then fetches a mock directory listing.
-    setTimeout(async () => {
-      try {
-        // In a real scenario, you'd call a backend proxy here:
-        // const response = await fetch('/api/ftp/connect', { method: 'POST', body: ... });
-        // if (!response.ok) throw new Error('Connection failed');
-        setStatus('connected');
-        addLog('Connection successful (simulated).');
-        addLog(`Mode: ${transferMode}`);
-        addLog(`TLS: ${[useTls12 && '1.2', useTls13 && '1.3'].filter(Boolean).join(', ') || 'None'}`);
-
-        // Simulate fetching files
-        setCwd('/');
-        setFiles([
-          { name: 'data', path: '/data', isDir: true, size: 0, mtime: Date.now() },
-          { name: 'LOGFILE.TXT', path: '/LOGFILE.TXT', isDir: false, size: 1024, mtime: Date.now() },
-        ]);
-        addLog('Fetched mock directory listing for /');
-
-      } catch (error: any) {
-        setStatus('error');
-        addLog(`Error: ${error.message}`);
-      } finally {
-        setIsBusy(false);
-      }
-    }, 1500);
-
-  }, [host, port, transferMode, useTls12, useTls13, addLog]);
+    addLog(`Connecting to ${host}:${port} via bridge ${bridgeUrl}...`);
+    try {
+      const r = await fetchWithTimeout(`${bridgeUrl}/api/ftp/list`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host, port: Number(port), user: 'anonymous', password: '', path: '/' })
+      }, 8000);
+      await ensureOk(r);
+      const data = await r.json();
+      setStatus('connected');
+      setCwd(data.path);
+      setFiles(
+        data.files.sort((a: FileEntry, b: FileEntry) =>
+          a.isDir===b.isDir ? a.name.localeCompare(b.name, 'en', {numeric:true}) : (a.isDir?-1:1))
+      );
+      addLog(`Connected. Listed ${data.path} (${data.files.length} items).`);
+    } catch (e:any) {
+      setStatus('error'); addLog(`Connection failed: ${e.message}`);
+    } finally { setIsBusy(false); }
+  }, [bridgeUrl, host, port, addLog]);
 
   const handleDisconnect = useCallback(async () => {
     addLog('Disconnecting...');
     setIsBusy(true);
-    // In a real scenario: await fetch('/api/ftp/disconnect', { method: 'POST' });
+    // No actual backend call is needed for disconnect in this bridge model
     setTimeout(() => {
         setStatus('disconnected');
         setCwd('/');
@@ -133,24 +144,39 @@ const FtpPage: React.FC<FtpPageProps> = ({ userName }) => {
         setIsBusy(false);
     }, 500);
   }, [addLog]);
+  
+  const handleDownload = async (file: FileEntry) => {
+    try {
+      addLog(`Downloading ${file.path} ...`);
+      const r = await fetchWithTimeout(`${bridgeUrl}/api/ftp/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host, port: Number(port), user: 'anonymous', password: '', remotePath: file.path })
+      }, 30000); // Longer timeout for downloads
+      await ensureOk(r);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      addLog(`Saved: ${file.name}`);
+    } catch (e:any) { addLog(`Download error: ${e.message}`); }
+  };
 
   const handleItemClick = (item: FileEntry) => {
     if (isBusy) return;
-    if (item.isDir) {
-        alert(`Navigating to directory '${item.name}' is not implemented in this mock version.`);
-        // In a real implementation: fetchDirectory(item.path);
-    } else {
-        alert(`Downloading file '${item.name}' is not implemented in this mock version.`);
-        // In a real implementation: handleDownload(item);
-    }
+    if (item.isDir) fetchDirectory(item.path);
+    else handleDownload(item);
   };
   
   const handleCdUp = () => {
     if (isBusy || cwd === '/') return;
-    alert("Navigating up is not implemented in this mock version.");
-    // In a real implementation:
-    // const parentPath = cwd.substring(0, cwd.lastIndexOf('/')) || '/';
-    // fetchDirectory(parentPath);
+    const parent = cwd.replace(/\\/g, '/').replace(/\/$/, '').split('/').slice(0, -1).join('/') || '/';
+    fetchDirectory(parent);
   };
 
   const formatBytes = (bytes: number, decimals = 2) => {
@@ -196,36 +222,49 @@ const FtpPage: React.FC<FtpPageProps> = ({ userName }) => {
               <label htmlFor="ftp-port" className="block text-sm font-medium text-slate-300 mb-1">포트</label>
               <input id="ftp-port" value={port} onChange={(e) => setPort(e.target.value)} disabled={isBusy || status === 'connected'} className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm disabled:opacity-50" />
             </div>
-          </div>
-        </div>
-
-        <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 space-y-3">
-          <h3 className="text-lg font-semibold text-slate-100">전송 모드</h3>
-          <div className="flex items-center space-x-6">
-            <div className="flex items-center">
-              <input id="mode-passive" name="transferMode" type="radio" checked={transferMode === 'passive'} onChange={() => setTransferMode('passive')} disabled={isBusy || status === 'connected'} className="h-4 w-4 text-sky-600 bg-slate-700 border-slate-500 focus:ring-sky-500 disabled:opacity-50" />
-              <label htmlFor="mode-passive" className="ml-2 block text-sm text-slate-200">Passive</label>
-            </div>
-            <div className="flex items-center">
-              <input id="mode-active" name="transferMode" type="radio" checked={transferMode === 'active'} onChange={() => setTransferMode('active')} disabled={isBusy || status === 'connected'} className="h-4 w-4 text-sky-600 bg-slate-700 border-slate-500 focus:ring-sky-500 disabled:opacity-50" />
-              <label htmlFor="mode-active" className="ml-2 block text-sm text-slate-200">Active</label>
+            <div className="sm:col-span-2">
+              <label htmlFor="bridge-url" className="block text-sm font-medium text-slate-300 mb-1">Bridge URL</label>
+              <input id="bridge-url" value={bridgeUrl} onChange={(e)=>setBridgeUrl(e.target.value)}
+                disabled={isBusy || status==='connected'}
+                className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm disabled:opacity-50"
+                placeholder="http://192.168.0.34:4000" />
+              <p className="mt-1 text-xs text-slate-400">모바일에선 localhost 사용 불가. 브리지 PC의 IP를 입력하세요.</p>
             </div>
           </div>
         </div>
 
-        <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 space-y-3">
-          <h3 className="text-lg font-semibold text-slate-100">TLS 암호화</h3>
-           <div className="flex items-center space-x-6">
-            <div className="flex items-center">
-              <input id="tls-12" type="checkbox" checked={useTls12} onChange={() => handleTlsChange('1.2')} disabled={isBusy || status === 'connected'} className="h-4 w-4 text-sky-600 bg-slate-700 border-slate-500 rounded-md focus:ring-sky-500 disabled:opacity-50" />
-              <label htmlFor="tls-12" className="ml-2 block text-sm text-slate-200">TLS 1.2 사용</label>
+        <fieldset disabled title="브리지 서버 사용 시 이 설정은 비활성화됩니다.">
+            <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 space-y-3 opacity-50">
+            <h3 className="text-lg font-semibold text-slate-100">전송 모드 (비활성)</h3>
+            <div className="flex items-center space-x-6">
+                <div className="flex items-center">
+                <input id="mode-passive" name="transferMode" type="radio" checked={transferMode === 'passive'} onChange={() => setTransferMode('passive')} className="h-4 w-4 text-sky-600 bg-slate-700 border-slate-500 focus:ring-sky-500" />
+                <label htmlFor="mode-passive" className="ml-2 block text-sm text-slate-200">Passive</label>
+                </div>
+                <div className="flex items-center">
+                <input id="mode-active" name="transferMode" type="radio" checked={transferMode === 'active'} onChange={() => setTransferMode('active')} className="h-4 w-4 text-sky-600 bg-slate-700 border-slate-500 focus:ring-sky-500" />
+                <label htmlFor="mode-active" className="ml-2 block text-sm text-slate-200">Active</label>
+                </div>
             </div>
-             <div className="flex items-center">
-              <input id="tls-13" type="checkbox" checked={useTls13} onChange={() => handleTlsChange('1.3')} disabled={isBusy || status === 'connected'} className="h-4 w-4 text-sky-600 bg-slate-700 border-slate-500 rounded-md focus:ring-sky-500 disabled:opacity-50" />
-              <label htmlFor="tls-13" className="ml-2 block text-sm text-slate-200">TLS 1.3 사용</label>
             </div>
-          </div>
-        </div>
+        </fieldset>
+
+        <fieldset disabled title="브리지 서버 사용 시 이 설정은 비활성화됩니다.">
+            <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 space-y-3 opacity-50">
+            <h3 className="text-lg font-semibold text-slate-100">TLS 암호화 (비활성)</h3>
+            <div className="flex items-center space-x-6">
+                <div className="flex items-center">
+                <input id="tls-12" type="checkbox" checked={useTls12} onChange={() => handleTlsChange('1.2')} className="h-4 w-4 text-sky-600 bg-slate-700 border-slate-500 rounded-md focus:ring-sky-500" />
+                <label htmlFor="tls-12" className="ml-2 block text-sm text-slate-200">TLS 1.2 사용</label>
+                </div>
+                <div className="flex items-center">
+                <input id="tls-13" type="checkbox" checked={useTls13} onChange={() => handleTlsChange('1.3')} className="h-4 w-4 text-sky-600 bg-slate-700 border-slate-500 rounded-md focus:ring-sky-500" />
+                <label htmlFor="tls-13" className="ml-2 block text-sm text-slate-200">TLS 1.3 사용</label>
+                </div>
+            </div>
+            </div>
+        </fieldset>
+
 
         {status !== 'disconnected' && (
           <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700 space-y-3">
