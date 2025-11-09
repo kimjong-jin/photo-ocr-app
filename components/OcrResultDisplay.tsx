@@ -5,7 +5,8 @@ import { ActionButton } from './ActionButton';
 
 interface OcrResultDisplayProps {
   ocrData: ExtractedEntry[] | null; 
-  error: string | null;   
+  error: string | null;
+  successMessage?: string | null;
   isLoading: boolean;
   contextProvided: boolean; 
   hasImage: boolean; 
@@ -16,7 +17,8 @@ interface OcrResultDisplayProps {
   onEntryPrimaryValueChange: (entryId: string, newValue: string) => void;
   onEntryValueTPChange: (entryId: string, newValue: string) => void;
   onEntryValueBlur?: (entryId: string, valueType: 'primary' | 'tp') => void;
-  onAddEntry: () => void; 
+  onAddEntry: () => void;
+  onDeleteEntry?: (entryId: string) => void;
   onReorderRows: (sourceRowStr: string, targetRowStr?: string) => void;
   availableIdentifiers: string[]; 
   tnIdentifiers: string[]; 
@@ -51,6 +53,12 @@ const PlusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 const ShuffleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5" {...props}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+  </svg>
+);
+
+const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props} className="w-4 h-4">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
   </svg>
 );
 
@@ -99,7 +107,8 @@ const renderResponseTimeMultiInputCell = (
 
 export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({ 
     ocrData, 
-    error, 
+    error,
+    successMessage,
     isLoading,
     contextProvided, 
     hasImage,
@@ -111,6 +120,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
     onEntryValueTPChange,
     onEntryValueBlur,
     onAddEntry,
+    onDeleteEntry,
     onReorderRows,
     availableIdentifiers,
     tnIdentifiers,
@@ -137,20 +147,11 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
     return (
       <div className="mt-6 p-6 bg-slate-700/50 rounded-lg shadow flex flex-col items-center justify-center min-h-[10rem]">
         <Spinner size="lg" />
-        <p className="text-slate-300 mt-3">{isManualEntryMode ? "데이터 로딩 중..." : "선택된 모든 이미지를 처리 중입니다..."}</p>
+        <p className="text-slate-300 mt-3">{isManualEntryMode ? "데이터 로딩 중..." : "분석 중입니다..."}</p>
       </div>
     );
   }
-
-  if (error) {
-    return (
-      <div className="mt-6 p-4 bg-red-800/30 border border-red-600/50 text-red-300 rounded-lg shadow text-center" role="alert">
-        <h4 className="font-semibold text-lg mb-1">오류 발생</h4>
-        <p className="text-sm whitespace-pre-wrap">{error}</p>
-      </div>
-    );
-  }
-
+  
   if (!contextProvided) {
     return (
       <div className="mt-6 p-6 bg-slate-700/50 rounded-lg shadow text-center">
@@ -198,6 +199,17 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
   if (ocrData !== null) {
     return (
       <div className="mt-2 space-y-4">
+        {successMessage && (
+            <div className="mb-4 p-3 bg-green-800/30 border border-green-600/50 text-green-300 rounded-lg shadow text-center" role="status">
+                ✅ {successMessage}
+            </div>
+        )}
+        {error && (
+            <div className="mt-6 p-4 bg-red-800/30 border border-red-600/50 text-red-300 rounded-lg shadow text-center" role="alert">
+                <h4 className="font-semibold text-lg mb-1">오류 발생</h4>
+                <p className="text-sm whitespace-pre-wrap">{error}</p>
+            </div>
+        )}
         {!isManualEntryMode && (
           <div className="flex justify-between items-center">
               <h3 className="text-xl font-semibold text-sky-400 flex items-center">
@@ -297,6 +309,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                         )}
                         <th scope="col" className={`px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider ${!isManualEntryMode ? (showTwoValueColumns ? 'w-[16%]' : 'w-[26%]') : 'w-40'}`}>{isManualEntryMode ? '구분' : (isTnTpMode ? 'TN 식별자' : '식별자')}</th>
                         {isTnTpMode && !isManualEntryMode && <th scope="col" className={`px-3 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider ${!isManualEntryMode ? 'w-[16%]' : 'w-40'}`}>TP 식별자</th>}
+                        {onDeleteEntry && <th scope="col" className="px-2 py-3 text-center text-xs font-medium text-slate-300 uppercase tracking-wider w-16">삭제</th>}
                     </tr>
                 </thead>
                 <tbody className="bg-slate-800 divide-y divide-slate-700">
@@ -308,7 +321,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     const isResponseTimeRow = isManualEntryMode && entry.identifier === '응답';
                     
                     if (isDividerRow) {
-                        const colSpan = 3 + (showTwoValueColumns ? 1 : 0) + (isTnTpMode && !isManualEntryMode ? 1 : 0);
+                        const colSpan = 3 + (showTwoValueColumns ? 1 : 0) + (isTnTpMode && !isManualEntryMode ? 1 : 0) + (onDeleteEntry ? 1 : 0);
                         return (
                             <tr key={entry.id}>
                                 <td colSpan={colSpan} className="py-3 px-2">
@@ -328,7 +341,7 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                     <tr key={entry.id} className={`${isSequenceRow ? 'bg-slate-900' : 'hover:bg-slate-700/30'} transition-colors duration-100`}>
                         <td className={`px-2 whitespace-nowrap text-sm text-slate-400 text-center align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>{index + 1}</td>
                         <td className={`px-2 whitespace-nowrap align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>
-                            <input type="text" value={entry.time} onChange={(e) => onEntryTimeChange(entry.id, e.target.value)} className={`${baseInputClass} text-slate-200 ${isManualEntryMode ? 'bg-slate-800 cursor-not-allowed' : ''}`} aria-label={`시간 입력 필드 ${index + 1}`} disabled={isManualEntryMode}/>
+                            <input type="text" value={entry.time} onChange={(e) => onEntryTimeChange(entry.id, e.target.value)} className={`${baseInputClass} text-slate-200`} aria-label={`시간 입력 필드 ${index + 1}`}/>
                         </td>
                         
                         {isResponseTimeRow && isManualEntryMode ? (
@@ -382,6 +395,17 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
                             )}
                            </>
                         )}
+                        {onDeleteEntry && (
+                            <td className={`px-2 whitespace-nowrap text-sm text-center align-top ${isSequenceRow ? 'py-1' : 'py-2.5'}`}>
+                                <button
+                                    onClick={() => onDeleteEntry(entry.id)}
+                                    className="p-1.5 text-slate-400 hover:text-red-400 rounded-full transition-colors hover:bg-slate-700"
+                                    aria-label={`행 ${index + 1} 삭제`}
+                                >
+                                    <TrashIcon />
+                                </button>
+                            </td>
+                        )}
                     </tr>
                 )})}
                 </tbody>
@@ -427,8 +451,19 @@ export const OcrResultDisplay: React.FC<OcrResultDisplayProps> = ({
   
   return (
     <div className="mt-6 p-6 bg-slate-700/50 rounded-lg shadow text-center">
-      <p className="text-slate-400">
-        {isManualEntryMode ? "위 '새 작업 추가'를 통해 작업을 시작하세요." : "위의 '텍스트 추출' 버튼을 눌러 이미지 분석을 시작하세요."}
+       {error && (
+            <div className="p-4 bg-red-800/30 border border-red-600/50 text-red-300 rounded-lg shadow text-center" role="alert">
+                <h4 className="font-semibold text-lg mb-1">오류 발생</h4>
+                <p className="text-sm whitespace-pre-wrap">{error}</p>
+            </div>
+        )}
+        {successMessage && (
+            <div className="p-3 bg-green-800/30 border border-green-600/50 text-green-300 rounded-lg shadow text-center" role="status">
+                ✅ {successMessage}
+            </div>
+        )}
+      <p className="text-slate-400 mt-4">
+        {isManualEntryMode ? "위 '새 작업 추가'를 통해 작업을 시작하세요." : "위의 분석 버튼을 눌러 이미지 분석을 시작하세요."}
       </p>
     </div>
   );
