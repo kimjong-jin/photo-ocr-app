@@ -4,14 +4,12 @@ import html2canvas from 'html2canvas';
 import {
   MAIN_STRUCTURAL_ITEMS,
   CHECKLIST_DEFINITIONS,
-  MainStructuralItemKey,
   ChecklistStatus,
   MEASUREMENT_METHOD_OPTIONS,
   MEASUREMENT_RANGE_OPTIONS,
   ANALYSIS_IMPOSSIBLE_OPTION,
   OTHER_DIRECT_INPUT_OPTION,
   CertificateDetails,
-  StructuralCheckSubItemData,
   POST_INSPECTION_DATE_OPTIONS,
   EMISSION_STANDARD_ITEM_NAME,
   RESPONSE_TIME_ITEM_NAME,
@@ -31,9 +29,10 @@ import { Type } from '@google/genai';
 import { ThumbnailGallery } from './components/ThumbnailGallery';
 import { ChecklistSnapshot } from './components/structural/ChecklistSnapshot';
 import PasswordModal from './components/PasswordModal';
-import MapView from './components/MapView';
 import { preprocessImageForGemini } from './services/imageProcessingService';
 import type { StructuralJob, JobPhoto } from './shared/types';
+import type { Application } from './components/ApplicationOcrSection';
+
 
 
 interface QuickAnalysisFeedback {
@@ -89,11 +88,13 @@ interface StructuralCheckPageProps {
   siteName: string;
   onDeleteJob: (jobId: string) => void;
   currentGpsAddress: string;
+  applications: Application[];
+  selectedApplication: Application | null;
 }
 
 const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ 
   userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, onDeleteJob,
-  currentGpsAddress
+  currentGpsAddress, applications, selectedApplication
 }) => {
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const activeJobFileInputRef = useRef<HTMLInputElement>(null);
@@ -814,7 +815,13 @@ OUTPUT FORMAT:
                     siteName: siteName,
                     updateUser: userName,
                     photoFileNames: {}, 
-                    postInspectionDateValue: activeJob.postInspectionDate 
+                    postInspectionDateValue: activeJob.postInspectionDate,
+                    ...(selectedApplication && {
+                        representative_name: selectedApplication.representative_name,
+                        applicant_name: selectedApplication.applicant_name,
+                        applicant_phone: selectedApplication.applicant_phone,
+                        maintenance_company: selectedApplication.maintenance_company,
+                    })
                 }],
                 siteName,
                 userName,
@@ -869,6 +876,7 @@ OUTPUT FORMAT:
         userName,
         currentGpsAddress,
         onProgress,
+        selectedApplication,
         'p1_check'
       );
 
@@ -898,6 +906,11 @@ OUTPUT FORMAT:
         setIsSendingToClaydox(true);
         setBatchSendProgress(`(0/${jobs.length}) 체크리스트 이미지 생성 시작...`);
         setJobs(prev => prev.map(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' })));
+        
+        const jobsWithAppData = jobs.map(job => {
+            const appData = applications.find(a => a.receipt_no === job.receiptNumber);
+            return { ...job, applicationData: appData };
+        });
 
         const generatedChecklistImages: ImageInfo[] = [];
         let imageGenError = false;
@@ -957,7 +970,7 @@ OUTPUT FORMAT:
         setBatchSendProgress(`모든 체크리스트 이미지 생성 완료. KTL 서버로 전송합니다...`);
 
         try {
-            const results = await sendBatchStructuralChecksToKtlApi(jobs, generatedChecklistImages, siteName, userName, currentGpsAddress, 'p1_check');
+            const results = await sendBatchStructuralChecksToKtlApi(jobsWithAppData, generatedChecklistImages, siteName, userName, currentGpsAddress, 'p1_check');
             results.forEach(result => {
                 setJobs(prev => prev.map(j => (j.receiptNumber === result.receiptNo && (MAIN_STRUCTURAL_ITEMS.find(it => it.key === j.mainItemKey)?.name || j.mainItemKey) === result.mainItem)
                     ? { ...j, submissionStatus: result.success ? 'success' : 'error', submissionMessage: result.message }
