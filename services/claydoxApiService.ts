@@ -429,6 +429,10 @@ interface StructuralCheckPayloadForKtl {
   photoFileNames: {};
   checklistImageFileName?: string;
   postInspectionDateValue?: string;
+  representative_name?: string;
+  applicant_name?: string;
+  applicant_phone?: string;
+  maintenance_company?: string;
 }
 
 // 확장: ZIP에는 원본을 넣기 위해 base64Original/base64Stamped를 옵션으로 지원
@@ -457,6 +461,14 @@ const constructMergedLabviewItemForStructural = (
   if (userNameGlobal) mergedItems['시험자'] = userNameGlobal;
   if (siteNameGlobal) mergedItems['현장'] = siteNameGlobal;
   if (gpsAddressGlobal) mergedItems['주소'] = gpsAddressGlobal;
+
+  const firstJobInGroup = jobsInGroup[0];
+  if (firstJobInGroup) {
+    if (firstJobInGroup.representative_name)  mergedItems['대표자'] = firstJobInGroup.representative_name;
+    if (firstJobInGroup.applicant_name)       mergedItems['유지관리담당자'] = firstJobInGroup.applicant_name;
+    if (firstJobInGroup.applicant_phone)      mergedItems['유지관리담당자연락처'] = firstJobInGroup.applicant_phone;
+    if (firstJobInGroup.maintenance_company)  mergedItems['유지관리업체'] = firstJobInGroup.maintenance_company;
+  }
 
   jobsInGroup.forEach((payload) => {
     if (payload.postInspectionDateValue) {
@@ -740,20 +752,26 @@ export const sendSingleStructuralCheckToKtlApi = async (
   userNameGlobal: string,
   gpsAddressGlobal: string,
   onProgress: (message: string) => void,
-  p_key?: string
+  p_key?: string,
+  selectedApplication?: {
+    representative_name?: string;
+    applicant_name?: string;
+    applicant_phone?: string;
+    maintenance_company?: string;
+  }
 ): Promise<{ success: boolean; message: string }> => {
   const filesToUpload: File[] = [];
   let compositeFileNameOnServer: string | undefined;
   let zipFileNameOnServer: string | undefined;
 
-  // 1. Add checklist image (Do not compress this)
+  // 1) 체크리스트 이미지 추가 (원본 유지)
   onProgress('(1/4) [P1 구조 확인] 체크리스트 이미지 준비 중...');
   const checklistBlob = dataURLtoBlob(`data:${checklistImage.mimeType};base64,${checklistImage.base64}`);
   filesToUpload.push(new File([checklistBlob], checklistImage.file.name, { type: checklistImage.mimeType }));
 
-  // 2. Process photos if they exist
+  // 2) 참고사진 처리 (있을 때만)
   if (job.photos && job.photos.length > 0) {
-    // 2a. Create composite image and compress it
+    // 2a) 종합 이미지 생성 + 압축
     onProgress('(2/4) [P1 구조 확인] 참고사진 종합 이미지 생성 중...');
     try {
       const imageSourcesForComposite: CompositeImageInput[] = job.photos.map(p => ({
@@ -761,9 +779,20 @@ export const sendSingleStructuralCheckToKtlApi = async (
         mimeType: p.mimeType,
         comment: job.photoComments[p.uid],
       }));
-      const itemSummaryForStamp = MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey;
-      const stampDetailsComposite = { receiptNumber: job.receiptNumber, siteLocation: siteNameGlobal, item: itemSummaryForStamp };
-      const compositeDataUrl = await generateCompositeImage(imageSourcesForComposite, stampDetailsComposite, 'image/png');
+      const itemSummaryForStamp =
+        MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey;
+
+      const stampDetailsComposite = {
+        receiptNumber: job.receiptNumber,
+        siteLocation: siteNameGlobal,
+        item: itemSummaryForStamp,
+      };
+
+      const compositeDataUrl = await generateCompositeImage(
+        imageSourcesForComposite,
+        stampDetailsComposite,
+        'image/png'
+      );
       const compressedCompositeUrl = await compressImage(compositeDataUrl.split(',')[1], 'image/png');
       compositeFileNameOnServer = generateCompositeImageNameForKtl(job.receiptNumber).replace(/\.png$/, '.jpg');
       filesToUpload.push(new File([dataURLtoBlob(compressedCompositeUrl)], compositeFileNameOnServer, { type: 'image/jpeg' }));
@@ -771,15 +800,23 @@ export const sendSingleStructuralCheckToKtlApi = async (
       throw new Error(`참고사진 종합 이미지 생성 실패: ${e.message}`);
     }
 
-    // 2b. Create ZIP file with compressed stamped images
+    // 2b) 스탬프된 개별사진 ZIP 생성
     onProgress('(3/4) [P1 구조 확인] 참고사진 ZIP 파일 생성 중...');
     try {
       const zip = new JSZip();
       for (const photo of job.photos) {
-        const stampedDataUrl = await generateStampedImage(photo.base64, photo.mimeType, job.receiptNumber, siteNameGlobal, '', MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey, job.photoComments[photo.uid]);
+        const stampedDataUrl = await generateStampedImage(
+          photo.base64,
+          photo.mimeType,
+          job.receiptNumber,
+          siteNameGlobal,
+          '',
+          MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
+          job.photoComments[photo.uid]
+        );
         const compressedUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
         const safeName = safeNameWithExt(photo.file.name, photo.mimeType);
-        const jpegName = safeName.replace(/\.[^/.]+$/, "") + ".jpg";
+        const jpegName = safeName.replace(/\.[^/.]+$/, '') + '.jpg';
         zip.file(jpegName, dataURLtoBlob(compressedUrl));
       }
       zipFileNameOnServer = generateZipFileNameForKtl(job.receiptNumber);
@@ -790,7 +827,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
     }
   }
 
-  // 3. Upload all files
+  // 3) 파일 업로드
   if (filesToUpload.length > 0) {
     onProgress('(4/4) [P1 구조 확인] KTL 서버로 파일 업로드 중...');
     const formData = new FormData();
@@ -798,15 +835,18 @@ export const sendSingleStructuralCheckToKtlApi = async (
     try {
       await retryKtlApiCall(
         () => axios.post(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, { timeout: KTL_API_TIMEOUT }),
-        2, 2000, 'P1 Single Upload'
+        2,
+        2000,
+        'P1 Single Upload'
       );
     } catch (e: any) {
       throw new Error(`파일 업로드 실패: ${e.message}`);
     }
   }
 
-  // 4. Construct and send JSON
+  // 4) JSON 전송
   onProgress('[P1 구조 확인] KTL 서버로 JSON 데이터 전송 중...');
+
   const payload: StructuralCheckPayloadForKtl = {
     receiptNumber: job.receiptNumber,
     siteName: siteNameGlobal,
@@ -816,6 +856,12 @@ export const sendSingleStructuralCheckToKtlApi = async (
     photoFileNames: {},
     checklistImageFileName: checklistImage.file.name,
     postInspectionDateValue: job.postInspectionDate,
+    ...(selectedApplication ? {
+      representative_name: selectedApplication.representative_name,
+      applicant_name: selectedApplication.applicant_name,
+      applicant_phone: selectedApplication.applicant_phone,
+      maintenance_company: selectedApplication.maintenance_company,
+    } : {})
   };
 
   const mergedLabviewItem = constructMergedLabviewItemForStructural(
@@ -826,17 +872,20 @@ export const sendSingleStructuralCheckToKtlApi = async (
     compositeFileNameOnServer,
     zipFileNameOnServer
   );
-  
+
+  // 검사일자 보정
   let inspectionDate = '';
-  const rangeCheckData = job.checklistData["측정범위확인"];
+  const rangeCheckData = job.checklistData['측정범위확인'];
   if (rangeCheckData?.confirmedAt) {
-      inspectionDate = rangeCheckData.confirmedAt.split(' ')[0];
+    inspectionDate = rangeCheckData.confirmedAt.split(' ')[0];
   } else {
-      const today = new Date();
-      inspectionDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const today = new Date();
+    inspectionDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
+      today.getDate()
+    ).padStart(2, '0')}`;
   }
   mergedLabviewItem['검사시작일'] = inspectionDate;
-  
+
   const mainItemName = MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey;
   const labviewDescComment = `구조 (항목: ${mainItemName}, 현장: ${siteNameGlobal})`;
   const dynamicLabviewGubn = `구조_${job.mainItemKey}`;
@@ -852,20 +901,24 @@ export const sendSingleStructuralCheckToKtlApi = async (
   try {
     const jsonResponse = await retryKtlApiCall(
       () => axios.post(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, { timeout: KTL_API_TIMEOUT }),
-      2, 2000, 'P1 Single JSON Send'
+      2,
+      2000,
+      'P1 Single JSON Send'
     );
-     if (supabase && p_key && job.receiptNumber) {
-        const { data, error: updateError } = await supabase
-            .from('applications')
-            .update({ [p_key]: true })
-            .eq('receipt_no', job.receiptNumber)
-            .select();
-        if (updateError) {
-            console.warn(`[Supabase Check] Failed to update ${p_key} for ${job.receiptNumber}:`, updateError.message);
-        } else if (data && data.length > 0) {
-            window.dispatchEvent(new CustomEvent('applicationsUpdated'));
-        }
+
+    if (supabase && p_key && job.receiptNumber) {
+      const { data, error: updateError } = await supabase
+        .from('applications')
+        .update({ [p_key]: true })
+        .eq('receipt_no', job.receiptNumber)
+        .select();
+      if (updateError) {
+        console.warn(`[Supabase Check] Failed to update ${p_key} for ${job.receiptNumber}:`, updateError.message);
+      } else if (data && data.length > 0) {
+        window.dispatchEvent(new CustomEvent('applicationsUpdated'));
+      }
     }
+
     return { success: true, message: jsonResponse.data?.message || '데이터 전송 완료' };
   } catch (e: any) {
     throw new Error(`JSON 데이터 전송 실패: ${e.message}`);
