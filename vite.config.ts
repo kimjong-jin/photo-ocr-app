@@ -7,9 +7,10 @@ import { cwd } from 'node:process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
+  // .env.* 로드 (VITE_ 접두사만 클라이언트에 노출)
   const env = loadEnv(mode, cwd(), '');
 
-  // 선택사항: VITE_만 define에 넣어 빌드타임 상수화
+  // 선택: VITE_ 변수만 빌드타임 상수화 (import.meta.env.VITE_xxx)
   const viteEnvDefines = Object.fromEntries(
     Object.entries(env)
       .filter(([k]) => k.startsWith('VITE_'))
@@ -21,14 +22,15 @@ export default defineConfig(({ mode }) => {
       ...viteEnvDefines,
     },
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, 'src'),
-      },
+      alias: { '@': path.resolve(__dirname, 'src') },
     },
     server: {
       proxy: {
-        // DEV 전용: /genai → https://mobile.ktl.re.kr/genai/v1
-        // 서비스 코드가 dev 에서는 '/genai/xxx', prod 에서는 환경변수 기반 절대 URL 사용하도록!
+        /**
+         * DEV 전용 프록시
+         * - 개발: 클라이언트에서 '/genai/xxx' 로 호출 → 프록시가 https://mobile.ktl.re.kr/genai/v1/xxx 로 전달
+         * - 운영: 절대 URL(예: VITE_GENAI_BASE_URL) 사용 권장. 개발 주소와 중복 'v1' 방지.
+         */
         '/genai': {
           target: 'https://mobile.ktl.re.kr',
           changeOrigin: true,
