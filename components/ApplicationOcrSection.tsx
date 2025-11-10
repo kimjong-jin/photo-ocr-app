@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { ActionButton } from './ActionButton';
 import { ImageInput, ImageInfo } from './ImageInput';
