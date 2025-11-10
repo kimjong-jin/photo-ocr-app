@@ -25,7 +25,6 @@ export const EmailPage: React.FC<EmailPageProps> = ({ application, userName, onS
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize defaults from application
   useEffect(() => {
     if (!application) return;
     setRecipientEmail(application.applicant_email || '');
@@ -47,7 +46,6 @@ export const EmailPage: React.FC<EmailPageProps> = ({ application, userName, onS
     setIsCameraOpen(false);
   }, [application, userName]);
 
-  // Call serverless API (no keys in client)
   const sendViaApi = async () => {
     const payload = {
       to: recipientEmail.trim(),
@@ -57,12 +55,12 @@ export const EmailPage: React.FC<EmailPageProps> = ({ application, userName, onS
         attachments.length > 0
           ? attachments.map((att) => ({
               name: att.file.name,
-              content: att.base64, // base64 string (no data URL prefix)
+              content: att.base64, // may include data URL prefix; server strips it
             }))
           : undefined,
     };
 
-    const res = await fetch('/api/send-email', {
+    const res = await fetch('/api/send-photos', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
@@ -126,12 +124,9 @@ export const EmailPage: React.FC<EmailPageProps> = ({ application, userName, onS
       <h1 className="text-2xl font-bold text-sky-400 mb-6">이메일 전송: {application?.receipt_no}</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Left: fields */}
         <div className="space-y-4">
           <div>
-            <label htmlFor="email-to" className="block text-sm font-medium text-slate-300 mb-1">
-              수신
-            </label>
+            <label htmlFor="email-to" className="block text-sm font-medium text-slate-300 mb-1">수신</label>
             <input
               id="email-to"
               type="email"
@@ -143,9 +138,7 @@ export const EmailPage: React.FC<EmailPageProps> = ({ application, userName, onS
           </div>
 
           <div>
-            <label htmlFor="email-subject" className="block text-sm font-medium text-slate-300 mb-1">
-              제목
-            </label>
+            <label htmlFor="email-subject" className="block text-sm font-medium text-slate-300 mb-1">제목</label>
             <input
               id="email-subject"
               type="text"
@@ -157,9 +150,7 @@ export const EmailPage: React.FC<EmailPageProps> = ({ application, userName, onS
           </div>
 
           <div>
-            <label htmlFor="email-content" className="block text-sm font-medium text-slate-300 mb-1">
-              내용
-            </label>
+            <label htmlFor="email-content" className="block text-sm font-medium text-slate-300 mb-1">내용</label>
             <textarea
               id="email-content"
               rows={10}
@@ -171,7 +162,6 @@ export const EmailPage: React.FC<EmailPageProps> = ({ application, userName, onS
           </div>
         </div>
 
-        {/* Right: attachments */}
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-slate-100">사진 첨부</h2>
 
@@ -197,7 +187,6 @@ export const EmailPage: React.FC<EmailPageProps> = ({ application, userName, onS
         </div>
       </div>
 
-      {/* Status + Actions */}
       <div className="mt-6 space-y-3">
         {statusMessage && (
           <p
@@ -212,20 +201,6 @@ export const EmailPage: React.FC<EmailPageProps> = ({ application, userName, onS
         )}
 
         <div className="flex flex-col sm:flex-row gap-4">
-          <ActionButton
-            onClick={() => {
-              // Clear form if needed
-              setAttachments([]);
-              setStatusMessage(null);
-              setIsCameraOpen(false);
-            }}
-            variant="secondary"
-            disabled={isSending}
-            fullWidth
-          >
-            초기화
-          </ActionButton>
-
           <ActionButton
             onClick={handleSend}
             disabled={isSending || !recipientEmail}
