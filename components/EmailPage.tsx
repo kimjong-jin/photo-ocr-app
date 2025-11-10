@@ -1,4 +1,4 @@
-// src/components/EmailModal.tsx
+// components/EmailModal.tsx
 import React, { useEffect, useRef, useState } from 'react';
 import { ActionButton } from './ActionButton';
 import { ImageInput, ImageInfo } from './ImageInput';
@@ -61,7 +61,6 @@ const EmailModal: React.FC<EmailModalProps> = ({
   }, [isOpen, application, userName]);
 
   useEffect(() => {
-    // 상태 메시지 자동 제거(메모리 누수 방지)
     if (!statusMessage) return;
     const t = setTimeout(() => setStatusMessage(null), 5000);
     return () => clearTimeout(t);
@@ -84,7 +83,7 @@ const EmailModal: React.FC<EmailModalProps> = ({
         body: JSON.stringify({
           to: recipientEmail.trim(),
           subject,
-          htmlContent, // 서버에서 \n→<br> 변환
+          htmlContent,
           attachments: attachments.map(a => ({
             name: a.file.name,
             content: toPureBase64(a.base64),
