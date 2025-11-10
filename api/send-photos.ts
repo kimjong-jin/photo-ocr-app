@@ -4,13 +4,12 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
 function stripDataPrefix(b64: string) {
-  // data:image/png;base64,XXXX => XXXX
-  const idx = b64.indexOf('base64,');
-  return idx >= 0 ? b64.slice(idx + 'base64,'.length) : b64.trim();
+  const i = b64.indexOf('base64,');
+  return i >= 0 ? b64.slice(i + 'base64,'.length) : b64.trim();
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS (동일 도메인이면 크게 필요 없지만 안전하게)
+  // CORS (동일 도메인이어도 안전하게)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'content-type, api-key');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -70,18 +69,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const text = await brevoRes.text();
     if (!brevoRes.ok) {
-      // Brevo가 종종 text로 에러를 보냄
       let msg: any = text;
-      try {
-        msg = JSON.parse(text);
-      } catch {}
+      try { msg = JSON.parse(text); } catch {}
       return res.status(brevoRes.status).json({ error: msg || `Brevo error ${brevoRes.status}` });
     }
 
     let data: any = {};
-    try {
-      data = JSON.parse(text);
-    } catch {}
+    try { data = JSON.parse(text); } catch {}
 
     return res.status(200).json({ ok: true, data });
   } catch (e: any) {
