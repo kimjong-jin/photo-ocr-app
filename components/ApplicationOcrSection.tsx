@@ -8,6 +8,7 @@ import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
 import { CameraView } from './CameraView';
+import EmailModal from './EmailModal'; // Import the new modal
 
 export interface Application {
   id: number;
@@ -19,6 +20,7 @@ export interface Application {
   applicant_name: string;
   applicant_phone: string;
   applicant_email: string;
+  maintenance_company?: string;
   user_name?: string; // Add user_name for Supabase queries
   p1_check?: boolean;
   p2_check?: boolean;
@@ -26,6 +28,7 @@ export interface Application {
   p4_check?: boolean;
   p5_check?: boolean;
   p6_check?: boolean;
+  p7_check?: boolean;
 }
 
 interface ApplicationOcrSectionProps {
@@ -35,6 +38,10 @@ interface ApplicationOcrSectionProps {
     siteNameToSync: string;
     appIdToSync: number | null;
     receiptNumberCommonToSync: string;
+    applications: Application[];
+    setApplications: React.Dispatch<React.SetStateAction<Application[]>>;
+    isLoadingApplications: boolean;
+    loadApplications: (showError?: (msg: string) => void) => void;
 }
 
 const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -57,20 +64,24 @@ const SendIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
     </svg>
 );
+const EmailIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+    </svg>
+);
 const PlusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
 );
 
-const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName, userContact, onApplicationSelect, siteNameToSync, appIdToSync, receiptNumberCommonToSync }) => {
+const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName, userContact, onApplicationSelect, siteNameToSync, appIdToSync, receiptNumberCommonToSync, applications, setApplications, isLoadingApplications, loadApplications }) => {
     const [image, setImage] = useState<ImageInfo | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
-    const [applications, setApplications] = useState<Application[]>([]);
-    const [isLoadingApplications, setIsLoadingApplications] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [editedData, setEditedData] = useState<Partial<Application>>({});
     const [kakaoSendingId, setKakaoSendingId] = useState<number | null>(null);
+    const [emailModalApp, setEmailModalApp] = useState<Application | null>(null);
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [newApplicationData, setNewApplicationData] = useState<Partial<Application>>({});
     const [ocrApiMode, setOcrApiMode] = useState<'gemini' | 'vllm'>('vllm');
@@ -80,48 +91,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
         setError(null);
         setSuccessMessage(null);
     };
-
-    const loadApplications = useCallback(async () => {
-        if (!supabase) {
-            setError("데이터베이스에 연결할 수 없습니다. Supabase 설정을 확인하세요.");
-            return;
-        }
-        setIsLoadingApplications(true);
-        clearMessages();
-        try {
-            const { data, error: dbError } = await supabase
-                .from('applications')
-                .select('*')
-                .eq('user_name', userName);
-
-            if (dbError) throw dbError;
-
-            if (data) {
-                data.sort((a, b) => {
-                    const slotA = a.queue_slot;
-                    const slotB = b.queue_slot;
-                    if (slotA === null && slotB !== null) return 1;
-                    if (slotA !== null && slotB === null) return -1;
-                    if (slotA !== null && slotB !== null && slotA !== slotB) {
-                        return slotA - slotB;
-                    }
-                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-                });
-                setApplications(data);
-            } else {
-                setApplications([]);
-            }
-        } catch (err: any) {
-            setError('데이터를 불러오는 데 실패했습니다: ' + err.message);
-            setApplications([]);
-        } finally {
-            setIsLoadingApplications(false);
-        }
-    }, [userName]);
-
-    useEffect(() => {
-        loadApplications();
-    }, [loadApplications]);
 
     useEffect(() => {
         const handleUpdate = () => {
@@ -155,7 +124,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
             }
         };
         syncSiteName();
-    }, [siteNameToSync, appIdToSync, applications]);
+    }, [siteNameToSync, appIdToSync, applications, setApplications]);
 
     useEffect(() => {
         const syncReceiptNumber = async () => {
@@ -192,7 +161,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
             }
         };
         syncReceiptNumber();
-    }, [receiptNumberCommonToSync, appIdToSync, applications]);
+    }, [receiptNumberCommonToSync, appIdToSync, applications, setApplications]);
 
     const handleImagesSet = useCallback((images: ImageInfo[]) => {
         setImage(images[0] || null);
@@ -271,30 +240,50 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
             const jsonString = await extractTextFromImage(preprocessedBase64, preprocessedMimeType, geminiPrompt, modelConfig);
             const ocrResult = JSON.parse(jsonString);
             
-            const existingApp = applications.find(app => app.receipt_no === ocrResult.receipt_no && ocrResult.receipt_no);
-            
-            if (existingApp) {
-                const updatedApp = { 
-                    ...ocrResult,
-                    queue_slot: existingApp.queue_slot
-                };
-                const { error: updateError } = await supabase
-                    .from('applications')
-                    .update(updatedApp)
-                    .eq('id', existingApp.id);
-                if (updateError) throw updateError;
-                setSuccessMessage(`'${ocrResult.receipt_no}' 데이터가 성공적으로 업데이트되었습니다.`);
+            const newApp = { 
+                ...ocrResult,
+                queue_slot: provisionalSlot,
+                user_name: userName
+            };
+
+            const { error: insertError } = await supabase
+                .from('applications')
+                .insert(newApp);
+
+            if (insertError) {
+                if (insertError.code === '23505' || (insertError.message && insertError.message.includes('duplicate key'))) {
+                    console.warn(`[OCR Save] Insert failed due to duplicate receipt_no '${ocrResult.receipt_no}'. Attempting to update instead.`);
+                    
+                    const { data: existingData, error: fetchError } = await supabase
+                        .from('applications')
+                        .select('id, queue_slot')
+                        .eq('receipt_no', ocrResult.receipt_no)
+                        .single();
+
+                    if (fetchError || !existingData) {
+                        throw new Error(`중복된 항목 '${ocrResult.receipt_no}'을(를) 업데이트하는데 실패했습니다: 기존 데이터를 찾을 수 없습니다.`);
+                    }
+
+                    const dataToUpdate = { 
+                        ...ocrResult,
+                        queue_slot: existingData.queue_slot 
+                    };
+                    
+                    const { error: updateError } = await supabase
+                        .from('applications')
+                        .update(dataToUpdate)
+                        .eq('id', existingData.id);
+                        
+                    if (updateError) {
+                        throw new Error(`중복된 항목 '${ocrResult.receipt_no}' 업데이트 실패: ${updateError.message}`);
+                    }
+                    
+                    setSuccessMessage(`'${ocrResult.receipt_no}' 데이터가 성공적으로 업데이트되었습니다 (중복 감지).`);
+                } else {
+                    throw insertError;
+                }
             } else {
-                const newApp = { 
-                    ...ocrResult,
-                    queue_slot: provisionalSlot,
-                    user_name: userName
-                };
-                const { error: insertError } = await supabase
-                    .from('applications')
-                    .insert(newApp);
-                if (insertError) throw insertError;
-                 setSuccessMessage(`'${ocrResult.receipt_no}' 데이터가 성공적으로 저장되었습니다.`);
+                setSuccessMessage(`'${ocrResult.receipt_no}' 데이터가 성공적으로 저장되었습니다.`);
             }
             
             loadApplications();
@@ -379,7 +368,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
             receipt_no: '', site_name: '', representative_name: '',
             applicant_name: '', applicant_phone: '', applicant_email: '',
             p1_check: false, p2_check: false, p3_check: false,
-            p4_check: false, p5_check: false, p6_check: false,
+            p4_check: false, p5_check: false, p6_check: false, p7_check: false
         });
     };
     
@@ -408,19 +397,38 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
                 user_name: userName,
                 queue_slot: newApplicationData.queue_slot ? Number(newApplicationData.queue_slot) : null,
             };
-            // Remove id if it's there from partial typing
-            delete dataToInsert.id;
+            delete (dataToInsert as any).id;
             
-            const { error } = await supabase.from('applications').insert(dataToInsert);
+            const { error: insertError } = await supabase.from('applications').insert(dataToInsert);
     
-            if (error) throw error;
-    
-            setSuccessMessage(`'${newApplicationData.receipt_no}'이(가) 성공적으로 추가되었습니다.`);
+            if (insertError) {
+                if (insertError.code === '23505' || (insertError.message && insertError.message.includes('duplicate key'))) { // Unique constraint violation
+                    console.warn(`[Save New] Insert failed due to duplicate receipt_no '${dataToInsert.receipt_no}'. Attempting to update.`);
+                    
+                    const { receipt_no, ...updateData } = dataToInsert;
+                    
+                    const { error: updateError } = await supabase
+                        .from('applications')
+                        .update(updateData)
+                        .eq('receipt_no', receipt_no);
+                        
+                    if (updateError) {
+                        throw new Error(`항목 '${receipt_no}'이(가) 이미 존재하여 업데이트를 시도했으나 실패했습니다: ${updateError.message}`);
+                    }
+                    setSuccessMessage(`'${receipt_no}' 항목이 이미 존재하여 내용이 업데이트되었습니다.`);
+                } else {
+                    throw insertError; // Re-throw other errors
+                }
+            } else {
+                setSuccessMessage(`'${dataToInsert.receipt_no}'이(가) 성공적으로 추가되었습니다.`);
+            }
+
             setIsAddingNew(false);
             setNewApplicationData({});
             loadApplications();
+
         } catch (err: any) {
-            setError('추가 실패: ' + err.message);
+            setError('작업 실패: ' + err.message);
         } finally {
             setIsProcessing(false);
         }
@@ -428,15 +436,29 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
 
     const handleCheckChange = async (appId: number, checkField: keyof Application, isChecked: boolean) => {
         if (!supabase) return;
+
+        // Store original state for potential rollback
+        const originalApplications = applications;
+        // Optimistic UI update
         setApplications(prev => prev.map(app => app.id === appId ? { ...app, [checkField]: isChecked } : app));
+
         const { error } = await supabase
             .from('applications')
             .update({ [checkField]: isChecked })
             .eq('id', appId);
         
         if (error) {
-            setError(`'${checkField}' 상태 업데이트 실패: ${error.message}`);
-            setApplications(prev => prev.map(app => app.id === appId ? { ...app, [checkField]: !isChecked } : app));
+            // If there's an error, revert the UI change
+            setApplications(originalApplications);
+            
+            if (error.message.includes("column") && error.message.includes("does not exist")) {
+                setError(`'${String(checkField)}' 상태를 저장할 수 없습니다. 데이터베이스에 해당 열이 존재하지 않습니다. Supabase 스튜디오에서 'applications' 테이블에 '${String(checkField)}' (boolean 타입) 열을 추가해주세요.`);
+            } else {
+                setError(`'${String(checkField)}' 상태 업데이트 실패: ${error.message}`);
+            }
+        } else {
+            // Clear any previous errors on success
+            clearMessages();
         }
     };
 
@@ -473,10 +495,25 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
         }
     };
 
+    const handleEmailSentSuccess = async (appId: number) => {
+        if (!supabase) return;
+        const { error } = await supabase
+            .from('applications')
+            .update({ p7_check: true })
+            .eq('id', appId);
+        if (error) {
+            setError(`P7 체크 업데이트 실패: ${error.message}`);
+        } else {
+            setApplications(prev => prev.map(a => a.id === appId ? {...a, p7_check: true} : a));
+            setSuccessMessage("이메일 전송 후 상태가 업데이트되었습니다.");
+        }
+    };
+
     const CHECK_COLUMNS: { key: keyof Application; label: string }[] = [
         { key: 'p1_check', label: 'P1' }, { key: 'p2_check', label: 'P2' },
         { key: 'p3_check', label: 'P3' }, { key: 'p4_check', label: 'P4' },
         { key: 'p5_check', label: 'P5' }, { key: 'p6_check', label: 'P6' },
+        { key: 'p7_check', label: 'P7' },
     ];
 
     const editInputClass = "w-full bg-white text-slate-900 border-slate-400 rounded-md p-1 text-sm focus:ring-2 focus:ring-sky-500 focus:outline-none";
@@ -490,6 +527,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
             </div>
         )
     }
+
+    const totalColumns = 7 + CHECK_COLUMNS.length + 1;
 
     return (
         <div className="pt-4 px-2 space-y-4">
@@ -537,7 +576,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
                         <ActionButton onClick={handleStartAdding} disabled={isLoadingApplications || isAddingNew || editingId !== null} variant="secondary" className="!p-2" aria-label="새 항목 추가">
                             <PlusIcon className="w-5 h-5" />
                         </ActionButton>
-                        <ActionButton onClick={loadApplications} disabled={isLoadingApplications || isAddingNew} variant="secondary" className="!p-2" aria-label="목록 새로고침">
+                        <ActionButton onClick={() => loadApplications()} disabled={isLoadingApplications || isAddingNew} variant="secondary" className="!p-2" aria-label="목록 새로고침">
                             {isLoadingApplications ? <Spinner size="sm"/> : <RefreshIcon />}
                         </ActionButton>
                     </div>
@@ -577,9 +616,9 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
                                 </tr>
                             )}
                             {isLoadingApplications ? (
-                                <tr><td colSpan={15} className="text-center p-4 text-slate-400">로딩 중...</td></tr>
+                                <tr><td colSpan={totalColumns} className="text-center p-4 text-slate-400">로딩 중...</td></tr>
                             ) : applications.length === 0 && !isAddingNew ? (
-                                <tr><td colSpan={15} className="text-center p-4 text-slate-400">저장된 데이터가 없습니다.</td></tr>
+                                <tr><td colSpan={totalColumns} className="text-center p-4 text-slate-400">저장된 데이터가 없습니다.</td></tr>
                             ) : (
                                 applications.map(app => (
                                     editingId === app.id ? (
@@ -619,7 +658,16 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
                                                     </button>
                                                 </div>
                                             </td>
-                                            <td className="px-3 py-2 whitespace-nowrap text-slate-300 truncate max-w-xs">{app.applicant_email}</td>
+                                            <td className="px-3 py-2 whitespace-nowrap text-slate-300">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="truncate">{app.applicant_email}</span>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); setEmailModalApp(app); }}
+                                                        className="p-1 text-cyan-400 hover:text-cyan-300 rounded-full transition-colors hover:bg-cyan-600/30 disabled:opacity-50 flex-shrink-0"
+                                                        aria-label={`'${app.applicant_name}'에게 이메일 보내기`}
+                                                    ><EmailIcon className="w-4 h-4" /></button>
+                                                </div>
+                                            </td>
                                             {CHECK_COLUMNS.map(c => (
                                                 <td key={c.key} className="px-3 py-2 whitespace-nowrap text-center">
                                                     <input 
@@ -643,6 +691,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
                     </table>
                  </div>
             </div>
+            {emailModalApp && (
+                <EmailModal
+                    isOpen={!!emailModalApp}
+                    onClose={() => setEmailModalApp(null)}
+                    application={emailModalApp}
+                    userName={userName}
+                    onSendSuccess={handleEmailSentSuccess}
+                />
+            )}
         </div>
     );
 };
