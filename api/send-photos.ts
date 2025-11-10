@@ -1,10 +1,24 @@
+// api/send-photos.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
+function stripDataPrefix(b64: string) {
+  // data:image/png;base64,XXXX => XXXX
+  const idx = b64.indexOf('base64,');
+  return idx >= 0 ? b64.slice(idx + 'base64,'.length) : b64.trim();
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS (동일 도메인이면 크게 필요 없지만 안전하게)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, api-key');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+
+  if (req.method === 'OPTIONS') return res.status(204).end();
+
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
+    res.setHeader('Allow', 'POST, OPTIONS');
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
@@ -13,7 +27,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const senderName = process.env.SENDER_NAME || 'KTL Photos';
 
   if (!apiKey || !senderEmail) {
-    return res.status(500).json({ error: 'Server email env is missing (BREVO_API_KEY or SENDER_EMAIL).' });
+    return res.status(500).json({
+      error: 'Server email env is missing: BREVO_API_KEY or SENDER_EMAIL.',
+    });
   }
 
   try {
@@ -36,7 +52,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     if (attachments?.length) {
-      payload.attachment = attachments.map(a => ({ name: a.name, content: a.content }));
+      payload.attachment = attachments.map((a) => ({
+        name: a.name,
+        content: stripDataPrefix(a.content),
+      }));
     }
 
     const brevoRes = await fetch(BREVO_API_URL, {
@@ -49,12 +68,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify(payload),
     });
 
+    const text = await brevoRes.text();
     if (!brevoRes.ok) {
-      const text = await brevoRes.text();
-      return res.status(brevoRes.status).json({ error: text || `Brevo error ${brevoRes.status}` });
+      // Brevo가 종종 text로 에러를 보냄
+      let msg: any = text;
+      try {
+        msg = JSON.parse(text);
+      } catch {}
+      return res.status(brevoRes.status).json({ error: msg || `Brevo error ${brevoRes.status}` });
     }
 
-    const data = await brevoRes.json().catch(() => ({}));
+    let data: any = {};
+    try {
+      data = JSON.parse(text);
+    } catch {}
+
     return res.status(200).json({ ok: true, data });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'Unknown error' });
