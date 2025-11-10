@@ -10,10 +10,7 @@ import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
 import { CameraView } from './CameraView';
-import dynamic from 'next/dynamic';
-
-// EmailModal은 브라우저 측 API에 의존 가능성이 높으므로 SSR 끔
-const EmailModal = dynamic(() => import('./EmailModal'), { ssr: false });
+import EmailModal from './EmailModal';
 
 export interface Application {
   id: number;
@@ -25,15 +22,14 @@ export interface Application {
   applicant_name: string;
   applicant_phone: string;
   applicant_email: string;
-  maintenance_company?: string;
-  user_name?: string; // Add user_name for Supabase queries
+  user_name?: string; // Supabase 쿼리용
   p1_check?: boolean;
   p2_check?: boolean;
   p3_check?: boolean;
   p4_check?: boolean;
   p5_check?: boolean;
   p6_check?: boolean;
-  p7_check?: boolean;
+  p7_check?: boolean; // ✅ 복구
 }
 
 interface ApplicationOcrSectionProps {
@@ -43,10 +39,6 @@ interface ApplicationOcrSectionProps {
   siteNameToSync: string;
   appIdToSync: number | null;
   receiptNumberCommonToSync: string;
-  applications: Application[];
-  setApplications: React.Dispatch<React.SetStateAction<Application[]>>;
-  isLoadingApplications: boolean;
-  loadApplications: (showError?: (msg: string) => void) => void;
 }
 
 const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -79,52 +71,126 @@ const PlusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
-  userName, userContact, onApplicationSelect, siteNameToSync, appIdToSync,
-  receiptNumberCommonToSync, applications, setApplications,
-  isLoadingApplications, loadApplications
+  userName,
+  userContact,
+  onApplicationSelect,
+  siteNameToSync,
+  appIdToSync,
+  receiptNumberCommonToSync,
 }) => {
   const [image, setImage] = useState<ImageInfo | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [isLoadingApplications, setIsLoadingApplications] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editedData, setEditedData] = useState<Partial<Application>>({});
   const [kakaoSendingId, setKakaoSendingId] = useState<number | null>(null);
-  const [emailModalApp, setEmailModalApp] = useState<Application | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [newApplicationData, setNewApplicationData] = useState<Partial<Application>>({});
   const [ocrApiMode, setOcrApiMode] = useState<'gemini' | 'vllm'>('vllm');
   const [isCameraOpen, setIsCameraOpen] = useState(false);
 
-  const clearMessages = () => { setError(null); setSuccessMessage(null); };
+  // ✅ 이메일 모달 상태 & 핸들러 (P7 연동)
+  const [emailModalApp, setEmailModalApp] = useState<Application | null>(null);
+  const handleEmailSentSuccess = async (appId: number) => {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('applications')
+      .update({ p7_check: true })
+      .eq('id', appId);
+    if (error) {
+      setError(`P7 체크 업데이트 실패: ${error.message}`);
+    } else {
+      setApplications((prev) => prev.map((a) => (a.id === appId ? { ...a, p7_check: true } : a)));
+      setSuccessMessage('이메일 전송 후 상태가 업데이트되었습니다.');
+    }
+  };
+
+  const clearMessages = () => {
+    setError(null);
+    setSuccessMessage(null);
+  };
+
+  const loadApplications = useCallback(async () => {
+    if (!supabase) {
+      setError('데이터베이스에 연결할 수 없습니다. Supabase 설정을 확인하세요.');
+      return;
+    }
+    setIsLoadingApplications(true);
+    clearMessages();
+    try {
+      const { data, error: dbError } = await supabase
+        .from('applications')
+        .select('*')
+        .eq('user_name', userName);
+
+      if (dbError) throw dbError;
+
+      if (data) {
+        data.sort((a, b) => {
+          const slotA = a.queue_slot;
+          const slotB = b.queue_slot;
+          if (slotA === null && slotB !== null) return 1;
+          if (slotA !== null && slotB === null) return -1;
+          if (slotA !== null && slotB !== null && slotA !== slotB) {
+            return slotA - slotB;
+          }
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+        setApplications(data as Application[]);
+      } else {
+        setApplications([]);
+      }
+    } catch (err: any) {
+      setError('데이터를 불러오는 데 실패했습니다: ' + err.message);
+      setApplications([]);
+    } finally {
+      setIsLoadingApplications(false);
+    }
+  }, [userName]);
 
   useEffect(() => {
-    const handleUpdate = () => { loadApplications(); };
+    loadApplications();
+  }, [loadApplications]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      loadApplications();
+    };
     window.addEventListener('applicationsUpdated', handleUpdate);
     return () => window.removeEventListener('applicationsUpdated', handleUpdate);
   }, [loadApplications]);
 
+  // site_name 동기화
   useEffect(() => {
     const syncSiteName = async () => {
       if (appIdToSync !== null && supabase) {
-        const appToUpdate = applications.find(app => app.id === appIdToSync);
+        const appToUpdate = applications.find((app) => app.id === appIdToSync);
         if (appToUpdate && appToUpdate.site_name !== siteNameToSync) {
-          const { error } = await supabase.from('applications').update({ site_name: siteNameToSync }).eq('id', appIdToSync);
+          const { error } = await supabase
+            .from('applications')
+            .update({ site_name: siteNameToSync })
+            .eq('id', appIdToSync);
           if (!error) {
-            setApplications(prev => prev.map(app => app.id === appIdToSync ? { ...app, site_name: siteNameToSync } : app));
+            setApplications((prev) =>
+              prev.map((a) => (a.id === appIdToSync ? { ...a, site_name: siteNameToSync } : a)),
+            );
           } else {
-            console.error("Failed to sync site name to Supabase:", error);
+            console.error('Failed to sync site name to Supabase:', error);
           }
         }
       }
     };
     syncSiteName();
-  }, [siteNameToSync, appIdToSync, applications, setApplications]);
+  }, [siteNameToSync, appIdToSync, applications]);
 
+  // 접수번호 공통부 동기화
   useEffect(() => {
     const syncReceiptNumber = async () => {
       if (appIdToSync !== null && receiptNumberCommonToSync.trim() && supabase) {
-        const appToUpdate = applications.find(app => app.id === appIdToSync);
+        const appToUpdate = applications.find((app) => app.id === appIdToSync);
         if (appToUpdate && appToUpdate.receipt_no) {
           const parts = appToUpdate.receipt_no.split('-');
           let detailPart = '';
@@ -137,38 +203,58 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 
           if (receiptNumberCommonToSync !== currentCommonPart) {
             const newReceiptNo = detailPart ? `${receiptNumberCommonToSync}-${detailPart}` : receiptNumberCommonToSync;
-            const { error } = await supabase.from('applications').update({ receipt_no: newReceiptNo }).eq('id', appIdToSync);
+            const { error } = await supabase
+              .from('applications')
+              .update({ receipt_no: newReceiptNo })
+              .eq('id', appIdToSync);
+
             if (!error) {
-              setApplications(prev => prev.map(app => app.id === appIdToSync ? { ...app, receipt_no: newReceiptNo } : app));
+              setApplications((prev) =>
+                prev.map((a) => (a.id === appIdToSync ? { ...a, receipt_no: newReceiptNo } : a)),
+              );
             } else {
-              console.error("Failed to sync receipt number to Supabase:", error);
+              console.error('Failed to sync receipt number to Supabase:', error);
             }
           }
         }
       }
     };
     syncReceiptNumber();
-  }, [receiptNumberCommonToSync, appIdToSync, applications, setApplications]);
+  }, [receiptNumberCommonToSync, appIdToSync, applications]);
 
-  const handleImagesSet = useCallback((images: ImageInfo[]) => { setImage(images[0] || null); clearMessages(); }, []);
+  const handleImagesSet = useCallback((images: ImageInfo[]) => {
+    setImage(images[0] || null);
+    clearMessages();
+  }, []);
+
   const handleOpenCamera = useCallback(() => setIsCameraOpen(true), []);
   const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
   const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
-    setImage({ file, base64, mimeType }); setIsCameraOpen(false); clearMessages();
+    const capturedImage: ImageInfo = { file, base64, mimeType };
+    setImage(capturedImage);
+    setIsCameraOpen(false);
+    clearMessages();
   }, []);
 
   const handleAnalyzeAndSave = async () => {
-    if (!image) { setError('분석할 이미지를 먼저 업로드해주세요.'); return; }
-    if (!supabase) { setError("데이터베이스에 연결할 수 없습니다."); return; }
+    if (!image) {
+      setError('분석할 이미지를 먼저 업로드해주세요.');
+      return;
+    }
+    if (!supabase) {
+      setError('데이터베이스에 연결할 수 없습니다.');
+      return;
+    }
 
-    setIsProcessing(true); clearMessages();
+    setIsProcessing(true);
+    clearMessages();
 
     const originalApiMode = localStorage.getItem('apiMode') || 'gemini';
     localStorage.setItem('apiMode', ocrApiMode);
 
     try {
       const currentApps = [...applications];
-      const maxSlot = Math.max(0, ...currentApps.filter(a => a.queue_slot !== null).map(a => a.queue_slot!));
+      const maxSlot = Math.max(0, ...currentApps.filter((app) => app.queue_slot !== null).map((app) => app.queue_slot!));
       const provisionalSlot = maxSlot + 1;
 
       const geminiPrompt = `너는 ‘검사(시험)신청서’ 이미지에서 지정 필드만 추출하는 OCR 파서다.
@@ -191,7 +277,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 - 출력은 위 7개 키만 포함한 **단일 JSON 1줄**.`;
 
       const modelConfig = {
-        responseMimeType: "application/json",
+        responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -203,44 +289,44 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
             applicant_phone: { type: Type.STRING },
             applicant_email: { type: Type.STRING },
           },
-          required: ["queue_slot", "receipt_no", "site_name", "representative_name", "applicant_name", "applicant_phone", "applicant_email"],
+          required: ['queue_slot', 'receipt_no', 'site_name', 'representative_name', 'applicant_name', 'applicant_phone', 'applicant_email'],
         },
       };
 
-      const { base64: preprocessedBase64, mimeType: preprocessedMimeType } = await preprocessImageForGemini(
-        image.file,
-        { maxWidth: 1600, jpegQuality: 0.9, grayscale: true }
-      );
+      const { base64: preprocessedBase64, mimeType: preprocessedMimeType } = await preprocessImageForGemini(image.file, {
+        maxWidth: 1600,
+        jpegQuality: 0.9,
+        grayscale: true,
+      });
 
       const jsonString = await extractTextFromImage(preprocessedBase64, preprocessedMimeType, geminiPrompt, modelConfig);
       const ocrResult = JSON.parse(jsonString);
 
-      const newApp = { ...ocrResult, queue_slot: provisionalSlot, user_name: userName };
+      const existingApp = applications.find((app) => app.receipt_no === ocrResult.receipt_no && ocrResult.receipt_no);
 
-      const { error: insertError } = await supabase.from('applications').insert(newApp);
-
-      if (insertError) {
-        if (insertError.code === '23505' || (insertError.message && insertError.message.includes('duplicate key'))) {
-          const { data: existingData, error: fetchError } = await supabase
-            .from('applications').select('id, queue_slot').eq('receipt_no', ocrResult.receipt_no).single();
-          if (fetchError || !existingData) throw new Error(`중복 '${ocrResult.receipt_no}' 업데이트 실패: 기존 데이터 없음`);
-
-          const dataToUpdate = { ...ocrResult, queue_slot: existingData.queue_slot };
-          const { error: updateError } = await supabase.from('applications').update(dataToUpdate).eq('id', existingData.id);
-          if (updateError) throw new Error(`중복 '${ocrResult.receipt_no}' 업데이트 실패: ${updateError.message}`);
-
-          setSuccessMessage(`'${ocrResult.receipt_no}' 업데이트 완료 (중복 감지).`);
-        } else {
-          throw insertError;
-        }
+      if (existingApp) {
+        const updatedApp = {
+          ...ocrResult,
+          queue_slot: existingApp.queue_slot,
+        };
+        const { error: updateError } = await supabase.from('applications').update(updatedApp).eq('id', existingApp.id);
+        if (updateError) throw updateError;
+        setSuccessMessage(`'${ocrResult.receipt_no}' 데이터가 성공적으로 업데이트되었습니다.`);
       } else {
-        setSuccessMessage(`'${ocrResult.receipt_no}' 저장 완료.`);
+        const newApp = {
+          ...ocrResult,
+          queue_slot: provisionalSlot,
+          user_name: userName,
+        };
+        const { error: insertError } = await supabase.from('applications').insert(newApp);
+        if (insertError) throw insertError;
+        setSuccessMessage(`'${ocrResult.receipt_no}' 데이터가 성공적으로 저장되었습니다.`);
       }
 
       loadApplications();
       setImage(null);
     } catch (err: any) {
-      setError('작업 실패: ' + (err.message || '알 수 없는 오류'));
+      setError('작업 실패: ' + (err.message || '알 수 없는 오류가 발생했습니다.'));
     } finally {
       localStorage.setItem('apiMode', originalApiMode);
       setIsProcessing(false);
@@ -248,9 +334,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   };
 
   const handleDeleteApplication = async (idToDelete: number) => {
-    if (!supabase) { setError("데이터베이스에 연결할 수 없습니다."); return; }
-    const appToDelete = applications.find(app => app.id === idToDelete);
-    if (!appToDelete) { setError('삭제할 항목을 찾을 수 없습니다.'); return; }
+    if (!supabase) {
+      setError('데이터베이스에 연결할 수 없습니다.');
+      return;
+    }
+    const appToDelete = applications.find((app) => app.id === idToDelete);
+    if (!appToDelete) {
+      setError('삭제할 항목을 찾을 수 없습니다.');
+      return;
+    }
 
     clearMessages();
     try {
@@ -260,79 +352,113 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       const deletedSlot = appToDelete.queue_slot;
       if (deletedSlot !== null) {
         const appsToUpdate = applications
-          .filter(app => app.queue_slot !== null && app.queue_slot > deletedSlot)
-          .map(app => ({ ...app, queue_slot: app.queue_slot! - 1 }));
+          .filter((app) => app.queue_slot !== null && app.queue_slot > deletedSlot)
+          .map((app) => ({ ...app, queue_slot: app.queue_slot! - 1 }));
+
         if (appsToUpdate.length > 0) {
           const { error: updateError } = await supabase.from('applications').upsert(appsToUpdate);
-          if (updateError) console.error("Failed to re-sequence queue slots:", updateError);
+          if (updateError) console.error('Failed to re-sequence queue slots:', updateError);
         }
       }
 
-      setSuccessMessage(`'${appToDelete.receipt_no}' 삭제됨.`);
+      setSuccessMessage(`'${appToDelete.receipt_no}' 데이터가 삭제되었습니다.`);
       loadApplications();
     } catch (err: any) {
       setError('삭제 실패: ' + err.message);
     }
   };
 
-  const handleEdit = (app: Application) => { setEditingId(app.id); setEditedData(app); setIsAddingNew(false); };
-  const handleCancelEdit = () => { setEditingId(null); setEditedData({}); };
+  const handleEdit = (app: Application) => {
+    setEditingId(app.id);
+    setEditedData(app);
+    setIsAddingNew(false);
+  };
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditedData({});
+  };
   const handleSaveEdit = async (id: number) => {
-    if (!supabase) { setError("데이터베이스에 연결할 수 없습니다."); return; }
-    const { id: appId, created_at, user_name, ...dataToUpdate } = editedData;
+    if (!supabase) {
+      setError('데이터베이스에 연결할 수 없습니다.');
+      return;
+    }
+    const { id: _ignore, created_at, user_name, ...dataToUpdate } = editedData;
+
     const finalData = { ...dataToUpdate, queue_slot: dataToUpdate.queue_slot ? Number(dataToUpdate.queue_slot) : null };
+
     const { error } = await supabase.from('applications').update(finalData).eq('id', id);
-    if (error) setError('업데이트 실패: ' + error.message);
-    else { loadApplications(); setEditingId(null); setEditedData({}); }
+    if (error) {
+      setError('업데이트 실패: ' + error.message);
+    } else {
+      loadApplications();
+      setEditingId(null);
+      setEditedData({});
+    }
   };
   const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target; setEditedData(prev => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setEditedData((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
   const handleStartAdding = () => {
-    setEditingId(null); setIsAddingNew(true);
+    setEditingId(null);
+    setIsAddingNew(true);
     setNewApplicationData({
-      receipt_no: '', site_name: '', representative_name: '',
-      applicant_name: '', applicant_phone: '', applicant_email: '',
-      p1_check: false, p2_check: false, p3_check: false,
-      p4_check: false, p5_check: false, p6_check: false, p7_check: false
+      receipt_no: '',
+      site_name: '',
+      representative_name: '',
+      applicant_name: '',
+      applicant_phone: '',
+      applicant_email: '',
+      p1_check: false,
+      p2_check: false,
+      p3_check: false,
+      p4_check: false,
+      p5_check: false,
+      p6_check: false,
+      p7_check: false, // ✅ 신규 추가 시에도 포함
     });
   };
-  const handleCancelAdding = () => { setIsAddingNew(false); setNewApplicationData({}); };
+
+  const handleCancelAdding = () => {
+    setIsAddingNew(false);
+    setNewApplicationData({});
+  };
+
   const handleNewDataChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
-    setNewApplicationData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    setNewApplicationData((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
   const handleSaveNewApplication = async () => {
-    if (!supabase) { setError("데이터베이스에 연결할 수 없습니다."); return; }
-    if (!newApplicationData.receipt_no || !newApplicationData.site_name) {
-      setError("접수번호와 현장명은 필수 항목입니다."); return;
+    if (!supabase) {
+      setError('데이터베이스에 연결할 수 없습니다.');
+      return;
     }
-    clearMessages(); setIsProcessing(true);
+    if (!newApplicationData.receipt_no || !newApplicationData.site_name) {
+      setError('접수번호와 현장명은 필수 항목입니다.');
+      return;
+    }
+    clearMessages();
+    setIsProcessing(true);
 
     try {
-      const dataToInsert = {
+      const dataToInsert: any = {
         ...newApplicationData,
         user_name: userName,
         queue_slot: newApplicationData.queue_slot ? Number(newApplicationData.queue_slot) : null,
-      } as any;
+      };
       delete dataToInsert.id;
 
-      const { error: insertError } = await supabase.from('applications').insert(dataToInsert);
-      if (insertError) {
-        if (insertError.code === '23505' || (insertError.message && insertError.message.includes('duplicate key'))) {
-          const { receipt_no, ...updateData } = dataToInsert;
-          const { error: updateError } = await supabase.from('applications').update(updateData).eq('receipt_no', receipt_no);
-          if (updateError) throw new Error(`'${receipt_no}' 업데이트 실패: ${updateError.message}`);
-          setSuccessMessage(`'${receipt_no}' 이미 존재 → 내용 업데이트 완료.`);
-        } else throw insertError;
-      } else {
-        setSuccessMessage(`'${dataToInsert.receipt_no}' 추가 완료.`);
-      }
-      setIsAddingNew(false); setNewApplicationData({}); loadApplications();
+      const { error } = await supabase.from('applications').insert(dataToInsert);
+      if (error) throw error;
+
+      setSuccessMessage(`'${newApplicationData.receipt_no}'이(가) 성공적으로 추가되었습니다.`);
+      setIsAddingNew(false);
+      setNewApplicationData({});
+      loadApplications();
     } catch (err: any) {
-      setError('작업 실패: ' + err.message);
+      setError('추가 실패: ' + err.message);
     } finally {
       setIsProcessing(false);
     }
@@ -340,24 +466,33 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 
   const handleCheckChange = async (appId: number, checkField: keyof Application, isChecked: boolean) => {
     if (!supabase) return;
-    const original = applications;
-    setApplications(prev => prev.map(a => a.id === appId ? { ...a, [checkField]: isChecked } : a));
-    const { error } = await supabase.from('applications').update({ [checkField]: isChecked }).eq('id', appId);
+    // 낙관적 업데이트
+    const prev = applications;
+    setApplications((p) => p.map((a) => (a.id === appId ? { ...a, [checkField]: isChecked } : a)));
+
+    const { error } = await supabase
+      .from('applications')
+      .update({ [checkField]: isChecked })
+      .eq('id', appId);
+
     if (error) {
-      setApplications(original);
-      if (error.message.includes("column") && error.message.includes("does not exist")) {
-        setError(`'${String(checkField)}' 저장 실패: DB에 열이 없습니다. Supabase 테이블에 boolean 컬럼 '${String(checkField)}'를 추가하세요.`);
-      } else {
-        setError(`'${String(checkField)}' 상태 업데이트 실패: ${error.message}`);
-      }
+      setError(`'${checkField}' 상태 업데이트 실패: ${error.message}`);
+      // 롤백
+      setApplications(prev);
     } else {
       clearMessages();
     }
   };
 
   const handleSendKakao = async (app: Application) => {
-    if (!userContact) { setError("담당자 연락처 정보가 없습니다."); return; }
-    if (!app.applicant_phone) { setError("신청인 휴대폰 번호가 없습니다."); return; }
+    if (!userContact) {
+      setError('담당자 연락처 정보가 없습니다.');
+      return;
+    }
+    if (!app.applicant_phone) {
+      setError('신청인 휴대폰 번호가 없습니다.');
+      return;
+    }
 
     const message = `<시험·검사 배정 완료>
 *현장: ${app.site_name}
@@ -366,14 +501,21 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 
 문의 사항은 이 메시지로 편하게 회신해 주세요. 시험·검사일에 뵙겠습니다.`;
 
-    setKakaoSendingId(app.id); clearMessages();
+    setKakaoSendingId(app.id);
+    clearMessages();
 
     try {
       await sendKakaoTalkMessage(message, app.applicant_phone);
-      const { error: updateError } = await supabase.from('applications').update({ p5_check: true }).eq('id', app.id);
+
+      const { error: updateError } = await supabase
+        .from('applications')
+        .update({ p5_check: true })
+        .eq('id', app.id);
+
       if (updateError) throw updateError;
-      setApplications(prev => prev.map(a => a.id === app.id ? { ...a, p5_check: true } : a));
-      setSuccessMessage(`'${app.receipt_no}' 카카오톡 전송 완료.`);
+
+      setApplications((prev) => prev.map((a) => (a.id === app.id ? { ...a, p5_check: true } : a)));
+      setSuccessMessage(`'${app.receipt_no}'으로 카카오톡 메시지를 전송했습니다.`);
     } catch (err: any) {
       setError('카카오톡 전송 실패: ' + err.message);
     } finally {
@@ -381,36 +523,31 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     }
   };
 
-  const handleEmailSentSuccess = async (appId: number) => {
-    if (!supabase) return;
-    const { error } = await supabase.from('applications').update({ p7_check: true }).eq('id', appId);
-    if (error) setError(`P7 체크 업데이트 실패: ${error.message}`);
-    else {
-      setApplications(prev => prev.map(a => a.id === appId ? { ...a, p7_check: true } : a));
-      setSuccessMessage("이메일 전송 후 상태가 업데이트되었습니다.");
-    }
-  };
-
+  // ✅ P7 포함한 체크 컬럼
   const CHECK_COLUMNS: { key: keyof Application; label: string }[] = [
-    { key: 'p1_check', label: 'P1' }, { key: 'p2_check', label: 'P2' },
-    { key: 'p3_check', label: 'P3' }, { key: 'p4_check', label: 'P4' },
-    { key: 'p5_check', label: 'P5' }, { key: 'p6_check', label: 'P6' },
-    { key: 'p7_check', label: 'P7' },
+    { key: 'p1_check', label: 'P1' },
+    { key: 'p2_check', label: 'P2' },
+    { key: 'p3_check', label: 'P3' },
+    { key: 'p4_check', label: 'P4' },
+    { key: 'p5_check', label: 'P5' },
+    { key: 'p6_check', label: 'P6' },
+    { key: 'p7_check', label: 'P7' }, // ✅ 복구
   ];
 
-  const editInputClass = "w-full bg-white text-slate-900 border-slate-400 rounded-md p-1 text-sm focus:ring-2 focus:ring-sky-500 focus:outline-none";
+  const editInputClass =
+    'w-full bg-white text-slate-900 border-slate-400 rounded-md p-1 text-sm focus:ring-2 focus:ring-sky-500 focus:outline-none';
 
   if (!supabase) {
     return (
       <div className="pt-4 px-2 space-y-4">
         <p className="text-red-400 text-sm p-2 bg-red-900/30 rounded-md">
-          데이터베이스에 연결할 수 없습니다. Supabase 환경 변수(URL, ANON_KEY)를 확인하세요.
+          데이터베이스에 연결할 수 없습니다. Supabase 환경 변수(URL, ANON_KEY)가 올바르게 설정되었는지 확인해주세요.
         </p>
       </div>
     );
   }
 
-  const totalColumns = 7 + CHECK_COLUMNS.length + 1;
+  const totalColumns = 7 /* 기본 데이터 */ + CHECK_COLUMNS.length + 1 /* 관리 */;
 
   return (
     <div className="pt-4 px-2 space-y-4">
@@ -419,28 +556,44 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
           {isCameraOpen ? (
             <CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} />
           ) : (
-            <ImageInput onImagesSet={handleImagesSet} onOpenCamera={handleOpenCamera} isLoading={isProcessing} selectedImageCount={image ? 1 : 0} />
+            <ImageInput
+              onImagesSet={handleImagesSet}
+              onOpenCamera={handleOpenCamera}
+              isLoading={isProcessing}
+              selectedImageCount={image ? 1 : 0}
+            />
           )}
           {!isCameraOpen && image && (
             <div className="mt-2">
               <p className="text-xs text-sky-400 truncate mb-2">선택된 파일: {image.file.name}</p>
-              <img src={`data:${image.mimeType};base64,${image.base64}`} alt="신청서 미리보기" className="max-h-48 w-auto rounded-md border border-slate-600 object-contain" />
+              <img
+                src={`data:${image.mimeType};base64,${image.base64}`}
+                alt="신청서 미리보기"
+                className="max-h-48 w-auto rounded-md border border-slate-600 object-contain"
+              />
             </div>
           )}
         </div>
         <div className="flex flex-col justify-end space-y-3">
           <div className="flex justify-between items-center w-full px-1">
-            <span className="text-slate-300 font-semibold text-sm">분석 모드: {ocrApiMode === 'gemini' ? '외부 AI' : '내부 AI'}</span>
+            <span className="text-slate-300 font-semibold text-sm">
+              분석 모드: {ocrApiMode === 'gemini' ? '외부 AI' : '내부 AI'}
+            </span>
             <button
               type="button"
-              onClick={() => setOcrApiMode(prev => prev === 'gemini' ? 'vllm' : 'gemini')}
+              onClick={() => setOcrApiMode((prev) => (prev === 'gemini' ? 'vllm' : 'gemini'))}
               className={`px-3 py-1.5 text-xs font-bold text-white rounded-lg shadow-md transition-colors bg-green-500 hover:bg-green-600`}
               disabled={isProcessing}
             >
               {ocrApiMode === 'gemini' ? '→ 내부 AI' : '→ 외부 AI'}
             </button>
           </div>
-          <ActionButton onClick={handleAnalyzeAndSave} fullWidth disabled={isProcessing || !image} icon={isProcessing ? <Spinner size="sm" /> : undefined}>
+          <ActionButton
+            onClick={handleAnalyzeAndSave}
+            fullWidth
+            disabled={isProcessing || !image}
+            icon={isProcessing ? <Spinner size="sm" /> : undefined}
+          >
             {isProcessing ? '처리 중...' : '분석 및 저장'}
           </ActionButton>
         </div>
@@ -453,10 +606,22 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         <div className="flex justify-between items-center mb-2">
           <h4 className="text-lg font-semibold text-slate-100">저장된 목록</h4>
           <div className="flex items-center gap-2">
-            <ActionButton onClick={handleStartAdding} disabled={isLoadingApplications || isAddingNew || editingId !== null} variant="secondary" className="!p-2" aria-label="새 항목 추가">
+            <ActionButton
+              onClick={handleStartAdding}
+              disabled={isLoadingApplications || isAddingNew || editingId !== null}
+              variant="secondary"
+              className="!p-2"
+              aria-label="새 항목 추가"
+            >
               <PlusIcon className="w-5 h-5" />
             </ActionButton>
-            <ActionButton onClick={() => loadApplications()} disabled={isLoadingApplications || isAddingNew} variant="secondary" className="!p-2" aria-label="목록 새로고침">
+            <ActionButton
+              onClick={loadApplications}
+              disabled={isLoadingApplications || isAddingNew}
+              variant="secondary"
+              className="!p-2"
+              aria-label="목록 새로고침"
+            >
               {isLoadingApplications ? <Spinner size="sm" /> : <RefreshIcon />}
             </ActionButton>
           </div>
@@ -466,61 +631,151 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
             <thead className="bg-slate-700/50 sticky top-0 z-10">
               <tr>
                 {['No.', '접수번호', '현장', '대표자', '신청인', '휴대폰', '이메일'].map((h) => (
-                  <th key={h} className="px-3 py-2 text-xs font-medium text-slate-300 uppercase tracking-wider text-left sticky top-0 bg-slate-700/50 first:text-center">
+                  <th
+                    key={h}
+                    className="px-3 py-2 text-xs font-medium text-slate-300 uppercase tracking-wider text-left sticky top-0 bg-slate-700/50 first:text-center"
+                  >
                     {h}
                   </th>
                 ))}
-                {CHECK_COLUMNS.map(c => (
-                  <th key={c.key} className="px-3 py-2 text-xs font-medium text-slate-300 uppercase tracking-wider text-center sticky top-0 bg-slate-700/50">{c.label}</th>
+                {CHECK_COLUMNS.map((c) => (
+                  <th
+                    key={c.key}
+                    className="px-3 py-2 text-xs font-medium text-slate-300 uppercase tracking-wider text-center sticky top-0 bg-slate-700/50"
+                  >
+                    {c.label}
+                  </th>
                 ))}
-                <th className="px-3 py-2 text-center text-xs font-medium text-slate-300 uppercase tracking-wider sticky top-0 bg-slate-700/50">관리</th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-slate-300 uppercase tracking-wider sticky top-0 bg-slate-700/50">
+                  관리
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700">
-              {/* 추가 행 */}
-              {/* ... (이하 원문과 동일) */}
-              {/* 줄이기: 본문 그대로 둠 */}
-              {/* === 기존 로직 그대로 유지 === */}
               {isAddingNew && (
                 <tr className="bg-green-900/30">
-                  <td className="p-1"><input name="queue_slot" type="number" value={newApplicationData.queue_slot ?? ''} onChange={handleNewDataChange} className={`w-16 text-center ${editInputClass}`} /></td>
-                  <td className="p-1"><input name="receipt_no" value={newApplicationData.receipt_no ?? ''} onChange={handleNewDataChange} className={editInputClass} required /></td>
-                  <td className="p-1"><input name="site_name" value={newApplicationData.site_name ?? ''} onChange={handleNewDataChange} className={editInputClass} required /></td>
-                  <td className="p-1"><input name="representative_name" value={newApplicationData.representative_name ?? ''} onChange={handleNewDataChange} className={editInputClass} /></td>
-                  <td className="p-1"><input name="applicant_name" value={newApplicationData.applicant_name ?? ''} onChange={handleNewDataChange} className={editInputClass} /></td>
-                  <td className="p-1"><input name="applicant_phone" value={newApplicationData.applicant_phone ?? ''} onChange={handleNewDataChange} className={editInputClass} /></td>
-                  <td className="p-1"><input name="applicant_email" value={newApplicationData.applicant_email ?? ''} onChange={handleNewDataChange} className={editInputClass} /></td>
-                  {CHECK_COLUMNS.map(c => (
-                    <td key={c.key} className="p-1 text-center"><input type="checkbox" name={c.key} checked={!!newApplicationData[c.key]} onChange={handleNewDataChange} className="h-4 w-4 rounded" /></td>
+                  <td className="p-1">
+                    <input
+                      name="queue_slot"
+                      type="number"
+                      value={newApplicationData.queue_slot ?? ''}
+                      onChange={handleNewDataChange}
+                      className={`w-16 text-center ${editInputClass}`}
+                    />
+                  </td>
+                  <td className="p-1">
+                    <input name="receipt_no" value={newApplicationData.receipt_no ?? ''} onChange={handleNewDataChange} className={editInputClass} required />
+                  </td>
+                  <td className="p-1">
+                    <input name="site_name" value={newApplicationData.site_name ?? ''} onChange={handleNewDataChange} className={editInputClass} required />
+                  </td>
+                  <td className="p-1">
+                    <input name="representative_name" value={newApplicationData.representative_name ?? ''} onChange={handleNewDataChange} className={editInputClass} />
+                  </td>
+                  <td className="p-1">
+                    <input name="applicant_name" value={newApplicationData.applicant_name ?? ''} onChange={handleNewDataChange} className={editInputClass} />
+                  </td>
+                  <td className="p-1">
+                    <input name="applicant_phone" value={newApplicationData.applicant_phone ?? ''} onChange={handleNewDataChange} className={editInputClass} />
+                  </td>
+                  <td className="p-1">
+                    <input name="applicant_email" value={newApplicationData.applicant_email ?? ''} onChange={handleNewDataChange} className={editInputClass} />
+                  </td>
+                  {CHECK_COLUMNS.map((c) => (
+                    <td key={c.key} className="p-1 text-center">
+                      <input type="checkbox" name={c.key} checked={!!newApplicationData[c.key]} onChange={handleNewDataChange} className="h-4 w-4 rounded" />
+                    </td>
                   ))}
                   <td className="p-1 whitespace-nowrap text-center">
-                    <button onClick={handleSaveNewApplication} disabled={isProcessing} className="p-1.5 text-green-400 hover:text-white rounded-full transition-colors hover:bg-green-600" aria-label="저장"><SaveIcon className="w-4 h-4" /></button>
-                    <button onClick={handleCancelAdding} disabled={isProcessing} className="p-1.5 text-slate-400 hover:text-white rounded-full transition-colors hover:bg-slate-600" aria-label="취소"><CancelIcon className="w-4 h-4" /></button>
+                    <button
+                      onClick={handleSaveNewApplication}
+                      disabled={isProcessing}
+                      className="p-1.5 text-green-400 hover:text-white rounded-full transition-colors hover:bg-green-600"
+                      aria-label="저장"
+                    >
+                      <SaveIcon className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleCancelAdding}
+                      disabled={isProcessing}
+                      className="p-1.5 text-slate-400 hover:text-white rounded-full transition-colors hover:bg-slate-600"
+                      aria-label="취소"
+                    >
+                      <CancelIcon className="w-4 h-4" />
+                    </button>
                   </td>
                 </tr>
               )}
 
               {isLoadingApplications ? (
-                <tr><td colSpan={7 + CHECK_COLUMNS.length + 1} className="text-center p-4 text-slate-400">로딩 중...</td></tr>
+                <tr>
+                  <td colSpan={totalColumns} className="text-center p-4 text-slate-400">
+                    로딩 중...
+                  </td>
+                </tr>
               ) : applications.length === 0 && !isAddingNew ? (
-                <tr><td colSpan={7 + CHECK_COLUMNS.length + 1} className="text-center p-4 text-slate-400">저장된 데이터가 없습니다.</td></tr>
+                <tr>
+                  <td colSpan={totalColumns} className="text-center p-4 text-slate-400">
+                    저장된 데이터가 없습니다.
+                  </td>
+                </tr>
               ) : (
-                applications.map(app => (
+                applications.map((app) =>
                   editingId === app.id ? (
                     <tr key={app.id} className="bg-sky-900/30">
-                      <td className="p-1"><input name="queue_slot" type="number" value={editedData.queue_slot ?? ''} onChange={handleEditInputChange} className={`w-16 text-center ${editInputClass}`} /></td>
-                      <td className="p-1"><input name="receipt_no" value={editedData.receipt_no ?? ''} onChange={handleEditInputChange} className={editInputClass} /></td>
-                      <td className="p-1"><input name="site_name" value={editedData.site_name ?? ''} onChange={handleEditInputChange} className={editInputClass} /></td>
-                      <td className="p-1"><input name="representative_name" value={editedData.representative_name ?? ''} onChange={handleEditInputChange} className={editInputClass} /></td>
-                      <td className="p-1"><input name="applicant_name" value={editedData.applicant_name ?? ''} onChange={handleEditInputChange} className={editInputClass} /></td>
-                      <td className="p-1"><input name="applicant_phone" value={editedData.applicant_phone ?? ''} onChange={handleEditInputChange} className={editInputClass} /></td>
-                      <td className="p-1"><input name="applicant_email" value={editedData.applicant_email ?? ''} onChange={handleEditInputChange} className={editInputClass} /></td>
-                      {CHECK_COLUMNS.map(c => (
-                        <td key={c.key} className="p-1 text-center"><input type="checkbox" name={c.key} checked={!!editedData[c.key]} onChange={e => setEditedData(prev => ({ ...prev, [c.key]: e.target.checked }))} className="h-4 w-4 rounded" /></td>
+                      <td className="p-1">
+                        <input
+                          name="queue_slot"
+                          type="number"
+                          value={editedData.queue_slot ?? ''}
+                          onChange={handleEditInputChange}
+                          className={`w-16 text-center ${editInputClass}`}
+                        />
+                      </td>
+                      <td className="p-1">
+                        <input name="receipt_no" value={editedData.receipt_no ?? ''} onChange={handleEditInputChange} className={editInputClass} />
+                      </td>
+                      <td className="p-1">
+                        <input name="site_name" value={editedData.site_name ?? ''} onChange={handleEditInputChange} className={editInputClass} />
+                      </td>
+                      <td className="p-1">
+                        <input name="representative_name" value={editedData.representative_name ?? ''} onChange={handleEditInputChange} className={editInputClass} />
+                      </td>
+                      <td className="p-1">
+                        <input name="applicant_name" value={editedData.applicant_name ?? ''} onChange={handleEditInputChange} className={editInputClass} />
+                      </td>
+                      <td className="p-1">
+                        <input name="applicant_phone" value={editedData.applicant_phone ?? ''} onChange={handleEditInputChange} className={editInputClass} />
+                      </td>
+                      <td className="p-1">
+                        <input name="applicant_email" value={editedData.applicant_email ?? ''} onChange={handleEditInputChange} className={editInputClass} />
+                      </td>
+                      {CHECK_COLUMNS.map((c) => (
+                        <td key={c.key} className="p-1 text-center">
+                          <input
+                            type="checkbox"
+                            name={c.key}
+                            checked={!!editedData[c.key]}
+                            onChange={(e) => setEditedData((prev) => ({ ...prev, [c.key]: e.target.checked }))}
+                            className="h-4 w-4 rounded"
+                          />
+                        </td>
                       ))}
                       <td className="p-1 whitespace-nowrap text-center">
-                        <button onClick={() => handleSaveEdit(app.id)} className="p-1.5 text-green-400 hover:text-white rounded-full transition-colors hover:bg-green-600" aria-label="저장"><SaveIcon className="w-4 h-4" /></button>
-                        <button onClick={handleCancelEdit} className="p-1.5 text-slate-400 hover:text-white rounded-full transition-colors hover:bg-slate-600" aria-label="취소"><CancelIcon className="w-4 h-4" /></button>
+                        <button
+                          onClick={() => handleSaveEdit(app.id)}
+                          className="p-1.5 text-green-400 hover:text-white rounded-full transition-colors hover:bg-green-600"
+                          aria-label="저장"
+                        >
+                          <SaveIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          className="p-1.5 text-slate-400 hover:text-white rounded-full transition-colors hover:bg-slate-600"
+                          aria-label="취소"
+                        >
+                          <CancelIcon className="w-4 h-4" />
+                        </button>
                       </td>
                     </tr>
                   ) : (
@@ -534,7 +789,10 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                         <div className="flex items-center gap-2">
                           <span>{app.applicant_phone}</span>
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleSendKakao(app); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSendKakao(app);
+                            }}
                             disabled={kakaoSendingId === app.id}
                             className="p-1 text-yellow-400 hover:text-yellow-300 rounded-full transition-colors hover:bg-yellow-600/30 disabled:opacity-50"
                             aria-label={`'${app.applicant_name}'에게 카카오톡 보내기`}
@@ -547,36 +805,63 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                         <div className="flex items-center gap-2">
                           <span className="truncate">{app.applicant_email}</span>
                           <button
-                            onClick={(e) => { e.stopPropagation(); setEmailModalApp(app); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEmailModalApp(app); // ✅ 이메일 모달 열기
+                            }}
                             className="p-1 text-cyan-400 hover:text-cyan-300 rounded-full transition-colors hover:bg-cyan-600/30 disabled:opacity-50 flex-shrink-0"
                             aria-label={`'${app.applicant_name}'에게 이메일 보내기`}
-                          ><EmailIcon className="w-4 h-4" /></button>
+                          >
+                            <EmailIcon className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
-                      {CHECK_COLUMNS.map(c => (
+                      {CHECK_COLUMNS.map((c) => (
                         <td key={c.key} className="px-3 py-2 whitespace-nowrap text-center">
                           <input
                             type="checkbox"
                             checked={!!app[c.key]}
-                            onChange={(e) => { e.stopPropagation(); handleCheckChange(app.id, c.key, e.target.checked); }}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleCheckChange(app.id, c.key, e.target.checked);
+                            }}
                             className="h-4 w-4 rounded border-slate-500 bg-slate-700 text-sky-600 focus:ring-sky-500"
                             onClick={(e) => e.stopPropagation()}
                           />
                         </td>
                       ))}
                       <td className="px-3 py-2 whitespace-nowrap text-center">
-                        <button onClick={(e) => { e.stopPropagation(); handleEdit(app); }} className="p-1.5 text-sky-400 hover:text-white rounded-full transition-colors hover:bg-sky-600" aria-label={`'${app.receipt_no}' 수정`}><EditIcon className="w-4 h-4" /></button>
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteApplication(app.id); }} className="p-1.5 text-slate-400 hover:text-red-400 rounded-full transition-colors hover:bg-slate-700" aria-label={`'${app.receipt_no}' 삭제`}><TrashIcon className="w-4 h-4" /></button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEdit(app);
+                          }}
+                          className="p-1.5 text-sky-400 hover:text-white rounded-full transition-colors hover:bg-sky-600"
+                          aria-label={`'${app.receipt_no}' 수정`}
+                        >
+                          <EditIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteApplication(app.id);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-red-400 rounded-full transition-colors hover:bg-slate-700"
+                          aria-label={`'${app.receipt_no}' 삭제`}
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
                       </td>
                     </tr>
-                  )
-                ))
+                  ),
+                )
               )}
             </tbody>
           </table>
         </div>
       </div>
 
+      {/* ✅ 이메일 모달 (성공 시 P7 체크 true로 업데이트) */}
       {emailModalApp && (
         <EmailModal
           isOpen={!!emailModalApp}
