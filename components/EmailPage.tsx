@@ -18,8 +18,13 @@ interface EmailModalProps {
   onClose: () => void;
   application: ApplicationForEmail;
   userName: string;
-  onSendSuccess: (appId: number) => Promise<void>; // 부모가 P7 체크 업데이트
+  onSendSuccess: (appId: number) => Promise<void>;
 }
+
+const toPureBase64 = (s: string) => {
+  const i = s.indexOf('base64,');
+  return i >= 0 ? s.slice(i + 'base64,'.length) : s.trim();
+};
 
 const EmailModal: React.FC<EmailModalProps> = ({
   isOpen, onClose, application, userName, onSendSuccess
@@ -55,6 +60,13 @@ const EmailModal: React.FC<EmailModalProps> = ({
     }
   }, [isOpen, application, userName]);
 
+  useEffect(() => {
+    // 상태 메시지 자동 제거(메모리 누수 방지)
+    if (!statusMessage) return;
+    const t = setTimeout(() => setStatusMessage(null), 5000);
+    return () => clearTimeout(t);
+  }, [statusMessage]);
+
   if (!isOpen) return null;
 
   const handleSend = async () => {
@@ -66,7 +78,6 @@ const EmailModal: React.FC<EmailModalProps> = ({
     setStatusMessage(null);
 
     try {
-      // Vercel 서버리스 함수 호출 (서버에서 BREVO_* 사용)
       const res = await fetch('/api/send-photos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -76,7 +87,7 @@ const EmailModal: React.FC<EmailModalProps> = ({
           htmlContent, // 서버에서 \n→<br> 변환
           attachments: attachments.map(a => ({
             name: a.file.name,
-            content: a.base64, // 순수 base64 (data: 접두사 없이)
+            content: toPureBase64(a.base64),
           })),
         }),
       });
@@ -86,7 +97,7 @@ const EmailModal: React.FC<EmailModalProps> = ({
         throw new Error(payload.error || `HTTP ${res.status}`);
       }
 
-      await onSendSuccess(application.id); // 부모에서 p7_check = true
+      await onSendSuccess(application.id);
       setStatusMessage({ type: 'success', text: '메일이 성공적으로 전송되었습니다.' });
       setTimeout(onClose, 1200);
     } catch (e: any) {
@@ -104,7 +115,7 @@ const EmailModal: React.FC<EmailModalProps> = ({
   const handleDeleteAttachment = (i: number) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={onClose} role="dialog" aria-modal="true">
+    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={onClose} role="dialog" aria-modal="true" aria-label="이메일 전송 모달">
       <div className="bg-slate-800 p-6 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <h2 className="text-2xl font-bold text-sky-400 mb-4 pb-3 border-b border-slate-700">
           이메일 전송: {application.receipt_no}
