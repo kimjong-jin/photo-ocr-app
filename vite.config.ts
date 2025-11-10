@@ -4,19 +4,24 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import { cwd } from 'node:process';
 
-// ESM에서도 __dirname 사용 가능하게 처리
+// ESM용 __dirname
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
-  // mode에 맞는 환경변수 로드
-  // 세 번째 인자 '' -> VITE_ 접두사 없는 것도 로드하지만,
-  // 실제 클라이언트 노출은 VITE_ 변수만 노출됨
+  // .env.* 로드 (클라이언트 노출은 VITE_ 접두사만)
   const env = loadEnv(mode, cwd(), '');
+
+  // (선택) VITE_ 변수만 define에 주입해 import.meta.env.VITE_XXX가 빌드 타임에 확정되도록
+  const viteEnvDefines = Object.fromEntries(
+    Object.entries(env)
+      .filter(([k]) => k.startsWith('VITE_'))
+      .map(([k, v]) => [`import.meta.env.${k}`, JSON.stringify(v)])
+  );
 
   return {
     define: {
-      // process.env.* 따로 주입할 필요 없음
-      // import.meta.env.VITE_XXX 로 바로 접근
+      ...viteEnvDefines,
+      // process.env.* 주입/폴리필 불필요. (클라 코드에서는 import.meta.env.VITE_XXX 사용)
     },
     resolve: {
       alias: {
@@ -25,11 +30,11 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        // ✅ vLLM CORS 우회용 프록시
+        // ✅ vLLM CORS 우회 프록시 (필요 없으면 삭제)
         '/genai': {
-          target: 'https://mobile.ktl.re.kr', // vLLM 서버 주소
+          target: 'https://mobile.ktl.re.kr',
           changeOrigin: true,
-          secure: true, // 내부망 인증서면 true 유지. (문제 시 false로 테스트)
+          secure: true,               // 내부망 인증서 문제 있으면 임시로 false 테스트
           rewrite: (p) => p.replace(/^\/genai/, '/genai/v1'),
         },
       },
