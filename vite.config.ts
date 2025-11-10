@@ -4,14 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import { cwd } from 'node:process';
 
-// ESM용 __dirname
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
-  // .env.* 로드 (클라이언트 노출은 VITE_ 접두사만)
   const env = loadEnv(mode, cwd(), '');
 
-  // (선택) VITE_ 변수만 define에 주입해 import.meta.env.VITE_XXX가 빌드 타임에 확정되도록
+  // 선택사항: VITE_만 define에 넣어 빌드타임 상수화
   const viteEnvDefines = Object.fromEntries(
     Object.entries(env)
       .filter(([k]) => k.startsWith('VITE_'))
@@ -21,7 +19,6 @@ export default defineConfig(({ mode }) => {
   return {
     define: {
       ...viteEnvDefines,
-      // process.env.* 주입/폴리필 불필요. (클라 코드에서는 import.meta.env.VITE_XXX 사용)
     },
     resolve: {
       alias: {
@@ -30,11 +27,12 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        // ✅ vLLM CORS 우회 프록시 (필요 없으면 삭제)
+        // DEV 전용: /genai → https://mobile.ktl.re.kr/genai/v1
+        // 서비스 코드가 dev 에서는 '/genai/xxx', prod 에서는 환경변수 기반 절대 URL 사용하도록!
         '/genai': {
           target: 'https://mobile.ktl.re.kr',
           changeOrigin: true,
-          secure: true,               // 내부망 인증서 문제 있으면 임시로 false 테스트
+          secure: true,
           rewrite: (p) => p.replace(/^\/genai/, '/genai/v1'),
         },
       },
