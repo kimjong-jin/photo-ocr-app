@@ -27,11 +27,12 @@ import {
   PREFERRED_MEASUREMENT_METHODS
 } from './shared/StructuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
-import { getKakaoAddress } from './services/kakaoService';
+import { getKakaoAddress, searchAddressByKeyword } from './services/kakaoService';
 import ApplicationOcrSection, { type Application } from './components/ApplicationOcrSection';
 import { supabase } from './services/supabaseClient';
 
-type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph' | 'ftp';
+
+type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
 export type ApiMode = 'gemini' | 'vllm';
 
 interface PageContainerProps {
@@ -71,6 +72,25 @@ const ChevronDownIcon: React.FC<{ className?: string }> = ({ className }) => (
     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
   </svg>
 );
+
+const SearchIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+    </svg>
+);
+
+const MapIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.5-12.75l-7.5 3L3 6.75m18 0l-7.5 3L9 6.75m12 0v12.75A2.25 2.25 0 0118.75 21H5.25A2.25 2.25 0 013 18.75V6.75m18 0L12 9.75 3 6.75" />
+    </svg>
+);
+
+const TrashIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
+    </svg>
+);
+
 
 const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userContact, onLogout }) => {
   const [activePage, setActivePage] = useState<Page>('structuralCheck');
@@ -149,6 +169,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   }, [userName]);
 
+  useEffect(() => {
+    loadApplications();
+  }, [loadApplications]);
 
   useEffect(() => {
     const savedMode = localStorage.getItem('apiMode') as ApiMode;
@@ -795,6 +818,44 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     });
   }, []);
 
+  const handleSearchAddress = useCallback(async () => {
+    if (!currentGpsAddress.trim()) {
+        alert("검색할 주소를 'GPS 주소 또는 직접 입력' 필드에 입력해주세요.");
+        return;
+    }
+    setIsFetchingAddress(true);
+    try {
+        const results = await searchAddressByKeyword(currentGpsAddress);
+        if (results && results.length > 0) {
+            const firstResult = results[0];
+            const newLat = parseFloat(firstResult.y);
+            const newLng = parseFloat(firstResult.x);
+            
+            if (!isNaN(newLat) && !isNaN(newLng)) {
+                setCoords({ lat: newLat, lng: newLng });
+                setCurrentGpsAddress(firstResult.road_address_name || firstResult.address_name);
+            } else {
+                throw new Error("검색 결과에서 유효한 좌표를 받지 못했습니다.");
+            }
+        } else {
+            alert("검색 결과가 없습니다. 다른 주소로 시도해주세요.");
+        }
+    } catch (err: any) {
+        console.error("Address search error:", err);
+        setCurrentGpsAddress(`주소 검색 중 오류 발생: ${err.message}`);
+    } finally {
+        setIsFetchingAddress(false);
+    }
+  }, [currentGpsAddress]);
+
+  const handleOpenMap = useCallback(() => {
+    if (!coords) {
+        const defaultCoords = { lat: 37.5665, lng: 126.9780 };
+        setCoords(defaultCoords);
+        setCurrentGpsAddress("서울특별시 중구 세종대로 110 서울시청");
+    }
+  }, [coords]);
+
   const handleResetGps = useCallback(() => {
     setCoords(null);
     setCurrentGpsAddress("");
@@ -830,6 +891,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         return <StructuralCheckPage 
                   userName={userName} 
                   jobs={structuralCheckJobs} 
+                  // FIX: Pass the correct state setter 'setStructuralCheckJobs' for the 'setJobs' prop.
                   setJobs={setStructuralCheckJobs} 
                   activeJobId={activeStructuralCheckJobId} 
                   setActiveJobId={setActiveStructuralCheckJobId} 
@@ -843,8 +905,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         return <KakaoTalkPage userName={userName} userContact={userContact} />;
       case 'csvGraph':
         return <CsvGraphPage userName={userName} jobs={csvGraphJobs} setJobs={setCsvGraphJobs} activeJobId={activeCsvGraphJobId} setActiveJobId={setActiveCsvGraphJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteCsvGraphJob} />;
-      case 'ftp':
-        return <FtpPage userName={userName} />;
       default:
         return null;
     }
@@ -874,7 +934,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       </div>
     </div>
 
-      { !['kakaoTalk', 'ftp'].includes(activePage) && (
+      { !['kakaoTalk'].includes(activePage) && (
         <div className="w-full max-w-3xl mb-6 p-4 bg-slate-800/60 rounded-lg border border-slate-700 shadow-sm space-y-2">
           <div>
             <button
@@ -1091,25 +1151,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       />
                     </div>
                     <div className="sm:col-span-6">
-                      <div className="grid grid-cols-2 gap-2">
-                        <ActionButton
-                          onClick={handleFetchGpsAddress}
-                          disabled={isFetchingAddress}
-                          fullWidth
-                          icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />}
-                          className="!px-2 !py-2.5 !text-xs"
-                        >
-                          GPS로 주소 찾기
-                        </ActionButton>
-                        <ActionButton
-                          onClick={handleResetGps}
-                          disabled={isFetchingAddress}
-                          fullWidth
-                          variant="secondary"
-                          className="!px-2 !py-2.5 !text-xs"
-                        >
-                          지도 닫기
-                        </ActionButton>
+                      <div className="grid grid-cols-4 gap-2">
+                          <ActionButton onClick={handleFetchGpsAddress} disabled={isFetchingAddress} fullWidth icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />} className="!px-2 !py-2.5 !text-xs">GPS</ActionButton>
+                          <ActionButton onClick={handleSearchAddress} disabled={isFetchingAddress} fullWidth icon={<SearchIcon />} className="!px-2 !py-2.5 !text-xs">찾기</ActionButton>
+                          <ActionButton onClick={handleOpenMap} disabled={isFetchingAddress || !!coords} fullWidth icon={<MapIcon />} className="!px-2 !py-2.5 !text-xs">열기</ActionButton>
+                          <ActionButton onClick={handleResetGps} disabled={isFetchingAddress || !coords} fullWidth variant="secondary" icon={<TrashIcon />} className="!px-2 !py-2.5 !text-xs">삭제</ActionButton>
                       </div>
                     </div>
                   </div>
@@ -1234,13 +1280,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           aria-pressed={activePage === 'csvGraph'}
         >
           CSV 그래프 (P6)
-        </button>
-        <button
-          onClick={() => setActivePage('ftp')}
-          className={`${navButtonBaseStyle} ${activePage === 'ftp' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'ftp'}
-        >
-          FTP (P7)
         </button>
       </nav>
 
