@@ -10,14 +10,32 @@ function stripDataPrefix(b64: string) {
   return i >= 0 ? b64.slice(i + 'base64,'.length) : b64.trim();
 }
 
-// JPEG/PNG 시그니처 확인
-function isLikelyImage(buf: Buffer) {
-  if (buf.length < 8) return false;
-  const isJpeg = buf[0] === 0xff && buf[1] === 0xd8;
-  const isPng =
+// JPEG/PNG/PDF 시그니처 확인
+function isLikelyJpeg(buf: Buffer) {
+  return buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xd8;
+}
+function isLikelyPng(buf: Buffer) {
+  return (
+    buf.length >= 8 &&
     buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
-    buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a;
-  return isJpeg || isPng;
+    buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a
+  );
+}
+function isLikelyPdf(buf: Buffer) {
+  // "%PDF-" = 0x25 0x50 0x44 0x46 0x2D
+  return (
+    buf.length >= 5 &&
+    buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d
+  );
+}
+function isAllowedPlainAttachment(buf: Buffer) {
+  return isLikelyJpeg(buf) || isLikelyPng(buf) || isLikelyPdf(buf);
+}
+
+// 안전한 파일명(확장자 유지, 허용 문자 외 치환)
+function sanitizeFilename(name: string, fallback: string) {
+  const safe = (name || fallback).replace(/[^\w.\-ㄱ-ㅎ가-힣 ]/g, '_').slice(0, 100);
+  return safe || fallback;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -33,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const apiKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.SENDER_EMAIL;
-  const senderName = process.env.SENDER_NAME || 'KTL Photos';
+  const senderName = process.env.SENDER_NAME || 'KTL';
 
   if (!apiKey || !senderEmail) {
     return res.status(500).json({ error: 'Server email env is missing: BREVO_API_KEY or SENDER_EMAIL.' });
@@ -43,13 +61,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { to, attachments, meta } = req.body as {
       to: string;
       attachments: { name: string; content: string }[];
-      meta?: { subject?: string; bodyText?: string; receipt_no?: string; site_name?: string };
+      meta?: {
+        subject?: string;
+        bodyText?: string;
+        receipt_no?: string;
+        site_name?: string;
+        encryption_notice?: string;   // 클라가 암호화 안내 넣어주면 본문에 표시
+        kind?: '기록부' | '사진' | string; // 제목/본문 텍스트에 반영
+      };
     };
 
     if (!to || !attachments || !Array.isArray(attachments) || attachments.length === 0) {
       return res.status(400).json({ error: 'to and attachments are required.' });
     }
-
     if (attachments.length > MAX_ATTACHMENTS) {
       return res.status(400).json({ error: `Too many attachments. Max ${MAX_ATTACHMENTS}.` });
     }
@@ -58,49 +82,80 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const safeAttachments: { name: string; content: string }[] = [];
 
     for (const att of attachments) {
-      const b64 = stripDataPrefix(att.content);
-      totalBytes += Math.floor(b64.length * 0.75);
+      const raw = stripDataPrefix(att.content);
+      totalBytes += Math.floor(raw.length * 0.75);
       if (totalBytes > MAX_TOTAL_BYTES) {
         return res.status(413).json({ error: 'Payload too large after attachments.' });
       }
 
       let buf: Buffer;
       try {
-        buf = Buffer.from(b64, 'base64');
+        buf = Buffer.from(raw, 'base64');
       } catch {
         return res.status(400).json({ error: 'Invalid base64 attachment.' });
       }
-      if (!isLikelyImage(buf)) {
-        return res.status(400).json({ error: 'Only image attachments (JPEG/PNG) are allowed.' });
+
+      const isEncrypted = /\.enc$/i.test(att.name); // 암호화 파일은 시그니처 검사 스킵
+
+      if (!isEncrypted) {
+        if (!isAllowedPlainAttachment(buf)) {
+          return res.status(400).json({ error: 'Only JPEG/PNG/PDF or encrypted .enc attachments are allowed.' });
+        }
       }
 
-      const safeName = (att.name || 'photo.jpg').replace(/[^\w.\-ㄱ-ㅎ가-힣 ]/g, '_').slice(0, 100) || 'photo.jpg';
+      const fallback = isEncrypted ? 'file.enc' : 'file';
+      const safeName = sanitizeFilename(att.name, fallback);
+
+      // Brevo: attachment[].content = base64 본문(raw), data: 프리픽스 없이
       safeAttachments.push({
-        name: safeName.match(/\.(jpg|jpeg|png)$/i) ? safeName : safeName + '.jpg',
-        content: b64,
+        name: safeName,
+        content: raw,
       });
     }
 
+    // 텍스트 템플릿(기본: "기록부")
+    const kind = (meta?.kind && String(meta.kind)) || '기록부';
     const site = (meta?.site_name || '').toString().slice(0, 120);
     const receipt = (meta?.receipt_no || '').toString().slice(0, 120);
 
-    const subject = site ? `[KTL] ${site} 사진 전달` : `[KTL] 사진 전달`;
-    const bodyTextLines = [
-      `안녕하십니까, KTL 입니다.`,
-      receipt ? `접수번호: ${receipt}` : ``,
-      site ? `현장: ${site}` : ``,
-      ``,
-      `요청하신 사진을 첨부드립니다.`,
-      ``,
-      `※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.`,
-    ].filter(Boolean);
-    const htmlContent = bodyTextLines.join('<br>');
+    const subject =
+      (meta?.subject && String(meta.subject).slice(0, 200)) ||
+      (site ? `[KTL] ${site} ${kind} 전달` : `[KTL] ${kind} 전달`);
+
+    const lines: string[] = [];
+    if (meta?.bodyText) {
+      // 클라 본문 우선 (간단 방어)
+      lines.push(
+        String(meta.bodyText)
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .slice(0, 4000)
+      );
+    } else {
+      // 기본 본문(기록부/사진에 따라 문구만 다르게)
+      lines.push(
+        '안녕하십니까, KTL 입니다.',
+        receipt ? `접수번호: ${receipt}` : '',
+        site ? `현장: ${site}` : '',
+        '',
+        `요청하신 ${kind}를 첨부드립니다.`,
+        ''
+      );
+    }
+
+    if (meta?.encryption_notice) {
+      lines.push(meta.encryption_notice);
+    }
+    lines.push('※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.');
+
+    const htmlContent = lines.filter(Boolean).join('<br>');
 
     const payload: any = {
       sender: { email: senderEmail, name: senderName },
       to: [{ email: to }],
       subject,
       htmlContent,
+      // Brevo: [{ name: string, content: base64-string }]
       attachment: safeAttachments,
     };
 
