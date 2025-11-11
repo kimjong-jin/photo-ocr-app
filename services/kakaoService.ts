@@ -1,5 +1,5 @@
 // services/kakaoService.ts
-// 드롭인 교체본: 429/새로고침/깜빡임/키 누락 안정화 포함
+// 전체 교체본: 429/깜빡임/새로고침/키 누락 안정화 포함
 
 // ✅ 축약형 → 풀네임 매핑
 const REGION_FULLNAME_MAP: Record<string, string> = {
@@ -25,7 +25,6 @@ const REGION_FULLNAME_MAP: Record<string, string> = {
 // =========================
 // 공통 유틸/전역 상태
 // =========================
-
 const addressCache = new Map<string, { value: string; timestamp: number }>();
 const CACHE_TTL_MS = 1000 * 60 * 5; // 5분
 
@@ -78,7 +77,6 @@ function cleanAddress(address: string, region: string): string {
 // =========================
 // 네트워크 제어 (폭주/429 방지)
 // =========================
-
 // 전역 QPS 제한 (토큰 버킷) — 3 req/s
 let tokens = 3;
 const capacity = 3;
@@ -148,7 +146,6 @@ async function safeFetch(
 // =========================
 // 외부 API 호출
 // =========================
-
 async function searchAddressByQuery(query: string, apiKey: string): Promise<string | null> {
   const cacheKey = `query:${query}`;
   const cached = getFromCache(cacheKey);
@@ -174,7 +171,7 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
 
 export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-  // ❗키 누락 시 앱 크래시 방지: 안전 반환
+  // ❗ 키 누락 시 앱 크래시 방지: 안전 반환
   if (!apiKey) {
     console.error("[Kakao] API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
     return [];
@@ -183,11 +180,7 @@ export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
   const cacheKey = `kw:${keyword}`;
   const cached = getFromCache(cacheKey);
   if (cached) {
-    try {
-      return JSON.parse(cached);
-    } catch {
-      // noop
-    }
+    try { return JSON.parse(cached); } catch { /* noop */ }
   }
 
   const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
@@ -207,7 +200,7 @@ export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
 
 export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-  // ❗키 누락 시 앱 크래시 방지: 안전 반환
+  // ❗ 키 누락 시 앱 크래시 방지: 안전 반환
   if (!apiKey) {
     console.error("[Kakao] API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
     return "주소를 찾을 수 없습니다.";
@@ -267,7 +260,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 }
 
 // =========================
-// 상태 반영 (최근 요청만 수용)
+/** 상태 반영 (최근 요청만 수용) */
 // =========================
 let latestGpsReqId = 0;
 
