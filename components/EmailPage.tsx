@@ -70,7 +70,7 @@ async function shrinkToMaxSize(images: ImageInfo[], maxTotalBytes = 3_500_000) {
   return result;
 }
 
-// Data URL → 순수 base64 (서버는 접두사 제거해도 되지만, 중복 방지용)
+// Data URL → 순수 base64 (서버가 또 제거하긴 하지만 중복 방지)
 function toBareBase64(dataUrlOrBase64: string) {
   const i = dataUrlOrBase64.indexOf('base64,');
   return i >= 0 ? dataUrlOrBase64.slice(i + 'base64,'.length) : dataUrlOrBase64.trim();
@@ -79,23 +79,22 @@ function toBareBase64(dataUrlOrBase64: string) {
 type Props = {
   isOpen: boolean;
   onClose: () => void;
-  application: Application;
+  application: Application; // applicant_phone?: string 있어야 함
   userName: string;
   onSendSuccess: (appId: number) => void | Promise<void>;
 };
 
 type PdfInfo = { file: File; base64: string; mimeType: 'application/pdf'; name: string };
 
-const MAX_IMAGES = 15;
+const MAX_FILES = 15;
 
 const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, onSendSuccess }) => {
   const [toEmail, setToEmail] = useState('');
-  const [attachments, setAttachments] = useState<ImageInfo[]>([]); // 이미지
-  const [pdfs, setPdfs] = useState<PdfInfo[]>([]); // PDF
+  const [images, setImages] = useState<ImageInfo[]>([]);
+  const [pdfs, setPdfs] = useState<PdfInfo[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const subject = useMemo(() => {
@@ -121,7 +120,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   useEffect(() => {
     if (!isOpen) return;
     setToEmail(application?.applicant_email || '');
-    setAttachments([]);
+    setImages([]);
     setPdfs([]);
     setStatus(null);
     setIsCameraOpen(false);
@@ -130,35 +129,37 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   const emailValid = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail.trim()), [toEmail]);
   if (!isOpen) return null;
 
-  // === 이미지 입력(ImageInput 콜백) ===
+  const totalCount = images.length + pdfs.length;
+
+  // ImageInput에서 넘어온 이미지들(접두사 보정)
   const handleImagesSet = (newImages: ImageInfo[]) => {
     const filtered = newImages.filter((i) => i.mimeType.startsWith('image/'));
-    const room = Math.max(0, MAX_IMAGES - (attachments.length + pdfs.length));
+    const room = Math.max(0, MAX_FILES - totalCount);
     const incoming = filtered.slice(0, room).map(i => ({
       ...i,
       base64: ensureDataUrl(i.mimeType, i.base64),
     }));
     const dropped = filtered.length - incoming.length;
-    setAttachments((prev) => [...prev, ...incoming]);
-    if (dropped > 0) setStatus({ type: 'info', text: `첨부는 최대 ${MAX_IMAGES}개까지입니다. 초과 ${dropped}개는 제외되었습니다.` });
+    setImages((prev) => [...prev, ...incoming]);
+    if (dropped > 0) setStatus({ type: 'info', text: `첨부는 최대 ${MAX_FILES}개까지입니다. 초과 ${dropped}개는 제외되었습니다.` });
   };
 
-  // === 카메라 캡처 ===
+  // 카메라 캡처(접두사 보정)
   const handleCameraCapture = (file: File, base64: string, mimeType: string) => {
     if (!mimeType.startsWith('image/')) return;
-    if ((attachments.length + pdfs.length) >= MAX_IMAGES) {
-      setStatus({ type: 'info', text: `첨부는 최대 ${MAX_IMAGES}개까지입니다.` });
+    if (totalCount >= MAX_FILES) {
+      setStatus({ type: 'info', text: `첨부는 최대 ${MAX_FILES}개까지입니다.` });
       return;
     }
-    setAttachments((prev) => [...prev, { file, base64: ensureDataUrl(mimeType, base64), mimeType }]);
+    setImages((prev) => [...prev, { file, base64: ensureDataUrl(mimeType, base64), mimeType }]);
     setIsCameraOpen(false);
   };
 
-  // === PDF 선택 ===
+  // PDF 선택
   const handlePdfPick = async (files: FileList | null) => {
     if (!files) return;
     const list = Array.from(files).filter(f => f.type === 'application/pdf');
-    const room = Math.max(0, MAX_IMAGES - (attachments.length + pdfs.length));
+    const room = Math.max(0, MAX_FILES - (images.length + pdfs.length));
     const picked = list.slice(0, room);
     const dropped = list.length - picked.length;
 
@@ -172,28 +173,25 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     }));
 
     setPdfs((prev) => [...prev, ...encoded]);
-    if (dropped > 0) setStatus({ type: 'info', text: `첨부는 최대 ${MAX_IMAGES}개까지입니다. 초과 ${dropped}개는 제외되었습니다.` });
+    if (dropped > 0) setStatus({ type: 'info', text: `첨부는 최대 ${MAX_FILES}개까지입니다. 초과 ${dropped}개는 제외되었습니다.` });
 
-    // 파일 입력 값 리셋(같은 파일 재선택 가능)
     if (pdfInputRef.current) pdfInputRef.current.value = '';
   };
 
-  const handleDeleteAttachment = (idx: number) => setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  const handleDeleteImage = (idx: number) => setImages((prev) => prev.filter((_, i) => i !== idx));
   const handleDeletePdf = (idx: number) => setPdfs((prev) => prev.filter((_, i) => i !== idx));
 
   const handleSend = async () => {
     if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
-    if ((attachments.length + pdfs.length) === 0) return setStatus({ type: 'error', text: '파일을 최소 1개 첨부하세요.' });
+    if (totalCount === 0) return setStatus({ type: 'error', text: '파일을 최소 1개 첨부하세요.' });
 
     setIsSending(true);
     setStatus(null);
 
     try {
-      const imageOnly: ImageInfo[] = attachments;
-      const processed = await shrinkToMaxSize(imageOnly, 3_500_000);
-
-      if (processed.length < imageOnly.length) {
-        setStatus({ type: 'info', text: `용량 제한으로 이미지 ${imageOnly.length - processed.length}개가 제외되었습니다.` });
+      const processedImages = await shrinkToMaxSize(images, 3_500_000);
+      if (processedImages.length < images.length) {
+        setStatus({ type: 'info', text: `용량 제한으로 이미지 ${images.length - processedImages.length}개가 제외되었습니다.` });
       }
 
       const payload = {
@@ -206,7 +204,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
           applicant_phone: (application as any)?.applicant_phone ?? '',
         },
         attachments: [
-          ...processed.map((p) => ({ name: p.name || 'photo.jpg', content: toBareBase64(p.base64) })),
+          ...processedImages.map((p) => ({ name: p.name || 'photo.jpg', content: toBareBase64(p.base64) })),
           ...pdfs.map((d) => ({ name: d.name || 'document.pdf', content: toBareBase64(d.base64) })),
         ],
       };
@@ -241,7 +239,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         </h2>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto pr-1">
-          {/* 좌측 정보 */}
+          {/* 좌측 */}
           <div className="space-y-4">
             <div className="text-sm text-slate-300 bg-slate-700/40 rounded-lg p-3">
               <div className="truncate"><span className="font-semibold">수신(이름)</span>: {application.applicant_name}</div>
@@ -272,10 +270,10 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
             </div>
           </div>
 
-          {/* 우측 첨부 */}
+          {/* 우측 */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-100">첨부(이미지/PDF, 최대 {MAX_IMAGES}개)</h3>
+              <h3 className="text-lg font-semibold text-slate-100">첨부(이미지/PDF, 최대 {MAX_FILES}개)</h3>
               <ActionButton variant="secondary" onClick={() => setIsCameraOpen((v) => !v)} disabled={isSending}>
                 {isCameraOpen ? '카메라 닫기' : '카메라 열기'}
               </ActionButton>
@@ -285,16 +283,13 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
               <CameraView onCapture={handleCameraCapture} onClose={() => setIsCameraOpen(false)} />
             ) : (
               <>
-                {/* 이미지 입력(기존 컴포넌트 유지) */}
                 <ImageInput
-                  ref={fileInputRef}
                   onImagesSet={handleImagesSet}
                   onOpenCamera={() => setIsCameraOpen(true)}
                   isLoading={isSending}
-                  selectedImageCount={attachments.length + pdfs.length}
+                  selectedImageCount={images.length + pdfs.length}
                 />
 
-                {/* PDF 입력 추가 */}
                 <div className="mt-3">
                   <label className="block text-sm mb-1 text-slate-300">PDF 첨부</label>
                   <input
@@ -306,17 +301,17 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
                     className="block w-full text-sm text-slate-200 file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-slate-600 file:text-white hover:file:bg-slate-500"
                     onChange={(e) => handlePdfPick(e.target.files)}
                   />
-                  <p className="mt-2 text-xs text-slate-400">이미지는 자동으로 용량 최적화, PDF는 원본 그대로 전송됩니다.</p>
+                  <p className="mt-2 text-xs text-slate-400">이미지는 자동 최적화, PDF는 원본 그대로 전송됩니다.</p>
                 </div>
               </>
             )}
 
             {/* 이미지 썸네일 */}
             <ThumbnailGallery
-              images={attachments.map(a => ({ ...a, base64: ensureDataUrl(a.mimeType, a.base64) }))}
+              images={images.map(a => ({ ...a, base64: ensureDataUrl(a.mimeType, a.base64) }))}
               currentIndex={-1}
               onSelectImage={() => {}}
-              onDeleteImage={handleDeleteAttachment}
+              onDeleteImage={(idx) => handleDeleteImage(idx)}
               disabled={isSending}
             />
 
@@ -358,7 +353,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
             <ActionButton onClick={onClose} variant="secondary" disabled={isSending} fullWidth>취소</ActionButton>
             <ActionButton
               onClick={handleSend}
-              disabled={isSending || !emailValid || (attachments.length + pdfs.length) === 0}
+              disabled={isSending || !emailValid || totalCount === 0}
               fullWidth
               icon={isSending ? <Spinner size="sm" /> : undefined}
             >
