@@ -7,7 +7,7 @@ import { PassThrough } from 'stream';
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const MAX_ATTACHMENTS = 15;
-// 최종 ZIP 크기 상한 (Base64 아님, 실제 바이트)
+// 최종 ZIP 실바이트 상한(약 3.8MB)
 const MAX_TOTAL_BYTES = 3_800_000;
 
 // ===== 유틸 =====
@@ -95,7 +95,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         bodyText?: string;
         receipt_no?: string;
         site_name?: string;
-        applicant_phone?: string; // 전화번호 원문
+        applicant_phone?: string; // 전화번호 원문(숫자/하이픈 등)
       };
     };
 
@@ -106,7 +106,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: `Too many attachments. Max ${MAX_ATTACHMENTS}.` });
     }
 
-    // 1) 첨부 검증/정리
+    // 1) 첨부 정리/검증
     const filesForZip: { name: string; b64: string }[] = [];
     let roughBytes = 0;
 
@@ -191,8 +191,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const code = brevoRes.status === 413 ? 413 : brevoRes.status;
       return res.status(code).json({ error: msg || `Brevo error ${brevoRes.status}` });
     }
-
-    // zipPassword는 메일 본문/응답에 절대 포함하지 마세요. (별도 채널 통지)
 
     return res.status(200).json({ ok: true });
   } catch (e: any) {
