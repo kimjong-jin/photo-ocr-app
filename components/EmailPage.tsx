@@ -209,7 +209,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         ],
       };
 
-      const res = await fetch('/api/send-photos', {
+        const BASE = 'https://<project-ref>.functions.supabase.co';
+        const res = await fetch(`${BASE}/send-photos`, {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify(payload),
