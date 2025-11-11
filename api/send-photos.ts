@@ -1,3 +1,4 @@
+// api/send-photos.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
@@ -11,7 +12,7 @@ function stripDataPrefix(b64: string) {
   return i >= 0 ? b64.slice(i + 'base64,'.length) : b64.trim().replace(/^base64,?/, '');
 }
 
-// JPEG/PNG/PDF 시그니처 확인
+// MIME 시그니처
 function isJpeg(buf: Buffer) {
   return buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xd8;
 }
@@ -23,8 +24,10 @@ function isPng(buf: Buffer) {
   );
 }
 function isPdf(buf: Buffer) {
-  return buf.length >= 5 &&
-    buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d; // %PDF-
+  return (
+    buf.length >= 5 &&
+    buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d // %PDF-
+  );
 }
 function isZip(buf: Buffer) {
   // PK\x03\x04 (일반), PK\x05\x06 (EOCD), PK\x07\x08 (스플릿)
@@ -36,7 +39,6 @@ function isZip(buf: Buffer) {
      (buf[2] === 0x07 && buf[3] === 0x08))
   );
 }
-
 function isAllowedAttachment(buf: Buffer) {
   if (isJpeg(buf) || isPng(buf) || isPdf(buf)) return true;
   if (ALLOW_ZIP && isZip(buf)) return true; // 토글로 ZIP 허용
@@ -90,7 +92,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'Invalid base64 attachment.' });
       }
 
-      // 정확한 총 용량 체크는 디코딩된 바이트 기준
+      // 정확한 총 용량 체크(디코딩된 바이트 기준)
       totalBytes += buf.length;
       if (totalBytes > MAX_TOTAL_BYTES) {
         return res.status(413).json({ error: 'Payload too large after attachments.' });
