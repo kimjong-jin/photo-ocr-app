@@ -25,7 +25,6 @@ const REGION_FULLNAME_MAP: Record<string, string> = {
 // 공통 유틸/전역 상태
 // =========================
 
-// ✅ 요청 캐시 (TTL)
 const addressCache = new Map<string, { value: string; timestamp: number }>();
 const CACHE_TTL_MS = 1000 * 60 * 5; // 5분
 
@@ -47,8 +46,8 @@ function setToCache(key: string, value: string) {
   addressCache.set(key, { value, timestamp: Date.now() });
 }
 
-// ✅ 디바운스
-function debounce<T extends (...args: any[]) => any>(fn: T, wait = 250) {
+// 디바운스
+export function debounce<T extends (...args: any[]) => any>(fn: T, wait = 250) {
   let t: any;
   return (...args: Parameters<T>) => {
     clearTimeout(t);
@@ -56,13 +55,11 @@ function debounce<T extends (...args: any[]) => any>(fn: T, wait = 250) {
   };
 }
 
-// ✅ 좌표 스냅 (노이즈 억제, 캐시 히트↑)
-// 1e-4 deg ≈ 10~15m
+// 좌표 스냅 (노이즈 억제, 캐시 히트↑) — 1e-4 deg ≈ 10~15m
 function snapCoord(v: number, step = 1e-4) {
   return Math.round(v / step) * step;
 }
 
-// ✅ 지역명 정규화/클린업
 function normalizeRegion(name: string): string {
   const base = name.replace(/시$/, "");
   return REGION_FULLNAME_MAP[base] || name;
@@ -78,10 +75,10 @@ function cleanAddress(address: string, region: string): string {
 }
 
 // =========================
-// 네트워크 제어 (폭주 방지)
+// 네트워크 제어 (폭주/429 방지)
 // =========================
 
-// ✅ 전역 QPS 제한 (토큰 버킷) — 기본 3 req/s
+// 전역 QPS 제한 (토큰 버킷) — 3 req/s
 let tokens = 3;
 const capacity = 3;
 setInterval(() => {
@@ -89,25 +86,19 @@ setInterval(() => {
 }, 333);
 
 async function rateLimit() {
-  while (tokens <= 0) {
-    await sleep(50);
-  }
+  while (tokens <= 0) await sleep(50);
   tokens--;
 }
 
-// ✅ 429 쿨다운 (짧은 시간 일시 정지)
+// 429 쿨다운
 let coolUntil = 0;
 async function maybeCooldown(status: number) {
   const now = Date.now();
-  if (status === 429) {
-    coolUntil = now + 3000; // 3초
-  }
-  if (now < coolUntil) {
-    throw Object.assign(new Error("쿼터 과부하(쿨다운 중)"), { code: 429 });
-  }
+  if (status === 429) coolUntil = now + 3000; // 3초
+  if (now < coolUntil) throw Object.assign(new Error("쿼터 과부하(쿨다운 중)"), { code: 429 });
 }
 
-// ✅ 엔드포인트 단위 중복 요청 제어 + 재시도 (지터 포함)
+// 엔드포인트 단위 중복 요청 제어 + 재시도
 const inflightControllers = new Map<string, AbortController>();
 function getAbortKey(url: string, logicalKey?: string) {
   return logicalKey ?? url;
@@ -122,9 +113,7 @@ async function safeFetch(
   const canAbort = typeof AbortController !== "undefined";
   const abortKey = getAbortKey(url, logicalKey);
 
-  if (canAbort) {
-    inflightControllers.get(abortKey)?.abort();
-  }
+  if (canAbort) inflightControllers.get(abortKey)?.abort();
   const controller = canAbort ? new AbortController() : undefined;
   if (canAbort) inflightControllers.set(abortKey, controller!);
 
@@ -136,7 +125,6 @@ async function safeFetch(
       signal: controller?.signal,
     });
 
-    // 상태 기반 재시도
     if ((res.status === 429 || res.status >= 500) && attempt < 4) {
       const base = 400 * attempt;
       const jitter = Math.random() * 250;
@@ -145,10 +133,7 @@ async function safeFetch(
     }
     return res;
   } catch (err: any) {
-    // 사용자가 직전 요청을 취소한 경우는 상위에서 조용히 무시하도록 전달
-    if (canAbort && (err?.name === "AbortError" || err?.message?.includes("aborted"))) {
-      throw err;
-    }
+    if (canAbort && (err?.name === "AbortError" || err?.message?.includes("aborted"))) throw err;
     if (attempt < 3) {
       await sleep(300 * attempt);
       return safeFetch(url, apiKey, attempt + 1, logicalKey);
@@ -193,11 +178,7 @@ export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
   const cacheKey = `kw:${keyword}`;
   const cached = getFromCache(cacheKey);
   if (cached) {
-    try {
-      return JSON.parse(cached);
-    } catch {
-      // noop
-    }
+    try { return JSON.parse(cached); } catch { /* noop */ }
   }
 
   const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
@@ -219,7 +200,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
   if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
 
-  // ✅ 좌표 스냅 적용 (노이즈 억제)
+  // 좌표 스냅
   const lat = snapCoord(latitude);
   const lng = snapCoord(longitude);
 
@@ -233,9 +214,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 
   const res = await safeFetch(url.toString(), apiKey, 1, "coord2address");
   await maybeCooldown(res.status);
-  if (!res.ok) {
-    return "주소를 찾을 수 없습니다."; // 실패는 캐시하지 않음
-  }
+  if (!res.ok) return "주소를 찾을 수 없습니다.";
 
   const data = await res.json();
   const doc = data?.documents?.[0];
@@ -270,9 +249,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
     }
   }
 
-  if (finalAddr && finalAddr !== "주소를 찾을 수 없습니다.") {
-    setToCache(key, finalAddr);
-  }
+  if (finalAddr && finalAddr !== "주소를 찾을 수 없습니다.") setToCache(key, finalAddr);
   return finalAddr;
 }
 
@@ -292,8 +269,7 @@ export async function fetchAddressFromCoords(
     if (myReqId !== latestGpsReqId) return; // stale 응답 무시
     setCurrentGpsAddress(((prev: string) => (prev === addr ? prev : addr)) as any);
   } catch (err: any) {
-    // 사용자가 이전 요청을 취소한 경우는 조용히 무시
-    if (err?.name === "AbortError" || err?.message?.includes("aborted")) return;
+    if (err?.name === "AbortError" || err?.message?.includes("aborted")) return; // 조용히 무시
     if (myReqId !== latestGpsReqId) return;
     console.warn("[fetchAddressFromCoords] 주소 변환 실패:", err);
     setCurrentGpsAddress("주소 변환 실패");
