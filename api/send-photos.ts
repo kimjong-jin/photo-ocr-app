@@ -104,13 +104,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'Invalid base64 attachment.' });
       }
 
-      const isEncrypted = /\.enc$/i.test(att.name); // 암호화 파일은 시그니처 검사 스킵
+      // 암호화 파일은 시그니처 검사 스킵 (bin/enc/dat 허용)
+      const isEncrypted = /\.(bin|enc|dat)$/i.test(att.name);
       if (!isEncrypted && !isAllowedPlainAttachment(buf)) {
         console.error('Signature check failed for:', att.name);
-        return res.status(400).json({ error: 'Only JPEG/PNG/PDF or encrypted .enc attachments are allowed.' });
+        return res.status(400).json({ error: 'Only JPEG/PNG/PDF or encrypted .bin/.enc/.dat attachments are allowed.' });
       }
 
-      const safeName = sanitizeFilename(att.name, isEncrypted ? 'file.enc' : 'file');
+      const safeName = sanitizeFilename(att.name, isEncrypted ? 'file.bin' : 'file');
       safeAttachments.push({ name: safeName, content: raw }); // Brevo는 base64 본문만 요구
     }
 
