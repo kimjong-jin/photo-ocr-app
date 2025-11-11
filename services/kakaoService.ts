@@ -21,10 +21,13 @@ const REGION_FULLNAME_MAP: Record<string, string> = {
   "제주": "제주특별자치도",
 };
 
-// ✅ 요청 캐시 & 중복 요청 제어
+// =========================
+// 공통 유틸/전역 상태
+// =========================
+
+// ✅ 요청 캐시 (TTL)
 const addressCache = new Map<string, { value: string; timestamp: number }>();
-const inflightControllers = new Map<string, AbortController>(); // URL별 컨트롤러
-const CACHE_TTL_MS = 1000 * 60 * 5; // 5분 TTL
+const CACHE_TTL_MS = 1000 * 60 * 5; // 5분
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -44,37 +47,22 @@ function setToCache(key: string, value: string) {
   addressCache.set(key, { value, timestamp: Date.now() });
 }
 
-async function safeFetch(url: string, apiKey: string, attempt = 1): Promise<Response> {
-  // 동일 URL만 중복 제어 (다른 URL 요청은 건드리지 않음 → 깜빡임 원인 차단)
-  const prev = inflightControllers.get(url);
-  if (prev) prev.abort();
-  const controller = new AbortController();
-  inflightControllers.set(url, controller);
-
-  try {
-    const res = await fetch(url, {
-      headers: { Authorization: `KakaoAK ${apiKey}` },
-      signal: controller.signal,
-    });
-
-    if ((res.status === 429 || res.status >= 500) && attempt < 3) {
-      console.warn(`[kakaoService] Retry due to status ${res.status} (attempt ${attempt})`);
-      await sleep(500 * attempt);
-      return safeFetch(url, apiKey, attempt + 1);
-    }
-    return res;
-  } catch (error) {
-    if (attempt < 3) {
-      console.warn(`[kakaoService] Fetch error, retrying... (attempt ${attempt})`);
-      await sleep(500 * attempt);
-      return safeFetch(url, apiKey, attempt + 1);
-    }
-    throw error;
-  } finally {
-    inflightControllers.delete(url);
-  }
+// ✅ 디바운스
+function debounce<T extends (...args: any[]) => any>(fn: T, wait = 250) {
+  let t: any;
+  return (...args: Parameters<T>) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
 }
 
+// ✅ 좌표 스냅 (노이즈 억제, 캐시 히트↑)
+// 1e-4 deg ≈ 10~15m
+function snapCoord(v: number, step = 1e-4) {
+  return Math.round(v / step) * step;
+}
+
+// ✅ 지역명 정규화/클린업
 function normalizeRegion(name: string): string {
   const base = name.replace(/시$/, "");
   return REGION_FULLNAME_MAP[base] || name;
@@ -89,6 +77,92 @@ function cleanAddress(address: string, region: string): string {
   return address;
 }
 
+// =========================
+// 네트워크 제어 (폭주 방지)
+// =========================
+
+// ✅ 전역 QPS 제한 (토큰 버킷) — 기본 3 req/s
+let tokens = 3;
+const capacity = 3;
+setInterval(() => {
+  tokens = Math.min(capacity, tokens + 1);
+}, 333);
+
+async function rateLimit() {
+  while (tokens <= 0) {
+    await sleep(50);
+  }
+  tokens--;
+}
+
+// ✅ 429 쿨다운 (짧은 시간 일시 정지)
+let coolUntil = 0;
+async function maybeCooldown(status: number) {
+  const now = Date.now();
+  if (status === 429) {
+    coolUntil = now + 3000; // 3초
+  }
+  if (now < coolUntil) {
+    throw Object.assign(new Error("쿼터 과부하(쿨다운 중)"), { code: 429 });
+  }
+}
+
+// ✅ 엔드포인트 단위 중복 요청 제어 + 재시도 (지터 포함)
+const inflightControllers = new Map<string, AbortController>();
+function getAbortKey(url: string, logicalKey?: string) {
+  return logicalKey ?? url;
+}
+
+async function safeFetch(
+  url: string,
+  apiKey: string,
+  attempt = 1,
+  logicalKey?: string
+): Promise<Response> {
+  const canAbort = typeof AbortController !== "undefined";
+  const abortKey = getAbortKey(url, logicalKey);
+
+  if (canAbort) {
+    inflightControllers.get(abortKey)?.abort();
+  }
+  const controller = canAbort ? new AbortController() : undefined;
+  if (canAbort) inflightControllers.set(abortKey, controller!);
+
+  try {
+    await rateLimit();
+
+    const res = await fetch(url, {
+      headers: { Authorization: `KakaoAK ${apiKey}` },
+      signal: controller?.signal,
+    });
+
+    // 상태 기반 재시도
+    if ((res.status === 429 || res.status >= 500) && attempt < 4) {
+      const base = 400 * attempt;
+      const jitter = Math.random() * 250;
+      await sleep(base + jitter);
+      return safeFetch(url, apiKey, attempt + 1, logicalKey);
+    }
+    return res;
+  } catch (err: any) {
+    // 사용자가 직전 요청을 취소한 경우는 상위에서 조용히 무시하도록 전달
+    if (canAbort && (err?.name === "AbortError" || err?.message?.includes("aborted"))) {
+      throw err;
+    }
+    if (attempt < 3) {
+      await sleep(300 * attempt);
+      return safeFetch(url, apiKey, attempt + 1, logicalKey);
+    }
+    throw err;
+  } finally {
+    if (canAbort) inflightControllers.delete(abortKey);
+  }
+}
+
+// =========================
+// 외부 API 호출
+// =========================
+
 async function searchAddressByQuery(query: string, apiKey: string): Promise<string | null> {
   const cacheKey = `query:${query}`;
   const cached = getFromCache(cacheKey);
@@ -98,7 +172,7 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
   url.searchParams.set("query", query);
 
   try {
-    const res = await safeFetch(url.toString(), apiKey);
+    const res = await safeFetch(url.toString(), apiKey, 1, "search:address");
     if (!res.ok) return null;
     const data = await res.json();
     const result =
@@ -116,18 +190,21 @@ export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
   if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
 
-  // 🔒 키워드도 캐시 (입력 중 중복 호출 완화)
   const cacheKey = `kw:${keyword}`;
   const cached = getFromCache(cacheKey);
   if (cached) {
-    try { return JSON.parse(cached); } catch { /* noop */ }
+    try {
+      return JSON.parse(cached);
+    } catch {
+      // noop
+    }
   }
 
   const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
   url.searchParams.set("query", keyword);
 
   try {
-    const res = await safeFetch(url.toString(), apiKey);
+    const res = await safeFetch(url.toString(), apiKey, 1, "search:keyword");
     if (!res.ok) return [];
     const data = await res.json();
     const docs = data?.documents || [];
@@ -142,18 +219,22 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
   if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
 
-  const key = `${latitude},${longitude}`;
+  // ✅ 좌표 스냅 적용 (노이즈 억제)
+  const lat = snapCoord(latitude);
+  const lng = snapCoord(longitude);
+
+  const key = `${lat},${lng}`;
   const cached = getFromCache(key);
   if (cached) return cached;
 
   const url = new URL("https://dapi.kakao.com/v2/local/geo/coord2address.json");
-  url.searchParams.set("x", String(longitude));
-  url.searchParams.set("y", String(latitude));
+  url.searchParams.set("x", String(lng));
+  url.searchParams.set("y", String(lat));
 
-  const res = await safeFetch(url.toString(), apiKey);
+  const res = await safeFetch(url.toString(), apiKey, 1, "coord2address");
+  await maybeCooldown(res.status);
   if (!res.ok) {
-    // ❗ 실패값은 캐시하지 않음 (가짜 정상값으로 깜빡임 방지)
-    return "주소를 찾을 수 없습니다.";
+    return "주소를 찾을 수 없습니다."; // 실패는 캐시하지 않음
   }
 
   const data = await res.json();
@@ -163,6 +244,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   const roadAddr = doc.road_address?.address_name ?? "";
   const lotAddr = doc.address?.address_name ?? "";
   const addr = doc.address;
+
   const region1 = normalizeRegion(addr?.region_1depth_name ?? "");
   const region2 = addr?.region_2depth_name ?? "";
   const region3 = addr?.region_3depth_name ?? "";
@@ -188,14 +270,15 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
     }
   }
 
-  // ✅ 정상 주소만 캐시 (실패 문자열은 캐시하지 않음)
   if (finalAddr && finalAddr !== "주소를 찾을 수 없습니다.") {
     setToCache(key, finalAddr);
   }
   return finalAddr;
 }
 
-// 🔐 최근 요청만 상태 반영: 느린 이전 응답이 뒤늦게 도착해도 무시
+// =========================
+// 상태 반영 (최근 요청만 수용)
+// =========================
 let latestGpsReqId = 0;
 
 export async function fetchAddressFromCoords(
@@ -207,11 +290,15 @@ export async function fetchAddressFromCoords(
   try {
     const addr = await getKakaoAddress(lat, lng);
     if (myReqId !== latestGpsReqId) return; // stale 응답 무시
-    // 동일 문자열로 불필요한 리렌더 방지 (깜빡임 완화)
-    setCurrentGpsAddress((prev => (prev === addr ? prev : addr)) as any);
-  } catch (err) {
-    console.error("[fetchAddressFromCoords] 변환 실패:", err);
+    setCurrentGpsAddress(((prev: string) => (prev === addr ? prev : addr)) as any);
+  } catch (err: any) {
+    // 사용자가 이전 요청을 취소한 경우는 조용히 무시
+    if (err?.name === "AbortError" || err?.message?.includes("aborted")) return;
     if (myReqId !== latestGpsReqId) return;
+    console.warn("[fetchAddressFromCoords] 주소 변환 실패:", err);
     setCurrentGpsAddress("주소 변환 실패");
   }
 }
+
+// 드래그/이동 이벤트용 디바운스 버전
+export const fetchAddressFromCoordsDebounced = debounce(fetchAddressFromCoords, 250);
