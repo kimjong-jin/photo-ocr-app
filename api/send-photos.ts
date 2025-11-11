@@ -1,14 +1,19 @@
 // api/send-photos.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import archiver from 'archiver';
-import 'archiver-zip-encrypted';
+// 플러그인 등록 필수
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const zipEncrypted = require('archiver-zip-encrypted');
+archiver.registerFormat('zip-encrypted', zipEncrypted);
+
 import { randomBytes } from 'crypto';
 import { PassThrough } from 'stream';
 
+export const config = { runtime: 'nodejs' as const };
+
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const MAX_ATTACHMENTS = 15;
-// 최종 ZIP 실바이트 상한(약 3.8MB)
-const MAX_TOTAL_BYTES = 3_800_000;
+const MAX_TOTAL_BYTES = 3_800_000; // 최종 ZIP 바이트 상한
 
 // ===== 유틸 =====
 function stripDataPrefix(b64: string) {
@@ -45,7 +50,7 @@ async function zipWithPassword(
   files: { name: string; b64: string }[],
   password: string
 ): Promise<Buffer> {
-  const archive = archiver.create('zip-encrypted', {
+  const archive = archiver('zip-encrypted' as any, {
     zlib: { level: 9 },
     encryptionMethod: 'aes256',
     password,
@@ -53,18 +58,26 @@ async function zipWithPassword(
 
   const out = new PassThrough();
   const chunks: Buffer[] = [];
-  const done = new Promise<Buffer>((resolve, reject) => {
+
+  return await new Promise<Buffer>((resolve, reject) => {
     out.on('data', (d) => chunks.push(Buffer.isBuffer(d) ? d : Buffer.from(d)));
     out.on('error', reject);
     out.on('end', () => resolve(Buffer.concat(chunks)));
-  });
 
-  archive.pipe(out);
-  for (const f of files) {
-    archive.append(Buffer.from(f.b64, 'base64'), { name: f.name });
-  }
-  await archive.finalize();
-  return done;
+    archive.on('warning', reject);
+    archive.on('error', reject);
+
+    archive.pipe(out);
+
+    try {
+      for (const f of files) {
+        archive.append(Buffer.from(f.b64, 'base64'), { name: f.name });
+      }
+      archive.finalize();
+    } catch (e) {
+      reject(e);
+    }
+  });
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -95,7 +108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         bodyText?: string;
         receipt_no?: string;
         site_name?: string;
-        applicant_phone?: string; // 전화번호 원문(숫자/하이픈 등)
+        applicant_phone?: string; // 전화번호 원문
       };
     };
 
