@@ -1,3 +1,4 @@
+// EmailModal.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Application } from './ApplicationOcrSection';
 import { ActionButton } from './ActionButton';
@@ -5,11 +6,10 @@ import { CameraView } from './CameraView';
 import { ThumbnailGallery } from './ThumbnailGallery';
 import { Spinner } from './Spinner';
 
-declare global {
-  interface Window { zip: any }
-}
+declare global { interface Window { zip: any } }
 
 const getZip = () => (window as any).zip;
+const SEND_API = process.env.NEXT_PUBLIC_SEND_PHOTOS_URL || '/api/send-photos';
 
 export type ImageInfo = { file: File; base64: string; mimeType: string; name?: string };
 type PdfInfo = { file: File; base64: string; mimeType: 'application/pdf'; name: string };
@@ -31,32 +31,25 @@ function sanitizeFilename(name: string) {
   return base.replace(/[^\w.\-ㄱ-힣\s]/g, '_');
 }
 
-// ⬇️ 여기 전역에 둬야 함
+function base64ToBlob(base64WithPrefix: string): Blob {
+  // data URL이든 순수 base64든 처리
+  const commaIdx = base64WithPrefix.indexOf(',');
+  const hasPrefix = base64WithPrefix.startsWith('data:') && commaIdx !== -1;
+  const meta = hasPrefix ? base64WithPrefix.slice(0, commaIdx) : '';
+  const b64 = hasPrefix ? base64WithPrefix.slice(commaIdx + 1) : base64WithPrefix;
+  const mimeMatch = meta.match(/^data:(.*?);base64$/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+// 전역에서 사용
 function estimateBase64Bytes(b64: string) {
   const i = b64.indexOf('base64,');
   const pure = i >= 0 ? b64.slice(i + 7) : b64;
   return Math.floor(pure.length * 0.75);
-}
-
-function base64ToBlob(base64WithPrefix: string): Blob {
-  // data URL 형식("data:...;base64,XXXX")이든, 순수 base64 문자열이든 둘 다 처리
-  const commaIdx = base64WithPrefix.indexOf(',');
-  const hasPrefix = base64WithPrefix.startsWith('data:') && commaIdx !== -1;
-
-  const meta = hasPrefix ? base64WithPrefix.slice(0, commaIdx) : '';
-  const b64 = hasPrefix ? base64WithPrefix.slice(commaIdx + 1) : base64WithPrefix;
-
-  // MIME 추출 (없으면 기본값)
-  const mimeMatch = meta.match(/^data:(.*?);base64$/);
-  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
-
-  // base64 → 바이너리
-  const binary = atob(b64);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-
-  return new Blob([bytes], { type: mime });
 }
 
 async function resizeImageToJpeg(
@@ -128,7 +121,6 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // 미리보기(라이트박스) 상태
@@ -142,7 +134,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   const [subject, setSubject] = useState(initialSubject);
   useEffect(() => setSubject(initialSubject), [initialSubject, isOpen]);
 
-  // 본문 편집 가능하도록 state 분리
+  // 본문 편집 가능
   const initialBody = useMemo(() => {
     const lines = [
       `안녕하십니까, KTL ${userName}입니다.`,
@@ -175,7 +167,6 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   if (!isOpen) return null;
 
   const totalCount = images.length + pdfs.length;
-
   const keyOf = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
 
   const handleFilePick = async (files: FileList | null) => {
@@ -223,12 +214,10 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     const imgs = picked.filter((x): x is ImageInfo => (x as any).mimeType?.startsWith('image/'));
     const docs = picked.filter((x): x is PdfInfo => (x as any).mimeType === 'application/pdf');
 
-    // 추가된 첫 이미지에 대해 업로드 즉시 미리보기 띄우기
+    // 업로드 즉시 첫 이미지 미리보기
     setImages((prev) => {
       const next = [...prev, ...imgs];
-      if (imgs.length > 0) {
-        setPreviewIndex(prev.length); // 새로 추가된 첫 이미지 index
-      }
+      if (imgs.length > 0) setPreviewIndex(prev.length);
       return next;
     });
     setPdfs((prev) => [...prev, ...docs]);
@@ -250,7 +239,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     }
     setImages((prev) => {
       const next = [...prev, { file, base64, mimeType, name: sanitizeFilename(file.name) }];
-      setPreviewIndex(next.length - 1); // 캡처 직후 미리보기
+      setPreviewIndex(next.length - 1);
       return next;
     });
     setIsCameraOpen(false);
@@ -269,113 +258,103 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   const handleDeletePdf = (idx: number) => setPdfs((prev) => prev.filter((_, i) => i !== idx));
 
   const handleSend = async () => {
-  const zip = getZip(); // ⬅️ 이 줄 추가
-  if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
-  if (images.length + pdfs.length === 0) return setStatus({ type: 'error', text: '파일을 최소 1개 첨부하세요.' });
-  if (!navigator.onLine) return setStatus({ type: 'error', text: '오프라인 상태입니다. 네트워크 연결을 확인하세요.' });
-  if (!zip) return setStatus({ type: 'error', text: 'ZIP 모듈 로드 실패 (index.html에 zip.min.js 포함 확인).' });
+    const zip = getZip();
+    if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
+    if (images.length + pdfs.length === 0) return setStatus({ type: 'error', text: '파일을 최소 1개 첨부하세요.' });
+    if (!navigator.onLine) return setStatus({ type: 'error', text: '오프라인 상태입니다. 네트워크 연결을 확인하세요.' });
+    if (!zip) return setStatus({ type: 'error', text: 'ZIP 모듈 로드 실패 (index.html에 zip.min.js 포함 확인).' });
 
-  setIsSending(true);
-  setStatus(null);
+    setIsSending(true);
+    setStatus(null);
 
-  const ctl = new AbortController();
-  abortRef.current = ctl;
+    const ctl = new AbortController();
+    abortRef.current = ctl;
 
-  try {
-    // 0) 비밀번호: 신청자 휴대전화 뒷 4자리
-    const phone = (application as any)?.applicant_phone?.replace(/\D/g, '') || '';
-    const password = phone.length >= 4 ? phone.slice(-4) : null;
-    if (!password) throw new Error('신청자 전화번호가 없어 ZIP 비밀번호를 생성할 수 없습니다.');
+    try {
+      // 0) 비밀번호: 신청자 휴대전화 뒷 4자리
+      const phone = (application as any)?.applicant_phone?.replace(/\D/g, '') || '';
+      const password = phone.length >= 4 ? phone.slice(-4) : null;
+      if (!password) throw new Error('신청자 전화번호가 없어 ZIP 비밀번호를 생성할 수 없습니다.');
 
-    // 1) 이미지 최적화(총 3.5MB 목표) — PDF는 원본
-    const processedImages = await shrinkImagesToMaxSize(images, 3_500_000);
-    if (processedImages.length < images.length) {
-      setStatus({ type: 'info', text: `용량 제한으로 이미지 ${images.length - processedImages.length}개가 제외되었습니다.` });
-    }
+      // 1) 이미지 최적화(총 3.5MB 목표) — PDF는 원본
+      const processedImages = await shrinkImagesToMaxSize(images, 3_500_000);
+      if (processedImages.length < images.length) {
+        setStatus({ type: 'info', text: `용량 제한으로 이미지 ${images.length - processedImages.length}개가 제외되었습니다.` });
+      }
 
-    // 2) ZIP 작성
-    const writer = new zip.ZipWriter(new zip.BlobWriter('application/zip'));
+      // 2) ZIP 작성(암호화)
+      const writer = new zip.ZipWriter(new zip.BlobWriter('application/zip'));
+      for (const img of processedImages) {
+        await writer.add(
+          img.name || 'image.jpg',
+          new zip.BlobReader(base64ToBlob(img.base64)),
+          { password, zipCrypto: true } // AES: { password, encryptionStrength: 3 }
+        );
+      }
+      for (const pdf of pdfs) {
+        await writer.add(
+          pdf.name || 'document.pdf',
+          new zip.BlobReader(base64ToBlob(pdf.base64)),
+          { password, zipCrypto: true }
+        );
+      }
+      const zipBlob = await writer.close();
 
-    // 2-1) 이미지 추가 (암호화)
-    for (const img of processedImages) {
-      await writer.add(
-        img.name || 'image.jpg',
-        new zip.BlobReader(base64ToBlob(img.base64)),
-        { password, zipCrypto: true } // AES 쓰려면 { password, encryptionStrength: 3 }
-      );
-    }
+      // 3) ZIP → base64 (data URL → 순수 base64로 변환)
+      const zipBase64 = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onloadend = () => {
+          if (typeof fr.result === 'string') resolve(fr.result.split(',')[1] || '');
+          else reject(new Error('ZIP Blob Base64 변환 실패'));
+        };
+        fr.onerror = reject;
+        fr.readAsDataURL(zipBlob);
+      });
 
-    // 2-2) PDF 추가 (암호화)
-    for (const pdf of pdfs) {
-      await writer.add(
-        pdf.name || 'document.pdf',
-        new zip.BlobReader(base64ToBlob(pdf.base64)),
-        { password, zipCrypto: true }
-      );
-    }
+      const zipName = sanitizeFilename(
+        `${application?.site_name || '자료'}_${application?.receipt_no || ''}.zip`
+      ).replace(/\s+/g, '_');
 
-    // 3) ZIP 완료
-    const zipBlob = await writer.close();
-
-    // 4) ZIP → base64 (data URL 형태)
-    const zipBase64 = await new Promise<string>((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onloadend = () => {
-        if (typeof fr.result === 'string') resolve(fr.result.split(',')[1] || '');
-        else reject(new Error('ZIP Blob Base64 변환 실패'));
+      // 4) 서버 호출
+      const payload = {
+        to: toEmail.trim(),
+        meta: {
+          subject,
+          bodyText,
+          receipt_no: application?.receipt_no ?? '',
+          site_name: application?.site_name ?? '',
+          applicant_phone: (application as any)?.applicant_phone ?? '',
+        },
+        attachments: [{ name: zipName, content: zipBase64 }], // 순수 base64만 보내도 서버에서 처리
       };
-      fr.onerror = reject;
-      fr.readAsDataURL(zipBlob);
-    });
 
-    // 5) 첨부: 단일 ZIP
-    const zipName = sanitizeFilename(
-      `${application?.site_name || '자료'}_${application?.receipt_no || ''}.zip`
-    ).replace(/\s+/g, '_');
+      const res = await fetch(SEND_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: ctl.signal,
+      });
 
-    const payload = {
-      to: toEmail.trim(),
-      meta: {
-        subject,
-        bodyText,
-        receipt_no: application?.receipt_no ?? '',
-        site_name: application?.site_name ?? '',
-        applicant_phone: (application as any)?.applicant_phone ?? '',
-      },
-      // 서버가 data URL을 받는다면 아래처럼:
-      attachments: [{ name: zipName, content: `data:application/zip;base64,${zipBase64}` }],
-      // 만약 "순수 base64만" 받는다면 위 줄 대신 ↓ 이렇게:
-      // attachments: [{ name: zipName, content: zipBase64 }],
-    };
+      const respText = await res.text();
+      if (!res.ok) {
+        let msg = respText;
+        try { msg = (JSON.parse(respText).error) || msg; } catch {}
+        throw new Error(String(msg));
+      }
 
-    const res = await fetch('/api/send-photos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: ctl.signal,
-    });
-
-    if (!res.ok) {
-      if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 파일 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
-      const data = await res.json().catch(() => ({} as any));
-      throw new Error(data?.error || `Email API failed with ${res.status}`);
+      await onSendSuccess(application.id);
+      setStatus({ type: 'success', text: '메일이 성공적으로 전송되었습니다.' });
+      setTimeout(onClose, 1500);
+    } catch (e: any) {
+      if (e?.name === 'AbortError') setStatus({ type: 'info', text: '전송이 취소되었습니다.' });
+      else setStatus({ type: 'error', text: e?.message || '전송 실패' });
+    } finally {
+      setIsSending(false);
+      abortRef.current = null;
     }
+  };
 
-    await onSendSuccess(application.id);
-    setStatus({ type: 'success', text: '메일이 성공적으로 전송되었습니다.' });
-    setTimeout(onClose, 1500);
-  } catch (e: any) {
-    if (e?.name === 'AbortError') setStatus({ type: 'info', text: '전송이 취소되었습니다.' });
-    else setStatus({ type: 'error', text: e?.message || '전송 실패' });
-  } finally {
-    setIsSending(false);
-    abortRef.current = null;
-  }
-};
-
-  const handleCancelSend = () => abortRef.current?.abort();
-
-  // 라이트박스 컴포넌트(간단)
+  // 라이트박스
   const Lightbox: React.FC<{ index: number; onClose: () => void }> = ({ index, onClose }) => {
     const img = images[index];
     if (!img) return null;
@@ -435,24 +414,22 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
                 className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm"
                 placeholder={application.applicant_email}
               />
-              {!emailValid && (
-                <p className="mt-1 text-xs text-red-300" role="status">유효한 이메일 주소를 입력하세요.</p>
-              )}
+              {!emailValid && (<p className="mt-1 text-xs text-red-300" role="status">유효한 이메일 주소를 입력하세요.</p>)}
             </div>
 
             <div>
               <label className="block text-sm mb-1 text-slate-300">제목</label>
               <input
-                  type="text"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  disabled={isSending}
-                  className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm"
-                  placeholder={initialSubject}
-               />
-             </div>
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                disabled={isSending}
+                className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm"
+                placeholder={initialSubject}
+              />
+            </div>
 
-            {/* 본문 편집 가능 */}
+            {/* 본문 */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-sm text-slate-300">본문</label>
@@ -490,19 +467,17 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
             ) : (
               <div>
                 <input
-                  ref={fileInputRef}
                   type="file"
                   accept="image/*,application/pdf"
                   multiple
                   disabled={isSending}
-                  className="block w-full text-sm text-slate-200 file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-slate-600 file:text-white hover:file:bg-slate-500"
+                  className="block w-full text-sm text-slate-2 00 file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-slate-600 file:text-white hover:file:bg-slate-500"
                   onChange={(e) => handleFilePick(e.target.files)}
                 />
                 <p className="mt-2 text-xs text-slate-400">이미지는 자동 최적화(총 3.5MB 목표), PDF는 원본 유지. (단일 10MB / 총 20MB 권장)</p>
               </div>
             )}
 
-            {/* 이미지 썸네일 (썸네일 클릭 시 미리보기 오픈) */}
             <ThumbnailGallery
               images={images}
               currentIndex={previewIndex ?? -1}
@@ -511,7 +486,6 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
               disabled={isSending}
             />
 
-            {/* PDF 목록 */}
             {pdfs.length > 0 && (
               <div className="bg-slate-700/40 rounded-md p-3">
                 <div className="text-sm font-semibold text-slate-200 mb-2">PDF 첨부</div>
@@ -560,7 +534,6 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         </div>
       </div>
 
-      {/* 업로드 즉시/썸네일 클릭 시 라이트박스 미리보기 */}
       {previewIndex !== null && (
         <Lightbox index={previewIndex} onClose={() => setPreviewIndex(null)} />
       )}
