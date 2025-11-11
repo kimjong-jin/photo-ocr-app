@@ -5,6 +5,12 @@ import { CameraView } from './CameraView';
 import { ThumbnailGallery } from './ThumbnailGallery';
 import { Spinner } from './Spinner';
 
+declare global {
+  interface Window { zip: any }
+}
+
+const getZip = () => (window as any).zip;
+
 export type ImageInfo = { file: File; base64: string; mimeType: string; name?: string };
 type PdfInfo = { file: File; base64: string; mimeType: 'application/pdf'; name: string };
 
@@ -25,10 +31,32 @@ function sanitizeFilename(name: string) {
   return base.replace(/[^\w.\-ㄱ-힣\s]/g, '_');
 }
 
+// ⬇️ 여기 전역에 둬야 함
 function estimateBase64Bytes(b64: string) {
   const i = b64.indexOf('base64,');
   const pure = i >= 0 ? b64.slice(i + 7) : b64;
   return Math.floor(pure.length * 0.75);
+}
+
+function base64ToBlob(base64WithPrefix: string): Blob {
+  // data URL 형식("data:...;base64,XXXX")이든, 순수 base64 문자열이든 둘 다 처리
+  const commaIdx = base64WithPrefix.indexOf(',');
+  const hasPrefix = base64WithPrefix.startsWith('data:') && commaIdx !== -1;
+
+  const meta = hasPrefix ? base64WithPrefix.slice(0, commaIdx) : '';
+  const b64 = hasPrefix ? base64WithPrefix.slice(commaIdx + 1) : base64WithPrefix;
+
+  // MIME 추출 (없으면 기본값)
+  const mimeMatch = meta.match(/^data:(.*?);base64$/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+
+  // base64 → 바이너리
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+
+  return new Blob([bytes], { type: mime });
 }
 
 async function resizeImageToJpeg(
@@ -241,69 +269,109 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   const handleDeletePdf = (idx: number) => setPdfs((prev) => prev.filter((_, i) => i !== idx));
 
   const handleSend = async () => {
-    if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
-    if (images.length + pdfs.length === 0) return setStatus({ type: 'error', text: '파일을 최소 1개 첨부하세요.' });
-    if (!navigator.onLine) return setStatus({ type: 'error', text: '오프라인 상태입니다. 네트워크 연결을 확인하세요.' });
+  const zip = getZip(); // ⬅️ 이 줄 추가
+  if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
+  if (images.length + pdfs.length === 0) return setStatus({ type: 'error', text: '파일을 최소 1개 첨부하세요.' });
+  if (!navigator.onLine) return setStatus({ type: 'error', text: '오프라인 상태입니다. 네트워크 연결을 확인하세요.' });
+  if (!zip) return setStatus({ type: 'error', text: 'ZIP 모듈 로드 실패 (index.html에 zip.min.js 포함 확인).' });
 
-    setIsSending(true);
-    setStatus(null);
+  setIsSending(true);
+  setStatus(null);
 
-    const ctl = new AbortController();
-    abortRef.current = ctl;
+  const ctl = new AbortController();
+  abortRef.current = ctl;
 
-    try {
-      // 이미지 축소(총 3.5MB 목표). PDF는 원본 유지.
-      const processedImages = await shrinkImagesToMaxSize(images, 3_500_000);
-      if (processedImages.length < images.length) {
-        setStatus({ type: 'info', text: `용량 제한으로 이미지 ${images.length - processedImages.length}개가 제외되었습니다.` });
-      }
+  try {
+    // 0) 비밀번호: 신청자 휴대전화 뒷 4자리
+    const phone = (application as any)?.applicant_phone?.replace(/\D/g, '') || '';
+    const password = phone.length >= 4 ? phone.slice(-4) : null;
+    if (!password) throw new Error('신청자 전화번호가 없어 ZIP 비밀번호를 생성할 수 없습니다.');
 
-      const imagePayload = processedImages.map((p) => ({ name: p.name || 'photo.jpg', content: p.base64 }));
-      const pdfPayload = pdfs.map((p) => ({ name: p.name || 'document.pdf', content: p.base64 }));
-
-      const totalBytesToSend =
-        imagePayload.reduce((s, x) => s + estimateBase64Bytes(x.content), 0) +
-        pdfPayload.reduce((s, x) => s + estimateBase64Bytes(x.content), 0);
-      if (totalBytesToSend > MAX_TOTAL_BYTES) {
-        throw new Error('첨부 총 용량이 초과되었습니다. 이미지 개수를 줄이거나 해상도를 낮춰주세요.');
-      }
-
-      const payload = {
-        to: toEmail.trim(),
-        meta: {
-          subject,
-          bodyText, // 편집된 본문 사용
-          receipt_no: application?.receipt_no ?? '',
-          site_name: application?.site_name ?? '',
-          applicant_phone: (application as any)?.applicant_phone ?? '',
-        },
-        attachments: [...imagePayload, ...pdfPayload],
-      };
-
-      const res = await fetch('/api/send-photos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: ctl.signal,
-      });
-
-      if (!res.ok) {
-        if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 파일 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
-        const data = await res.json().catch(() => ({} as any));
-        throw new Error(data?.error || `Email API failed with ${res.status}`);
-      }
-
-      await onSendSuccess(application.id);
-      setStatus({ type: 'success', text: '메일이 성공적으로 전송되었습니다.' });
-      setTimeout(onClose, 1500);
-    } catch (e: any) {
-      if (e?.name === 'AbortError') setStatus({ type: 'info', text: '전송이 취소되었습니다.' });
-      else setStatus({ type: 'error', text: e?.message || '전송 실패' });
-    } finally {
-      setIsSending(false);
-      abortRef.current = null;
+    // 1) 이미지 최적화(총 3.5MB 목표) — PDF는 원본
+    const processedImages = await shrinkImagesToMaxSize(images, 3_500_000);
+    if (processedImages.length < images.length) {
+      setStatus({ type: 'info', text: `용량 제한으로 이미지 ${images.length - processedImages.length}개가 제외되었습니다.` });
     }
-  };
+
+    // 2) ZIP 작성
+    const writer = new zip.ZipWriter(new zip.BlobWriter('application/zip'));
+
+    // 2-1) 이미지 추가 (암호화)
+    for (const img of processedImages) {
+      await writer.add(
+        img.name || 'image.jpg',
+        new zip.BlobReader(base64ToBlob(img.base64)),
+        { password, zipCrypto: true } // AES 쓰려면 { password, encryptionStrength: 3 }
+      );
+    }
+
+    // 2-2) PDF 추가 (암호화)
+    for (const pdf of pdfs) {
+      await writer.add(
+        pdf.name || 'document.pdf',
+        new zip.BlobReader(base64ToBlob(pdf.base64)),
+        { password, zipCrypto: true }
+      );
+    }
+
+    // 3) ZIP 완료
+    const zipBlob = await writer.close();
+
+    // 4) ZIP → base64 (data URL 형태)
+    const zipBase64 = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onloadend = () => {
+        if (typeof fr.result === 'string') resolve(fr.result.split(',')[1] || '');
+        else reject(new Error('ZIP Blob Base64 변환 실패'));
+      };
+      fr.onerror = reject;
+      fr.readAsDataURL(zipBlob);
+    });
+
+    // 5) 첨부: 단일 ZIP
+    const zipName = sanitizeFilename(
+      `${application?.site_name || '자료'}_${application?.receipt_no || ''}.zip`
+    ).replace(/\s+/g, '_');
+
+    const payload = {
+      to: toEmail.trim(),
+      meta: {
+        subject,
+        bodyText,
+        receipt_no: application?.receipt_no ?? '',
+        site_name: application?.site_name ?? '',
+        applicant_phone: (application as any)?.applicant_phone ?? '',
+      },
+      // 서버가 data URL을 받는다면 아래처럼:
+      attachments: [{ name: zipName, content: `data:application/zip;base64,${zipBase64}` }],
+      // 만약 "순수 base64만" 받는다면 위 줄 대신 ↓ 이렇게:
+      // attachments: [{ name: zipName, content: zipBase64 }],
+    };
+
+    const res = await fetch('/api/send-photos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: ctl.signal,
+    });
+
+    if (!res.ok) {
+      if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 파일 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
+      const data = await res.json().catch(() => ({} as any));
+      throw new Error(data?.error || `Email API failed with ${res.status}`);
+    }
+
+    await onSendSuccess(application.id);
+    setStatus({ type: 'success', text: '메일이 성공적으로 전송되었습니다.' });
+    setTimeout(onClose, 1500);
+  } catch (e: any) {
+    if (e?.name === 'AbortError') setStatus({ type: 'info', text: '전송이 취소되었습니다.' });
+    else setStatus({ type: 'error', text: e?.message || '전송 실패' });
+  } finally {
+    setIsSending(false);
+    abortRef.current = null;
+  }
+};
 
   const handleCancelSend = () => abortRef.current?.abort();
 
