@@ -8,7 +8,7 @@ import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
 import { CameraView } from './CameraView';
-import EmailModal from '../EmailPage';
+import EmailModal from './EmailPage';
 
 export interface Application {
   id: number;
