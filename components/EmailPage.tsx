@@ -106,10 +106,13 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   // 미리보기(라이트박스) 상태
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
-  const subject = useMemo(() => {
+  const initialSubject = useMemo(() => {
     const site = application?.site_name ?? '';
-    return site ? `[KTL] ${site} 사진/문서 전달` : `[KTL] 사진/문서 전달`;
+    return `[KTL] ${site || ''} 기록부 사본 송부`;
   }, [application?.site_name]);
+
+  const [subject, setSubject] = useState(initialSubject);
+  useEffect(() => setSubject(initialSubject), [initialSubject, isOpen]);
 
   // 본문 편집 가능하도록 state 분리
   const initialBody = useMemo(() => {
@@ -119,8 +122,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       application?.receipt_no ? `접수번호: ${application.receipt_no}` : ``,
       application?.site_name ? `현장: ${application.site_name}` : ``,
       ``,
-      `요청하신 자료(사진/기록부)를 암호화 ZIP으로 첨부드립니다.`,
-      `※ 비밀번호는 신청자 전화번호 뒷 4자리입니다. (전화번호가 없으면 별도 안내)`,
+      `자료(사진/기록부)를 암호화 ZIP으로 첨부드립니다.`,
+      `※ 비밀번호는 신청자 휴대전화 또는 유지관리업체 휴대전화 뒷 4자리입니다.`,
       ``,
       `※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.`,
     ].filter(Boolean);
@@ -370,8 +373,15 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
             </div>
 
             <div>
-              <label className="block text-sm mb-1 text-slate-300">제목(고정)</label>
-              <input type="text" value={subject} readOnly className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm opacity-70 cursor-not-allowed" />
+              <label className=\"block text-sm mb-1 text-slate-300\">제목<\/label>
+              <input
+                type=\"text\"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                disabled={isSending}
+                className=\"block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm\"
+                placeholder={initialSubject}
+              />
             </div>
 
             {/* 본문 편집 가능 */}
