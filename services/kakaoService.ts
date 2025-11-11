@@ -1,4 +1,5 @@
 // services/kakaoService.ts
+// 드롭인 교체본: 429/새로고침/깜빡임/키 누락 안정화 포함
 
 // ✅ 축약형 → 풀네임 매핑
 const REGION_FULLNAME_MAP: Record<string, string> = {
@@ -46,7 +47,7 @@ function setToCache(key: string, value: string) {
   addressCache.set(key, { value, timestamp: Date.now() });
 }
 
-// 디바운스
+// 디바운스 (드래그/타이핑 이벤트 완화)
 export function debounce<T extends (...args: any[]) => any>(fn: T, wait = 250) {
   let t: any;
   return (...args: Parameters<T>) => {
@@ -90,7 +91,7 @@ async function rateLimit() {
   tokens--;
 }
 
-// 429 쿨다운
+// 429 쿨다운 (짧은 시간 일시 정지)
 let coolUntil = 0;
 async function maybeCooldown(status: number) {
   const now = Date.now();
@@ -173,12 +174,20 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
 
 export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-  if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
+  // ❗키 누락 시 앱 크래시 방지: 안전 반환
+  if (!apiKey) {
+    console.error("[Kakao] API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
+    return [];
+  }
 
   const cacheKey = `kw:${keyword}`;
   const cached = getFromCache(cacheKey);
   if (cached) {
-    try { return JSON.parse(cached); } catch { /* noop */ }
+    try {
+      return JSON.parse(cached);
+    } catch {
+      // noop
+    }
   }
 
   const url = new URL("https://dapi.kakao.com/v2/local/search/keyword.json");
@@ -198,7 +207,11 @@ export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
 
 export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-  if (!apiKey) throw new Error("API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
+  // ❗키 누락 시 앱 크래시 방지: 안전 반환
+  if (!apiKey) {
+    console.error("[Kakao] API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
+    return "주소를 찾을 수 없습니다.";
+  }
 
   // 좌표 스냅
   const lat = snapCoord(latitude);
@@ -269,7 +282,8 @@ export async function fetchAddressFromCoords(
     if (myReqId !== latestGpsReqId) return; // stale 응답 무시
     setCurrentGpsAddress(((prev: string) => (prev === addr ? prev : addr)) as any);
   } catch (err: any) {
-    if (err?.name === "AbortError" || err?.message?.includes("aborted")) return; // 조용히 무시
+    // 사용자가 이전 요청을 취소한 경우는 조용히 무시
+    if (err?.name === "AbortError" || err?.message?.includes("aborted")) return;
     if (myReqId !== latestGpsReqId) return;
     console.warn("[fetchAddressFromCoords] 주소 변환 실패:", err);
     setCurrentGpsAddress("주소 변환 실패");
