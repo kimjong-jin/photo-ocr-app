@@ -22,7 +22,8 @@ function isLikelyPng(buf: Buffer) {
   );
 }
 function isLikelyPdf(buf: Buffer) {
-  return buf.length >= 5 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d; // %PDF-
+  // %PDF-
+  return buf.length >= 5 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d;
 }
 function isAllowedPlainAttachment(buf: Buffer) {
   return isLikelyJpeg(buf) || isLikelyPng(buf) || isLikelyPdf(buf);
@@ -80,10 +81,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     for (const att of attachments) {
       if (!att || typeof att.name !== 'string' || typeof att.content !== 'string') {
+        console.error('Bad attachment item:', att);
         return res.status(400).json({ error: 'Attachment item must include name and content (base64).' });
       }
 
       const raw = stripDataPrefix(att.content);
+      if (!raw) {
+        console.error('Empty base64 after strip:', att.name);
+        return res.status(400).json({ error: 'Attachment content is empty.' });
+      }
+
       totalBytes += Math.floor(raw.length * 0.75);
       if (totalBytes > MAX_TOTAL_BYTES) {
         return res.status(413).json({ error: 'Payload too large after attachments.' });
@@ -92,12 +99,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let buf: Buffer;
       try {
         buf = Buffer.from(raw, 'base64');
-      } catch {
+      } catch (e) {
+        console.error('Base64 decode failed for:', att.name, e);
         return res.status(400).json({ error: 'Invalid base64 attachment.' });
       }
 
       const isEncrypted = /\.enc$/i.test(att.name); // 암호화 파일은 시그니처 검사 스킵
       if (!isEncrypted && !isAllowedPlainAttachment(buf)) {
+        console.error('Signature check failed for:', att.name);
         return res.status(400).json({ error: 'Only JPEG/PNG/PDF or encrypted .enc attachments are allowed.' });
       }
 
@@ -159,6 +168,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let msg: any = text;
       try { msg = JSON.parse(text); } catch {}
       const code = brevoRes.status === 413 ? 413 : brevoRes.status;
+      console.error('Brevo error:', code, msg);
       return res.status(code).json({ error: msg || `Brevo error ${brevoRes.status}` });
     }
 
@@ -167,6 +177,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ ok: true, data });
   } catch (e: any) {
+    console.error('Unhandled send-photos error:', e);
     return res.status(500).json({ error: e?.message || 'Unknown error' });
   }
 }
