@@ -35,47 +35,6 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T, idx: number)
   return results;
 }
 
-// 의심스러운 동형이의 문자 간단 감지(선택적 경고)
-const CONFUSABLE_RANGES: Array<[number, number]> = [
-  [0x0400, 0x04FF], // Cyrillic
-  [0x0370, 0x03FF], // Greek
-  [0x3100, 0x312F], // Bopomofo
-  [0x0530, 0x058F], // Armenian
-];
-function hasSuspiciousUnicode(s: string) {
-  for (const ch of s) {
-    const code = ch.codePointAt(0)!;
-    if (CONFUSABLE_RANGES.some(([a, b]) => code >= a && code <= b)) return true;
-  }
-  return false;
-}
-
-// 메일 헤더 인젝션 방지(개행 제거 + 길이 제한)
-function sanitizeHeaderValue(s: string, limit = 200) {
-  return (s || '').replace(/[\r\n]+/g, ' ').slice(0, limit);
-}
-
-/* =========================
-   수신 도메인 위험도(차단 X, 경고/확인만)
-========================= */
-function domainOf(email: string) {
-  const m = email.trim().toLowerCase().match(/@([^@]+)$/);
-  return m ? m[1] : '';
-}
-
-// 무료/개인 도메인(경고용)
-const COMMON_FREE_DOMAINS = [
-  'gmail.com', 'naver.com', 'hanmail.net', 'daum.net',
-  'nate.com', 'yahoo.com', 'outlook.com', 'hotmail.com',
-];
-
-function domainRisk(dom: string) {
-  if (!dom) return { level: 'high' as const, reason: '도메인 누락' };
-  if (dom.length > 253 || /[^a-z0-9\.\-]/.test(dom)) return { level: 'high' as const, reason: '비정상 문자' };
-  if (COMMON_FREE_DOMAINS.includes(dom)) return { level: 'medium' as const, reason: '개인용 이메일' };
-  return { level: 'low' as const, reason: '일반 도메인' };
-}
-
 /* =========================
    클라이언트 암호화(AES-GCM, 비번=전화번호 뒷4자리)
 ========================= */
@@ -213,6 +172,8 @@ type Props = {
 };
 
 const MAX_IMAGES = 15;
+// 암호화 끄고 싶으면 false로
+const ENABLE_ENCRYPTION = true;
 
 const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, onSendSuccess }) => {
   const [toEmail, setToEmail] = useState('');
@@ -225,7 +186,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
   const subject = useMemo(() => {
     const site = application?.site_name ?? '';
-    return site ? `[KTL] ${site} 사진 전달` : `[KTL] 사진 전달`;
+    const base = site ? `[KTL] ${site} 사진 전달` : `[KTL] 사진 전달`;
+    return ENABLE_ENCRYPTION ? `${base} (암호화 첨부)` : base;
   }, [application?.site_name]);
 
   const bodyText = useMemo(() => {
@@ -237,7 +199,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       ``,
       `요청하신 사진을 첨부드립니다.`,
       ``,
-      `[중요] 첨부파일은 고객 보호를 위해 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.`,
+      ENABLE_ENCRYPTION ? `[중요] 첨부파일은 고객 보호를 위해 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.` : ``,
       `※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.`,
     ].filter(Boolean);
     return lines.join('\n');
@@ -282,15 +244,15 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
   const handleSend = async () => {
     if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
-    if (hasSuspiciousUnicode(toEmail)) {
-      return setStatus({ type: 'error', text: '수신 이메일에 의심스러운 문자가 포함되어 있습니다. 주소를 다시 확인하세요.' });
-    }
     if (attachments.length === 0) return setStatus({ type: 'error', text: '사진을 최소 1장 첨부하세요.' });
 
-    // 비밀번호(신청인 전화번호 뒷4자리) 계산
-    const pin = last4FromApplication(application as any);
-    if (!pin || pin.length !== 4) {
-      return setStatus({ type: 'error', text: '신청인의 전화번호 정보가 없어 암호화 비밀번호(뒷 4자리)를 생성할 수 없습니다.' });
+    // 비밀번호(신청인 전화번호 뒷4자리) 계산 (암호화 켜져 있을 때만 필요)
+    let pin: string | null = null;
+    if (ENABLE_ENCRYPTION) {
+      pin = last4FromApplication(application as any);
+      if (!pin || pin.length !== 4) {
+        return setStatus({ type: 'error', text: '신청인의 전화번호 정보가 없어 암호화 비밀번호(뒷 4자리)를 생성할 수 없습니다.' });
+      }
     }
 
     setIsSending(true);
@@ -304,57 +266,47 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         setStatus({ type: 'info', text: `용량 제한으로 ${capped.length - processed.length}장은 제외되었습니다.` });
       }
 
-      // 전송 전 위험도 및 요약 확인(차단 대신 이중 확인)
-      const dom = domainOf(toEmail);
-      const risk = domainRisk(dom);
-      const totalBytesBeforeEnc = processed.reduce((s, p) => s + estimateBase64Bytes(p.base64Body), 0);
-      const totalMBBeforeEnc = (totalBytesBeforeEnc / (1024 * 1024)).toFixed(2);
+      let outgoingAttachments: Array<{ name: string; mimeType: string; base64: string; meta?: any }> = [];
 
-      const ok1 = window.confirm(
-        `전송 대상: ${toEmail}\n도메인: ${dom}\n사진: ${processed.length}장\n총용량(암호화 전): ${totalMBBeforeEnc} MB` +
-        (risk.level !== 'low' ? `\n\n[주의] ${risk.reason}` : '') +
-        `\n\n전송을 계속하시겠습니까?`
-      );
-      if (!ok1) { setIsSending(false); return; }
-
-      // 2차 확인: 도메인 재입력(휴먼 에러 방지)
-      const domConfirm = window.prompt('수신자 도메인을 다시 입력하세요(예: example.com):', '');
-      if (!domConfirm || domConfirm.trim().toLowerCase() !== dom) {
-        setIsSending(false);
-        setStatus({ type: 'error', text: '도메인 확인이 일치하지 않습니다. 주소를 다시 확인하세요.' });
-        return;
+      if (ENABLE_ENCRYPTION) {
+        // 클라이언트 측 AES-GCM 암호화
+        for (const p of processed) {
+          const bytes = await b64BodyToBytes(p.base64Body);
+          const enc = await aesGcmEncrypt(bytes, pin!);
+          outgoingAttachments.push({
+            name: p.name + '.enc',
+            mimeType: 'application/octet-stream',
+            base64: enc.ciphertext,
+            meta: { alg: 'AES-GCM-256', salt: enc.salt, iv: enc.iv },
+          });
+        }
+      } else {
+        // 암호화 없이 전송
+        outgoingAttachments = processed.map((p) => ({
+          name: p.name,
+          mimeType: p.mimeType,
+          base64: p.base64Body,
+        }));
       }
 
-      // 클라이언트 측 AES-GCM 암호화
-      const encryptedAttachments = [];
-      for (const p of processed) {
-        const bytes = await b64BodyToBytes(p.base64Body);
-        const enc = await aesGcmEncrypt(bytes, pin);
-        encryptedAttachments.push({
-          name: p.name + '.enc',
-          mimeType: 'application/octet-stream',
-          base64: enc.ciphertext,
-          meta: { alg: 'AES-GCM-256', salt: enc.salt, iv: enc.iv },
-        });
-      }
-
-      const totalBytes = encryptedAttachments.reduce((s, a) => s + estimateBase64Bytes(a.base64), 0);
+      const totalBytes = outgoingAttachments.reduce((s, a) => s + estimateBase64Bytes(a.base64), 0);
       const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
 
       const csrf = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '';
-      const cleanSubject = sanitizeHeaderValue(subject) + ' (암호화 첨부)';
 
       const payload = {
         to: toEmail.trim(),
         meta: {
-          subject: cleanSubject,
+          subject: subject,
           bodyText,
           receipt_no: application?.receipt_no ?? '',
           site_name: application?.site_name ?? '',
-          encryption_notice: '첨부는 AES-GCM으로 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.',
+          ...(ENABLE_ENCRYPTION && {
+            encryption_notice: '첨부는 AES-GCM으로 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.',
+          }),
           total_size_mb: totalMB,
         },
-        attachments: encryptedAttachments,
+        attachments: outgoingAttachments,
       };
 
       const res = await fetch('/api/send-photos', {
@@ -368,8 +320,15 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       });
 
       if (!res.ok) {
+        // 콘솔에만 상세 로그(개발/운영 확인용). 사용자 메시지는 일반화.
+        try {
+          const errJson = await res.json();
+          console.warn('Email send failed:', res.status, errJson);
+        } catch {
+          const errText = await res.text().catch(() => '');
+          console.warn('Email send failed:', res.status, errText);
+        }
         if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 사진 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
-        // 서버 상세 사유 노출 금지: 일반화 메시지
         throw new Error('전송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.');
       }
 
@@ -426,39 +385,14 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
                 inputMode="email"
               />
               {!emailValid && <p className="mt-1 text-xs text-red-300">유효한 이메일 주소를 입력하세요.</p>}
-              {toEmail && (() => {
-                const dom = domainOf(toEmail);
-                const risk = domainRisk(dom);
-                if (hasSuspiciousUnicode(toEmail)) {
-                  return (
-                    <p className="mt-1 text-xs rounded bg-red-900/30 text-red-200 p-2">
-                      수신 이메일에 혼동 가능한 문자가 포함되어 있을 수 있습니다. 주소를 다시 확인하세요.
-                    </p>
-                  );
-                }
-                if (risk.level === 'medium') {
-                  return (
-                    <p className="mt-1 text-xs rounded bg-amber-900/30 text-amber-200 p-2">
-                      개인용 도메인({dom})입니다. 수신자가 맞는지 다시 확인하세요.
-                    </p>
-                  );
-                }
-                if (risk.level === 'high') {
-                  return (
-                    <p className="mt-1 text-xs rounded bg-red-900/30 text-red-200 p-2">
-                      도메인({dom || '없음'})이 비정상일 수 있습니다. 정확히 확인하세요.
-                    </p>
-                  );
-                }
-                return null;
-              })()}
+              {/* 경고/도메인 제한/이중확인 전부 제거 */}
             </div>
 
             <div>
               <label className="block text-sm mb-1 text-slate-300">제목(고정)</label>
               <input
                 type="text"
-                value={subject + ' (암호화 첨부)'}
+                value={subject}
                 readOnly
                 className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm opacity-70 cursor-not-allowed"
               />
