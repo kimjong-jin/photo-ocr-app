@@ -209,7 +209,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         ],
       };
 
-      const res = await fetch('/services/send-photos', {
+      const res = await fetch('/api/send-photos', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify(payload),
