@@ -1,39 +1,23 @@
+// api/send-photos.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const MAX_ATTACHMENTS = 15;
-const MAX_TOTAL_BYTES = 3_800_000;
+const MAX_TOTAL_BYTES = 3_800_000; // 클라 3.5MB 목표 + 여유
 
 function stripDataPrefix(b64: string) {
-  if (!b64 || typeof b64 !== 'string') return '';
   const i = b64.indexOf('base64,');
-  const s = (i >= 0 ? b64.slice(i + 'base64,'.length) : b64).trim();
-  // 개행/스페이스 제거 (Brevo가 개행 섞이면 400 주는 경우 방지)
-  return s.replace(/\s+/g, '');
+  return i >= 0 ? b64.slice(i + 'base64,'.length) : b64.trim();
 }
 
-// JPEG/PNG/PDF 시그니처
-function isLikelyJpeg(buf: Buffer) {
-  return buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xd8;
-}
-function isLikelyPng(buf: Buffer) {
-  return (
-    buf.length >= 8 &&
+// JPEG/PNG 시그니처 확인
+function isLikelyImage(buf: Buffer) {
+  if (buf.length < 8) return false;
+  const isJpeg = buf[0] === 0xff && buf[1] === 0xd8;
+  const isPng =
     buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
-    buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a
-  );
-}
-function isLikelyPdf(buf: Buffer) {
-  return buf.length >= 5 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d; // %PDF-
-}
-function isAllowedPlainAttachment(buf: Buffer) {
-  return isLikelyJpeg(buf) || isLikelyPng(buf) || isLikelyPdf(buf);
-}
-
-// 안전 파일명
-function sanitizeFilename(name: string, fallback: string) {
-  const safe = (name || fallback).replace(/[^\w.\-ㄱ-ㅎ가-힣 ]/g, '_').slice(0, 100);
-  return safe || fallback;
+    buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a;
+  return isJpeg || isPng;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -49,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const apiKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.SENDER_EMAIL;
-  const senderName = process.env.SENDER_NAME || 'KTL';
+  const senderName = process.env.SENDER_NAME || 'KTL Photos';
 
   if (!apiKey || !senderEmail) {
     return res.status(500).json({ error: 'Server email env is missing: BREVO_API_KEY or SENDER_EMAIL.' });
@@ -59,20 +43,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { to, attachments, meta } = req.body as {
       to: string;
       attachments: { name: string; content: string }[];
-      meta?: {
-        subject?: string;
-        bodyText?: string;
-        receipt_no?: string;
-        site_name?: string;
-        encryption_notice?: string;
-        kind?: '기록부' | '사진' | string;
-        total_size_mb?: string;
-      };
+      meta?: { subject?: string; bodyText?: string; receipt_no?: string; site_name?: string };
     };
 
     if (!to || !attachments || !Array.isArray(attachments) || attachments.length === 0) {
       return res.status(400).json({ error: 'to and attachments are required.' });
     }
+
     if (attachments.length > MAX_ATTACHMENTS) {
       return res.status(400).json({ error: `Too many attachments. Max ${MAX_ATTACHMENTS}.` });
     }
@@ -81,78 +58,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const safeAttachments: { name: string; content: string }[] = [];
 
     for (const att of attachments) {
-      if (!att || typeof att.name !== 'string' || typeof att.content !== 'string') {
-        console.error('Bad attachment item:', att);
-        return res.status(400).json({ error: 'Attachment item must include name and content (base64).' });
-      }
-
-      const raw = stripDataPrefix(att.content);
-      if (!raw) {
-        console.error('Empty base64 after strip:', att.name);
-        return res.status(400).json({ error: 'Attachment content is empty.' });
-      }
-
-      totalBytes += Math.floor(raw.length * 0.75);
+      const b64 = stripDataPrefix(att.content);
+      totalBytes += Math.floor(b64.length * 0.75);
       if (totalBytes > MAX_TOTAL_BYTES) {
         return res.status(413).json({ error: 'Payload too large after attachments.' });
       }
 
       let buf: Buffer;
       try {
-        buf = Buffer.from(raw, 'base64');
-      } catch (e) {
-        console.error('Base64 decode failed for:', att.name, e);
+        buf = Buffer.from(b64, 'base64');
+      } catch {
         return res.status(400).json({ error: 'Invalid base64 attachment.' });
       }
-
-      // 암호화 파일은 시그니처 검사 스킵 (bin/enc/dat 허용)
-      const isEncrypted = /\.(bin|enc|dat)$/i.test(att.name);
-      if (!isEncrypted && !isAllowedPlainAttachment(buf)) {
-        console.error('Signature check failed for:', att.name);
-        return res.status(400).json({ error: 'Only JPEG/PNG/PDF or encrypted .bin/.enc/.dat attachments are allowed.' });
+      if (!isLikelyImage(buf)) {
+        return res.status(400).json({ error: 'Only image attachments (JPEG/PNG) are allowed.' });
       }
 
-      const safeName = sanitizeFilename(att.name, isEncrypted ? 'file.bin' : 'file');
-      safeAttachments.push({ name: safeName, content: raw });
+      const safeName = (att.name || 'photo.jpg').replace(/[^\w.\-ㄱ-ㅎ가-힣 ]/g, '_').slice(0, 100) || 'photo.jpg';
+      safeAttachments.push({
+        name: safeName.match(/\.(jpg|jpeg|png)$/i) ? safeName : safeName + '.jpg',
+        content: b64,
+      });
     }
 
-    const kind = (meta?.kind && String(meta.kind)) || '기록부';
     const site = (meta?.site_name || '').toString().slice(0, 120);
     const receipt = (meta?.receipt_no || '').toString().slice(0, 120);
 
-    const subject =
-      (meta?.subject && String(meta.subject).slice(0, 200)) ||
-      (site ? `[KTL] ${site} ${kind} 전달` : `[KTL] ${kind} 전달`);
-
-    const lines: string[] = [];
-    if (meta?.bodyText) {
-      lines.push(
-        String(meta.bodyText)
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .slice(0, 4000)
-      );
-    } else {
-      lines.push(
-        '안녕하십니까, KTL 입니다.',
-        receipt ? `접수번호: ${receipt}` : '',
-        site ? `현장: ${site}` : '',
-        '',
-        `요청하신 ${kind}를 첨부드립니다.`,
-        ''
-      );
-    }
-    if (meta?.encryption_notice) lines.push(meta.encryption_notice);
-    lines.push('※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.');
-
-    const htmlContent = lines.filter(Boolean).join('<br>');
+    const subject = site ? `[KTL] ${site} 사진 전달` : `[KTL] 사진 전달`;
+    const bodyTextLines = [
+      `안녕하십니까, KTL 입니다.`,
+      receipt ? `접수번호: ${receipt}` : ``,
+      site ? `현장: ${site}` : ``,
+      ``,
+      `요청하신 사진을 첨부드립니다.`,
+      ``,
+      `※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.`,
+    ].filter(Boolean);
+    const htmlContent = bodyTextLines.join('<br>');
 
     const payload: any = {
       sender: { email: senderEmail, name: senderName },
       to: [{ email: to }],
       subject,
       htmlContent,
-      attachment: safeAttachments, // [{name, content(base64-no-whitespace)}]
+      attachment: safeAttachments,
     };
 
     const brevoRes = await fetch(BREVO_API_URL, {
@@ -170,7 +119,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let msg: any = text;
       try { msg = JSON.parse(text); } catch {}
       const code = brevoRes.status === 413 ? 413 : brevoRes.status;
-      console.error('Brevo error:', code, msg);
       return res.status(code).json({ error: msg || `Brevo error ${brevoRes.status}` });
     }
 
@@ -179,7 +127,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ ok: true, data });
   } catch (e: any) {
-    console.error('Unhandled send-photos error:', e);
     return res.status(500).json({ error: e?.message || 'Unknown error' });
   }
 }
