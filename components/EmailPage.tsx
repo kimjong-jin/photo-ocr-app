@@ -209,12 +209,14 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         ],
       };
 
-      const res = await fetch('/api/send-photos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
+      const base = import.meta.env.VITE_SUPABASE_FUNCTION_URL; // 예: https://xxx.functions.supabase.co
+      if (!base) throw new Error('서버 URL 미설정(VITE_SUPABASE_FUNCTION_URL).');
+      const res = await fetch(`${base}/send-photos`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify(payload),
+       });
+      
       if (!res.ok) {
         if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 파일 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
         const data = await res.json().catch(() => ({} as any));
