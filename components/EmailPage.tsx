@@ -209,9 +209,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         ],
       };
 
-      const base = import.meta.env.VITE_SUPABASE_FUNCTION_URL; // 예: https://xxx.functions.supabase.co
-      if (!base) throw new Error('서버 URL 미설정(VITE_SUPABASE_FUNCTION_URL).');
-      const res = await fetch(`${base}/send-photos`, {
+      const res = await fetch('/api/send-photos', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify(payload),
