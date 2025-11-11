@@ -53,10 +53,13 @@ function last4FromApplication(app: any): string | null {
   return null;
 }
 function toB64(u8: Uint8Array) {
-  let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return btoa(s);
+  let s = '';
+  for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+  return btoa(s);
 }
 function fromB64(b64: string) {
-  const bin = atob(b64); const u8 = new Uint8Array(bin.length);
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return u8;
 }
@@ -172,8 +175,7 @@ type Props = {
 };
 
 const MAX_IMAGES = 15;
-// 암호화 켜기/끄기
-const ENABLE_ENCRYPTION = true;
+const ENABLE_ENCRYPTION = true; // 암호화 ON/OFF
 
 const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, onSendSuccess }) => {
   const [toEmail, setToEmail] = useState('');
@@ -246,7 +248,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
     if (attachments.length === 0) return setStatus({ type: 'error', text: '이미지를 최소 1장 첨부하세요.' });
 
-    // 비밀번호(신청인 전화번호 뒷4자리) 계산 (암호화 켜져 있을 때만)
+    // 비밀번호(신청인 전화번호 뒷4자리)
     let pin: string | null = null;
     if (ENABLE_ENCRYPTION) {
       pin = last4FromApplication(application as any);
@@ -299,6 +301,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
       const totalBytes = trimmed.reduce((s, a) => s + estimateBase64Bytes(extractBase64Body(a.content)), 0);
       const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+      console.log('[EmailModal] outgoing attachments total ~MB:', totalMB);
 
       const csrf = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '';
 
@@ -329,13 +332,9 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       });
 
       if (!res.ok) {
-        try {
-          const errJson = await res.json();
-          console.warn('Email send failed:', res.status, errJson);
-        } catch {
-          const errText = await res.text().catch(() => '');
-          console.warn('Email send failed:', res.status, errText);
-        }
+        let details = '';
+        try { details = await res.text(); } catch {}
+        console.error('send-photos ERROR', res.status, details);
         if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 이미지 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
         throw new Error('전송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.');
       }
