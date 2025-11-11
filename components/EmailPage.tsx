@@ -10,18 +10,15 @@ import { Spinner } from './Spinner';
    이미지/보안 유틸
 ========================= */
 
-// base64(본문만) 바이트 수 추정
 function estimateBase64Bytes(b64Body: string) {
   return Math.floor(b64Body.length * 0.75);
 }
 
-// data URL에서 base64 본문만 추출
 function extractBase64Body(dataUrlOrBody: string) {
   const i = dataUrlOrBody.indexOf('base64,');
   return i >= 0 ? dataUrlOrBody.slice(i + 'base64,'.length) : dataUrlOrBody;
 }
 
-// 동시 실행 제한 유틸 (메모리/CPU 스파이크 완화)
 async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T, idx: number) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
@@ -82,7 +79,7 @@ async function aesGcmEncrypt(bytes: Uint8Array, password: string) {
   return { salt: toB64(salt), iv: toB64(iv), ciphertext: toB64(new Uint8Array(ct)) };
 }
 async function b64BodyToBytes(b64Body: string) {
-  return fromB64(b64Body); // base64 본문 -> 바이너리
+  return fromB64(b64Body);
 }
 
 /* =========================
@@ -122,7 +119,6 @@ async function resizeImageToJpeg(
       fr.readAsDataURL(blob);
     });
 
-    // 캔버스 즉시 해제
     canvas.width = 0;
     canvas.height = 0;
 
@@ -150,7 +146,6 @@ async function shrinkToMaxSize(images: ImageInfo[], maxTotalBytes = 3_500_000) {
     if (total <= maxTotalBytes) return processed;
   }
 
-  // 마지막 패스 기준으로 가능한 만큼만 포함
   const fallback = await mapLimit(images, 2, (img) => resizeImageToJpeg(img.file, 600, 0.45));
   const result: typeof fallback = [];
   let accum = 0;
@@ -175,7 +170,7 @@ type Props = {
 };
 
 const MAX_IMAGES = 15;
-const ENABLE_ENCRYPTION = true; // 암호화 ON/OFF
+const ENABLE_ENCRYPTION = true;
 
 const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, onSendSuccess }) => {
   const [toEmail, setToEmail] = useState('');
@@ -248,7 +243,6 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
     if (attachments.length === 0) return setStatus({ type: 'error', text: '이미지를 최소 1장 첨부하세요.' });
 
-    // 비밀번호(신청인 전화번호 뒷4자리)
     let pin: string | null = null;
     if (ENABLE_ENCRYPTION) {
       pin = last4FromApplication(application as any);
@@ -268,26 +262,27 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         setStatus({ type: 'info', text: `용량 제한으로 ${capped.length - processed.length}장은 제외되었습니다.` });
       }
 
-      // 서버 스펙 {name, content} 로 전송 (data: 프리픽스 포함)
       let outgoingAttachments: Array<{ name: string; content: string }> = [];
 
       if (ENABLE_ENCRYPTION) {
         for (const p of processed) {
           const bytes = await b64BodyToBytes(p.base64Body);
           const enc = await aesGcmEncrypt(bytes, pin!);
+          // data 프리픽스 + 공백/개행 없는 base64
+          const b64 = enc.ciphertext.replace(/\s+/g, '');
           outgoingAttachments.push({
-            name: p.name + '.bin', // ← Brevo가 enc 거부하므로 bin 사용
-            content: `data:application/octet-stream;base64,${enc.ciphertext}`,
+            name: p.name + '.bin',
+            content: `data:application/octet-stream;base64,${b64}`,
           });
         }
       } else {
         outgoingAttachments = processed.map((p) => ({
           name: p.name,
-          content: `data:${p.mimeType};base64,${p.base64Body}`,
+          content: `data:${p.mimeType};base64,${p.base64Body.replace(/\s+/g, '')}`,
         }));
       }
 
-      // 암호화/프리픽스 오버헤드 고려 총량 컷(선택)
+      // 총량 컷(선택)
       const MAX_TOTAL_BYTES = 3_300_000;
       const trimmed: typeof outgoingAttachments = [];
       let acc = 0;
@@ -298,10 +293,6 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         trimmed.push(a);
         acc += sz;
       }
-
-      const totalBytes = trimmed.reduce((s, a) => s + estimateBase64Bytes(extractBase64Body(a.content)), 0);
-      const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
-      console.log('[EmailModal] outgoing attachments total ~MB:', totalMB);
 
       const csrf = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '';
 
@@ -316,9 +307,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
           ...(ENABLE_ENCRYPTION && {
             encryption_notice: '첨부는 AES-GCM으로 암호화되었습니다(.bin). 비밀번호는 신청인 전화번호 뒷 4자리입니다.',
           }),
-          total_size_mb: totalMB,
         },
-        attachments: trimmed, // { name, content }[]
+        attachments: trimmed,
       };
 
       const res = await fetch('/api/send-photos', {
@@ -367,15 +357,9 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto pr-1">
           <div className="space-y-4">
             <div className="text-sm text-slate-300 bg-slate-700/40 rounded-lg p-3">
-              <div className="truncate">
-                <span className="font-semibold">수신(이름)</span>: {application.applicant_name}
-              </div>
-              <div>
-                <span className="font-semibold">접수번호</span>: {application.receipt_no}
-              </div>
-              <div className="truncate">
-                <span className="font-semibold">현장</span>: {application.site_name}
-              </div>
+              <div className="truncate"><span className="font-semibold">수신(이름)</span>: {application.applicant_name}</div>
+              <div><span className="font-semibold">접수번호</span>: {application.receipt_no}</div>
+              <div className="truncate"><span className="font-semibold">현장</span>: {application.site_name}</div>
             </div>
 
             <div>
@@ -396,21 +380,11 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
             <div>
               <label className="block text-sm mb-1 text-slate-300">제목(고정)</label>
-              <input
-                type="text"
-                value={subject}
-                readOnly
-                className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm opacity-70 cursor-not-allowed"
-              />
+              <input type="text" value={subject} readOnly className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm opacity-70 cursor-not-allowed" />
             </div>
             <div>
               <label className="block text-sm mb-1 text-slate-300">본문(고정)</label>
-              <textarea
-                rows={8}
-                value={bodyText}
-                readOnly
-                className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm opacity-70 cursor-not-allowed"
-              />
+              <textarea rows={8} value={bodyText} readOnly className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm opacity-70 cursor-not-allowed" />
             </div>
           </div>
 
@@ -446,22 +420,16 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
         <div className="mt-6 pt-4 border-t border-slate-700 space-y-3">
           {status && (
-            <p
-              className={`text-sm text-center p-3 rounded-md ${
-                status.type === 'success'
-                  ? 'bg-green-900/40 text-green-300'
-                  : status.type === 'info'
-                  ? 'bg-sky-900/40 text-sky-300'
-                  : 'bg-red-900/40 text-red-300'
-              }`}
-            >
+            <p className={`text-sm text-center p-3 rounded-md ${
+              status.type === 'success' ? 'bg-green-900/40 text-green-300'
+              : status.type === 'info' ? 'bg-sky-900/40 text-sky-300'
+              : 'bg-red-900/40 text-red-300'
+            }`}>
               {status.text}
             </p>
           )}
           <div className="flex flex-col sm:flex-row gap-3">
-            <ActionButton onClick={onClose} variant="secondary" disabled={isSending} fullWidth>
-              취소
-            </ActionButton>
+            <ActionButton onClick={onClose} variant="secondary" disabled={isSending} fullWidth>취소</ActionButton>
             <ActionButton
               onClick={handleSend}
               disabled={isSending || !emailValid || attachments.length === 0}
