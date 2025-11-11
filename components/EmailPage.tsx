@@ -201,7 +201,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       ``,
       `요청하신 기록부를 첨부드립니다.`,
       ``,
-      ENABLE_ENCRYPTION ? `[중요] 첨부파일은 고객 보호를 위해 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.` : ``,
+      ENABLE_ENCRYPTION ? `[중요] 첨부파일은 고객 보호를 위해 암호화되었습니다(.bin). 비밀번호는 신청인 전화번호 뒷 4자리입니다.` : ``,
       `※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.`,
     ].filter(Boolean);
     return lines.join('\n');
@@ -276,7 +276,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
           const bytes = await b64BodyToBytes(p.base64Body);
           const enc = await aesGcmEncrypt(bytes, pin!);
           outgoingAttachments.push({
-            name: p.name + '.enc',
+            name: p.name + '.bin', // ← Brevo가 enc 거부하므로 bin 사용
             content: `data:application/octet-stream;base64,${enc.ciphertext}`,
           });
         }
@@ -314,7 +314,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
           site_name: application?.site_name ?? '',
           kind: '기록부',
           ...(ENABLE_ENCRYPTION && {
-            encryption_notice: '첨부는 AES-GCM으로 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.',
+            encryption_notice: '첨부는 AES-GCM으로 암호화되었습니다(.bin). 비밀번호는 신청인 전화번호 뒷 4자리입니다.',
           }),
           total_size_mb: totalMB,
         },
