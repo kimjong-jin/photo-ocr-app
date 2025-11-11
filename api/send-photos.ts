@@ -9,9 +9,9 @@ function stripDataPrefix(b64: string) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS (동일 도메인이어도 안전하게)
+  // CORS (필요시 좁혀도 됨)
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type, api-key');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -32,22 +32,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { to, subject, htmlContent, attachments } = req.body as {
+    // 일부 런타임에서 req.body가 string일 수 있음
+    const raw = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {});
+    const { to, subject, htmlContent, textContent, attachments } = raw as {
       to: string;
       subject: string;
-      htmlContent: string;
+      htmlContent?: string;
+      textContent?: string;
       attachments?: { name: string; content: string }[];
     };
 
-    if (!to || !subject || !htmlContent) {
-      return res.status(400).json({ error: 'to/subject/htmlContent required.' });
+    if (!to || !subject || (!htmlContent && !textContent)) {
+      return res.status(400).json({ error: 'to/subject and htmlContent or textContent required.' });
     }
 
     const payload: any = {
       sender: { email: senderEmail, name: senderName },
       to: [{ email: to }],
       subject,
-      htmlContent: htmlContent.replace(/\n/g, '<br>'),
+      htmlContent: htmlContent ?? (textContent || '').replace(/\n/g, '<br>'),
+      textContent,
     };
 
     if (attachments?.length) {
@@ -71,7 +75,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!brevoRes.ok) {
       let msg: any = text;
       try { msg = JSON.parse(text); } catch {}
-      return res.status(brevoRes.status).json({ error: msg || `Brevo error ${brevoRes.status}` });
+      const friendly =
+        typeof msg === 'string'
+          ? msg
+          : msg?.message || msg?.error || `Brevo error ${brevoRes.status}`;
+      return res.status(brevoRes.status).json({ error: friendly });
     }
 
     let data: any = {};
