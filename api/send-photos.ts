@@ -1,11 +1,11 @@
-// api/send-photos.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const MAX_ATTACHMENTS = 15;
-const MAX_TOTAL_BYTES = 3_800_000; // 클라 3.5MB 목표 + 여유
+const MAX_TOTAL_BYTES = 3_800_000; // 프런트 3.3~3.5MB + 여유
 
 function stripDataPrefix(b64: string) {
+  if (!b64 || typeof b64 !== 'string') return '';
   const i = b64.indexOf('base64,');
   return i >= 0 ? b64.slice(i + 'base64,'.length) : b64.trim();
 }
@@ -22,11 +22,7 @@ function isLikelyPng(buf: Buffer) {
   );
 }
 function isLikelyPdf(buf: Buffer) {
-  // "%PDF-" = 0x25 0x50 0x44 0x46 0x2D
-  return (
-    buf.length >= 5 &&
-    buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d
-  );
+  return buf.length >= 5 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d; // %PDF-
 }
 function isAllowedPlainAttachment(buf: Buffer) {
   return isLikelyJpeg(buf) || isLikelyPng(buf) || isLikelyPdf(buf);
@@ -66,8 +62,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         bodyText?: string;
         receipt_no?: string;
         site_name?: string;
-        encryption_notice?: string;   // 클라가 암호화 안내 넣어주면 본문에 표시
-        kind?: '기록부' | '사진' | string; // 제목/본문 텍스트에 반영
+        encryption_notice?: string;
+        kind?: '기록부' | '사진' | string;
+        total_size_mb?: string;
       };
     };
 
@@ -82,6 +79,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const safeAttachments: { name: string; content: string }[] = [];
 
     for (const att of attachments) {
+      if (!att || typeof att.name !== 'string' || typeof att.content !== 'string') {
+        return res.status(400).json({ error: 'Attachment item must include name and content (base64).' });
+      }
+
       const raw = stripDataPrefix(att.content);
       totalBytes += Math.floor(raw.length * 0.75);
       if (totalBytes > MAX_TOTAL_BYTES) {
@@ -96,24 +97,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const isEncrypted = /\.enc$/i.test(att.name); // 암호화 파일은 시그니처 검사 스킵
-
-      if (!isEncrypted) {
-        if (!isAllowedPlainAttachment(buf)) {
-          return res.status(400).json({ error: 'Only JPEG/PNG/PDF or encrypted .enc attachments are allowed.' });
-        }
+      if (!isEncrypted && !isAllowedPlainAttachment(buf)) {
+        return res.status(400).json({ error: 'Only JPEG/PNG/PDF or encrypted .enc attachments are allowed.' });
       }
 
-      const fallback = isEncrypted ? 'file.enc' : 'file';
-      const safeName = sanitizeFilename(att.name, fallback);
-
-      // Brevo: attachment[].content = base64 본문(raw), data: 프리픽스 없이
-      safeAttachments.push({
-        name: safeName,
-        content: raw,
-      });
+      const safeName = sanitizeFilename(att.name, isEncrypted ? 'file.enc' : 'file');
+      safeAttachments.push({ name: safeName, content: raw }); // Brevo는 base64 본문만 요구
     }
 
-    // 텍스트 템플릿(기본: "기록부")
     const kind = (meta?.kind && String(meta.kind)) || '기록부';
     const site = (meta?.site_name || '').toString().slice(0, 120);
     const receipt = (meta?.receipt_no || '').toString().slice(0, 120);
@@ -124,7 +115,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const lines: string[] = [];
     if (meta?.bodyText) {
-      // 클라 본문 우선 (간단 방어)
       lines.push(
         String(meta.bodyText)
           .replace(/</g, '&lt;')
@@ -132,7 +122,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .slice(0, 4000)
       );
     } else {
-      // 기본 본문(기록부/사진에 따라 문구만 다르게)
       lines.push(
         '안녕하십니까, KTL 입니다.',
         receipt ? `접수번호: ${receipt}` : '',
@@ -142,10 +131,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ''
       );
     }
-
-    if (meta?.encryption_notice) {
-      lines.push(meta.encryption_notice);
-    }
+    if (meta?.encryption_notice) lines.push(meta.encryption_notice);
     lines.push('※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.');
 
     const htmlContent = lines.filter(Boolean).join('<br>');
@@ -155,8 +141,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       to: [{ email: to }],
       subject,
       htmlContent,
-      // Brevo: [{ name: string, content: base64-string }]
-      attachment: safeAttachments,
+      attachment: safeAttachments, // [{name, content(base64)}]
     };
 
     const brevoRes = await fetch(BREVO_API_URL, {
