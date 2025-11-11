@@ -689,7 +689,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         return;
       }
     }
-
     if (activePage === 'photoLog' || activePage === 'fieldCount') {
       const newJob: PhotoLogJob = {
         id: self.crypto.randomUUID(),
