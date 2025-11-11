@@ -1,7 +1,7 @@
 // services/kakaoService.ts
-// 전체 교체본: 429/깜빡임/새로고침/키 누락 안정화 포함
+// 429 방지/Abort 안전/키 누락 안전 + 광역단위 축약형 정규화(경남→경상남도 등) 포함
 
-// ✅ 축약형 → 풀네임 매핑
+// 표준 풀네임 매핑
 const REGION_FULLNAME_MAP: Record<string, string> = {
   "서울": "서울특별시",
   "부산": "부산광역시",
@@ -20,6 +20,28 @@ const REGION_FULLNAME_MAP: Record<string, string> = {
   "경북": "경상북도",
   "경남": "경상남도",
   "제주": "제주특별자치도",
+};
+
+// 축약/변형 → 풀네임 역매핑(입력 정규화용)
+const REGION_ALIAS_TO_FULL: Record<string, string> = {
+  "서울": "서울특별시", "서울시": "서울특별자치시" as any, // (표기 이슈 방지용, 아래 clean에서 보정)
+  "서울특별시": "서울특별시",
+  "부산": "부산광역시", "부산시": "부산광역시", "부산광역시": "부산광역시",
+  "대구": "대구광역시", "대구시": "대구광역시", "대구광역시": "대구광역시",
+  "인천": "인천광역시", "인천시": "인천광역시", "인천광역시": "인천광역시",
+  "광주": "광주광역시", "광주시": "광주광역시", "광주광역시": "광주광역시",
+  "대전": "대전광역시", "대전시": "대전광역시", "대전광역시": "대전광역시",
+  "울산": "울산광역시", "울산시": "울산광역시", "울산광역시": "울산광역시",
+  "세종": "세종특별자치시", "세종시": "세종특별자치시", "세종특별자치시": "세종특별자치시",
+  "경기": "경기도", "경기도": "경기도",
+  "강원": "강원특별자치도", "강원도": "강원특별자치도", "강원특별자치도": "강원특별자치도",
+  "충북": "충청북도", "충청북": "충청북도", "충청북도": "충청북도", "충북도": "충청북도",
+  "충남": "충청남도", "충청남": "충청남도", "충청남도": "충청남도", "충남도": "충청남도",
+  "전북": "전북특별자치도", "전라북": "전북특별자치도", "전북특별자치도": "전북특별자치도", "전북도": "전북특별자치도",
+  "전남": "전라남도", "전라남": "전라남도", "전라남도": "전라남도", "전남도": "전라남도",
+  "경북": "경상북도", "경상북": "경상북도", "경상북도": "경상북도", "경북도": "경상북도",
+  "경남": "경상남도", "경상남": "경상남도", "경상남도": "경상남도", "경남도": "경상남도",
+  "제주": "제주특별자치도", "제주도": "제주특별자치도", "제주특별자치도": "제주특별자치도",
 };
 
 // =========================
@@ -46,7 +68,7 @@ function setToCache(key: string, value: string) {
   addressCache.set(key, { value, timestamp: Date.now() });
 }
 
-// 디바운스 (드래그/타이핑 이벤트 완화)
+// 디바운스
 export function debounce<T extends (...args: any[]) => any>(fn: T, wait = 250) {
   let t: any;
   return (...args: Parameters<T>) => {
@@ -60,13 +82,23 @@ function snapCoord(v: number, step = 1e-4) {
   return Math.round(v / step) * step;
 }
 
+// 입력 지역명 정규화(시/도 접미 허용, 축약 허용)
 function normalizeRegion(name: string): string {
-  const base = name.replace(/시$/, "");
-  return REGION_FULLNAME_MAP[base] || name;
+  if (!name) return name;
+  const trimmed = name.trim();
+  const candidates = [trimmed, trimmed.replace(/[시도]$/u, "")];
+  for (const c of candidates) {
+    const full = REGION_ALIAS_TO_FULL[c];
+    if (full) return full;
+  }
+  // 기본 맵(축약→풀네임)도 시도
+  const base = trimmed.replace(/시$/, "");
+  return REGION_FULLNAME_MAP[base] || trimmed;
 }
 
-function cleanAddress(address: string, region: string): string {
-  const regionFullName = normalizeRegion(region);
+function cleanAddress(address: string, regionLike: string): string {
+  const regionFullName = normalizeRegion(regionLike)
+    .replace("서울특별자치시" as any, "서울특별시"); // 표기 보정
   if (address.startsWith(regionFullName)) {
     const cleaned = address.slice(regionFullName.length).trim();
     return cleaned ? `${regionFullName} ${cleaned}` : regionFullName;
@@ -89,7 +121,7 @@ async function rateLimit() {
   tokens--;
 }
 
-// 429 쿨다운 (짧은 시간 일시 정지)
+// 429 쿨다운
 let coolUntil = 0;
 async function maybeCooldown(status: number) {
   const now = Date.now();
@@ -171,7 +203,6 @@ async function searchAddressByQuery(query: string, apiKey: string): Promise<stri
 
 export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-  // ❗ 키 누락 시 앱 크래시 방지: 안전 반환
   if (!apiKey) {
     console.error("[Kakao] API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
     return [];
@@ -200,7 +231,6 @@ export async function searchAddressByKeyword(keyword: string): Promise<any[]> {
 
 export async function getKakaoAddress(latitude: number, longitude: number): Promise<string> {
   const apiKey = import.meta.env.VITE_KAKAO_REST_API_KEY;
-  // ❗ 키 누락 시 앱 크래시 방지: 안전 반환
   if (!apiKey) {
     console.error("[Kakao] API 키 없음 (VITE_KAKAO_REST_API_KEY 확인 필요)");
     return "주소를 찾을 수 없습니다.";
@@ -275,8 +305,7 @@ export async function fetchAddressFromCoords(
     if (myReqId !== latestGpsReqId) return; // stale 응답 무시
     setCurrentGpsAddress(((prev: string) => (prev === addr ? prev : addr)) as any);
   } catch (err: any) {
-    // 사용자가 이전 요청을 취소한 경우는 조용히 무시
-    if (err?.name === "AbortError" || err?.message?.includes("aborted")) return;
+    if (err?.name === "AbortError" || err?.message?.includes("aborted")) return; // 조용히 무시
     if (myReqId !== latestGpsReqId) return;
     console.warn("[fetchAddressFromCoords] 주소 변환 실패:", err);
     setCurrentGpsAddress("주소 변환 실패");
