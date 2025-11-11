@@ -1,3 +1,4 @@
+// vite.config.ts
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
@@ -19,24 +20,17 @@ export default defineConfig(({ mode }) => {
       dedupe: ['react', 'react-dom'],
       extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json'],
     },
-    // 클라이언트에서 읽을 환경변수 접두사
-    envPrefix: ['VITE_', 'SENDER_', 'BREVO_'],
-    server: {
-      host: true,
-      port: 5173,
-      strictPort: true,
-    },
-    preview: {
-      host: true,
-      port: 4173,
-    },
+    // ❗ 클라이언트에 노출 허용 접두사는 VITE_만 둔다
+    envPrefix: ['VITE_'],
+
+    server: { host: true, port: 5173, strictPort: true },
+    preview: { host: true, port: 4173 },
     build: {
       outDir: 'dist',
       target: 'es2020',
       sourcemap: true,
       rollupOptions: {
         onwarn(warning, warn) {
-          // 불필요한 경고 무시 (원하면 제거)
           if (warning.code === 'MODULE_LEVEL_DIRECTIVE') return;
           warn(warning);
         },
