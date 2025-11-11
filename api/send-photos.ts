@@ -2,15 +2,17 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const MAX_ATTACHMENTS = 15;
-const MAX_TOTAL_BYTES = 3_800_000; // 프런트 3.3~3.5MB + 여유
+const MAX_TOTAL_BYTES = 3_800_000;
 
 function stripDataPrefix(b64: string) {
   if (!b64 || typeof b64 !== 'string') return '';
   const i = b64.indexOf('base64,');
-  return i >= 0 ? b64.slice(i + 'base64,'.length) : b64.trim();
+  const s = (i >= 0 ? b64.slice(i + 'base64,'.length) : b64).trim();
+  // 개행/스페이스 제거 (Brevo가 개행 섞이면 400 주는 경우 방지)
+  return s.replace(/\s+/g, '');
 }
 
-// JPEG/PNG/PDF 시그니처 확인
+// JPEG/PNG/PDF 시그니처
 function isLikelyJpeg(buf: Buffer) {
   return buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xd8;
 }
@@ -22,14 +24,13 @@ function isLikelyPng(buf: Buffer) {
   );
 }
 function isLikelyPdf(buf: Buffer) {
-  // %PDF-
-  return buf.length >= 5 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d;
+  return buf.length >= 5 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d; // %PDF-
 }
 function isAllowedPlainAttachment(buf: Buffer) {
   return isLikelyJpeg(buf) || isLikelyPng(buf) || isLikelyPdf(buf);
 }
 
-// 안전한 파일명(확장자 유지, 허용 문자 외 치환)
+// 안전 파일명
 function sanitizeFilename(name: string, fallback: string) {
   const safe = (name || fallback).replace(/[^\w.\-ㄱ-ㅎ가-힣 ]/g, '_').slice(0, 100);
   return safe || fallback;
@@ -112,7 +113,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const safeName = sanitizeFilename(att.name, isEncrypted ? 'file.bin' : 'file');
-      safeAttachments.push({ name: safeName, content: raw }); // Brevo는 base64 본문만 요구
+      safeAttachments.push({ name: safeName, content: raw });
     }
 
     const kind = (meta?.kind && String(meta.kind)) || '기록부';
@@ -151,7 +152,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       to: [{ email: to }],
       subject,
       htmlContent,
-      attachment: safeAttachments, // [{name, content(base64)}]
+      attachment: safeAttachments, // [{name, content(base64-no-whitespace)}]
     };
 
     const brevoRes = await fetch(BREVO_API_URL, {
