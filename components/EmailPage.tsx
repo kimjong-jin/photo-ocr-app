@@ -172,7 +172,7 @@ type Props = {
 };
 
 const MAX_IMAGES = 15;
-// 암호화 끄고 싶으면 false로
+// 암호화 켜기/끄기
 const ENABLE_ENCRYPTION = true;
 
 const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, onSendSuccess }) => {
@@ -246,7 +246,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
     if (attachments.length === 0) return setStatus({ type: 'error', text: '이미지를 최소 1장 첨부하세요.' });
 
-    // 비밀번호(신청인 전화번호 뒷4자리) 계산 (암호화 켜져 있을 때만 필요)
+    // 비밀번호(신청인 전화번호 뒷4자리) 계산 (암호화 켜져 있을 때만)
     let pin: string | null = null;
     if (ENABLE_ENCRYPTION) {
       pin = last4FromApplication(application as any);
@@ -266,7 +266,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         setStatus({ type: 'info', text: `용량 제한으로 ${capped.length - processed.length}장은 제외되었습니다.` });
       }
 
-      // 서버 스펙에 맞춰 {name, content}로 변환 (data: 프리픽스 포함)
+      // 서버 스펙 {name, content} 로 전송 (data: 프리픽스 포함)
       let outgoingAttachments: Array<{ name: string; content: string }> = [];
 
       if (ENABLE_ENCRYPTION) {
@@ -285,10 +285,19 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         }));
       }
 
-      const totalBytes = outgoingAttachments.reduce(
-        (s, a) => s + estimateBase64Bytes(extractBase64Body(a.content)),
-        0
-      );
+      // 암호화/프리픽스 오버헤드 고려 총량 컷(선택)
+      const MAX_TOTAL_BYTES = 3_300_000;
+      const trimmed: typeof outgoingAttachments = [];
+      let acc = 0;
+      for (const a of outgoingAttachments) {
+        const b64Body = extractBase64Body(a.content);
+        const sz = estimateBase64Bytes(b64Body);
+        if (acc + sz > MAX_TOTAL_BYTES) break;
+        trimmed.push(a);
+        acc += sz;
+      }
+
+      const totalBytes = trimmed.reduce((s, a) => s + estimateBase64Bytes(extractBase64Body(a.content)), 0);
       const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
 
       const csrf = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '';
@@ -306,7 +315,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
           }),
           total_size_mb: totalMB,
         },
-        attachments: outgoingAttachments, // { name, content }[]
+        attachments: trimmed, // { name, content }[]
       };
 
       const res = await fetch('/api/send-photos', {
