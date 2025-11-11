@@ -50,16 +50,30 @@ function hasSuspiciousUnicode(s: string) {
   return false;
 }
 
-// --- allowlist & 도메인 유틸 ---
-const ALLOWED_DOMAINS = ['customer.co.kr', 'partner.com', 'ktl.or.kr']; // 정책에 맞게 조정
+// 메일 헤더 인젝션 방지(개행 제거 + 길이 제한)
+function sanitizeHeaderValue(s: string, limit = 200) {
+  return (s || '').replace(/[\r\n]+/g, ' ').slice(0, limit);
+}
+
+/* =========================
+   수신 도메인 위험도(차단 X, 경고/확인만)
+========================= */
 function domainOf(email: string) {
   const m = email.trim().toLowerCase().match(/@([^@]+)$/);
   return m ? m[1] : '';
 }
 
-// 메일 헤더 인젝션 방지(개행 제거 + 길이 제한)
-function sanitizeHeaderValue(s: string, limit = 200) {
-  return (s || '').replace(/[\r\n]+/g, ' ').slice(0, limit);
+// 무료/개인 도메인(경고용)
+const COMMON_FREE_DOMAINS = [
+  'gmail.com', 'naver.com', 'hanmail.net', 'daum.net',
+  'nate.com', 'yahoo.com', 'outlook.com', 'hotmail.com',
+];
+
+function domainRisk(dom: string) {
+  if (!dom) return { level: 'high' as const, reason: '도메인 누락' };
+  if (dom.length > 253 || /[^a-z0-9\.\-]/.test(dom)) return { level: 'high' as const, reason: '비정상 문자' };
+  if (COMMON_FREE_DOMAINS.includes(dom)) return { level: 'medium' as const, reason: '개인용 이메일' };
+  return { level: 'low' as const, reason: '일반 도메인' };
 }
 
 /* =========================
@@ -109,6 +123,9 @@ async function b64BodyToBytes(b64Body: string) {
   return fromB64(b64Body); // base64 본문 -> 바이너리
 }
 
+/* =========================
+   이미지 리사이즈/축소
+========================= */
 async function resizeImageToJpeg(
   file: File,
   maxW: number,
@@ -184,6 +201,9 @@ async function shrinkToMaxSize(images: ImageInfo[], maxTotalBytes = 3_500_000) {
   return result;
 }
 
+/* =========================
+   컴포넌트
+========================= */
 type Props = {
   isOpen: boolean;
   onClose: () => void;
@@ -267,12 +287,6 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     }
     if (attachments.length === 0) return setStatus({ type: 'error', text: '사진을 최소 1장 첨부하세요.' });
 
-    // 허용 도메인 검사
-    const dom = domainOf(toEmail);
-    if (!ALLOWED_DOMAINS.includes(dom)) {
-      return setStatus({ type: 'error', text: '허용되지 않은 수신 도메인입니다. 주소를 다시 확인하세요.' });
-    }
-
     // 비밀번호(신청인 전화번호 뒷4자리) 계산
     const pin = last4FromApplication(application as any);
     if (!pin || pin.length !== 4) {
@@ -290,6 +304,27 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         setStatus({ type: 'info', text: `용량 제한으로 ${capped.length - processed.length}장은 제외되었습니다.` });
       }
 
+      // 전송 전 위험도 및 요약 확인(차단 대신 이중 확인)
+      const dom = domainOf(toEmail);
+      const risk = domainRisk(dom);
+      const totalBytesBeforeEnc = processed.reduce((s, p) => s + estimateBase64Bytes(p.base64Body), 0);
+      const totalMBBeforeEnc = (totalBytesBeforeEnc / (1024 * 1024)).toFixed(2);
+
+      const ok1 = window.confirm(
+        `전송 대상: ${toEmail}\n도메인: ${dom}\n사진: ${processed.length}장\n총용량(암호화 전): ${totalMBBeforeEnc} MB` +
+        (risk.level !== 'low' ? `\n\n[주의] ${risk.reason}` : '') +
+        `\n\n전송을 계속하시겠습니까?`
+      );
+      if (!ok1) { setIsSending(false); return; }
+
+      // 2차 확인: 도메인 재입력(휴먼 에러 방지)
+      const domConfirm = window.prompt('수신자 도메인을 다시 입력하세요(예: example.com):', '');
+      if (!domConfirm || domConfirm.trim().toLowerCase() !== dom) {
+        setIsSending(false);
+        setStatus({ type: 'error', text: '도메인 확인이 일치하지 않습니다. 주소를 다시 확인하세요.' });
+        return;
+      }
+
       // 클라이언트 측 AES-GCM 암호화
       const encryptedAttachments = [];
       for (const p of processed) {
@@ -303,15 +338,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         });
       }
 
-      // 전송 전 요약(휴먼 에러 방지)
       const totalBytes = encryptedAttachments.reduce((s, a) => s + estimateBase64Bytes(a.base64), 0);
       const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
-      const confirmMsg =
-        `전송 대상: ${toEmail}\n도메인: ${dom}\n암호화 첨부: ${encryptedAttachments.length}개\n총용량(암호문 기준): ${totalMB} MB\n\n전송하시겠습니까?`;
-      if (!window.confirm(confirmMsg)) {
-        setIsSending(false);
-        return;
-      }
 
       const csrf = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '';
       const cleanSubject = sanitizeHeaderValue(subject) + ' (암호화 첨부)';
@@ -323,8 +351,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
           bodyText,
           receipt_no: application?.receipt_no ?? '',
           site_name: application?.site_name ?? '',
-          // 서버가 원하면 메타에 "암호는 신청인 전화 뒷 4자리" 안내만 포함(실제 숫자는 절대 포함 금지)
           encryption_notice: '첨부는 AES-GCM으로 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.',
+          total_size_mb: totalMB,
         },
         attachments: encryptedAttachments,
       };
@@ -341,6 +369,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
       if (!res.ok) {
         if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 사진 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
+        // 서버 상세 사유 노출 금지: 일반화 메시지
         throw new Error('전송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.');
       }
 
@@ -397,11 +426,32 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
                 inputMode="email"
               />
               {!emailValid && <p className="mt-1 text-xs text-red-300">유효한 이메일 주소를 입력하세요.</p>}
-              {toEmail && !ALLOWED_DOMAINS.includes(domainOf(toEmail)) && (
-                <p className="mt-1 text-xs rounded bg-red-900/30 text-red-200 p-2">
-                  외부/비허용 도메인입니다. 전송 전 반드시 주소를 확인하세요.
-                </p>
-              )}
+              {toEmail && (() => {
+                const dom = domainOf(toEmail);
+                const risk = domainRisk(dom);
+                if (hasSuspiciousUnicode(toEmail)) {
+                  return (
+                    <p className="mt-1 text-xs rounded bg-red-900/30 text-red-200 p-2">
+                      수신 이메일에 혼동 가능한 문자가 포함되어 있을 수 있습니다. 주소를 다시 확인하세요.
+                    </p>
+                  );
+                }
+                if (risk.level === 'medium') {
+                  return (
+                    <p className="mt-1 text-xs rounded bg-amber-900/30 text-amber-200 p-2">
+                      개인용 도메인({dom})입니다. 수신자가 맞는지 다시 확인하세요.
+                    </p>
+                  );
+                }
+                if (risk.level === 'high') {
+                  return (
+                    <p className="mt-1 text-xs rounded bg-red-900/30 text-red-200 p-2">
+                      도메인({dom || '없음'})이 비정상일 수 있습니다. 정확히 확인하세요.
+                    </p>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             <div>
