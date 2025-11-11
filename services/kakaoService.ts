@@ -1,7 +1,7 @@
 // services/kakaoService.ts
-// 429 방지/Abort 안전/키 누락 안전 + 광역단위 축약형 정규화(경남→경상남도 등) 포함
+// 전체 교체본: 축약형을 항상 풀네임으로 표준화(부산→부산광역시 등), 429/깜빡임/키 누락 안정화 포함
 
-// 표준 풀네임 매핑
+// ✅ 축약형 → 표준 풀네임
 const REGION_FULLNAME_MAP: Record<string, string> = {
   "서울": "서울특별시",
   "부산": "부산광역시",
@@ -22,10 +22,9 @@ const REGION_FULLNAME_MAP: Record<string, string> = {
   "제주": "제주특별자치도",
 };
 
-// 축약/변형 → 풀네임 역매핑(입력 정규화용)
+// ✅ 축약/변형 → 풀네임 역매핑(표준화용)
 const REGION_ALIAS_TO_FULL: Record<string, string> = {
-  "서울": "서울특별시", "서울시": "서울특별자치시" as any, // (표기 이슈 방지용, 아래 clean에서 보정)
-  "서울특별시": "서울특별시",
+  "서울": "서울특별시", "서울시": "서울특별시", "서울특별시": "서울특별시",
   "부산": "부산광역시", "부산시": "부산광역시", "부산광역시": "부산광역시",
   "대구": "대구광역시", "대구시": "대구광역시", "대구광역시": "대구광역시",
   "인천": "인천광역시", "인천시": "인천광역시", "인천광역시": "인천광역시",
@@ -35,12 +34,12 @@ const REGION_ALIAS_TO_FULL: Record<string, string> = {
   "세종": "세종특별자치시", "세종시": "세종특별자치시", "세종특별자치시": "세종특별자치시",
   "경기": "경기도", "경기도": "경기도",
   "강원": "강원특별자치도", "강원도": "강원특별자치도", "강원특별자치도": "강원특별자치도",
-  "충북": "충청북도", "충청북": "충청북도", "충청북도": "충청북도", "충북도": "충청북도",
-  "충남": "충청남도", "충청남": "충청남도", "충청남도": "충청남도", "충남도": "충청남도",
-  "전북": "전북특별자치도", "전라북": "전북특별자치도", "전북특별자치도": "전북특별자치도", "전북도": "전북특별자치도",
-  "전남": "전라남도", "전라남": "전라남도", "전라남도": "전라남도", "전남도": "전라남도",
-  "경북": "경상북도", "경상북": "경상북도", "경상북도": "경상북도", "경북도": "경상북도",
-  "경남": "경상남도", "경상남": "경상남도", "경상남도": "경상남도", "경남도": "경상남도",
+  "충북": "충청북도", "충청북": "충청북도", "충북도": "충청북도", "충청북도": "충청북도",
+  "충남": "충청남도", "충청남": "충청남도", "충남도": "충청남도", "충청남도": "충청남도",
+  "전북": "전북특별자치도", "전라북": "전북특별자치도", "전북도": "전북특별자치도", "전북특별자치도": "전북특별자치도",
+  "전남": "전라남도", "전라남": "전라남도", "전남도": "전라남도", "전라남도": "전라남도",
+  "경북": "경상북도", "경상북": "경상북도", "경북도": "경상북도", "경상북도": "경상북도",
+  "경남": "경상남도", "경상남": "경상남도", "경남도": "경상남도", "경상남도": "경상남도",
   "제주": "제주특별자치도", "제주도": "제주특별자치도", "제주특별자치도": "제주특별자치도",
 };
 
@@ -77,12 +76,12 @@ export function debounce<T extends (...args: any[]) => any>(fn: T, wait = 250) {
   };
 }
 
-// 좌표 스냅 (노이즈 억제, 캐시 히트↑) — 1e-4 deg ≈ 10~15m
+// 좌표 스냅 (≈10~15m)
 function snapCoord(v: number, step = 1e-4) {
   return Math.round(v / step) * step;
 }
 
-// 입력 지역명 정규화(시/도 접미 허용, 축약 허용)
+// 입력 지역명 정규화
 function normalizeRegion(name: string): string {
   if (!name) return name;
   const trimmed = name.trim();
@@ -91,14 +90,31 @@ function normalizeRegion(name: string): string {
     const full = REGION_ALIAS_TO_FULL[c];
     if (full) return full;
   }
-  // 기본 맵(축약→풀네임)도 시도
   const base = trimmed.replace(/시$/, "");
   return REGION_FULLNAME_MAP[base] || trimmed;
 }
 
+// (최종 표출용) 주소 첫 토큰을 항상 풀네임으로 강제
+function enforceFullRegionPrefix(address: string): string {
+  if (!address) return address;
+  const s = address.trim().replace(/\s+/g, " ");
+  const [first, ...rest] = s.split(" ");
+  if (!first) return s;
+
+  const candidates = [
+    first,
+    first.replace(/[시도]$/u, ""),
+    first.replace(/[,\-_/]+$/g, ""),
+  ];
+  for (const c of candidates) {
+    const full = REGION_ALIAS_TO_FULL[c];
+    if (full) return [full, ...rest].join(" ");
+  }
+  return s;
+}
+
 function cleanAddress(address: string, regionLike: string): string {
-  const regionFullName = normalizeRegion(regionLike)
-    .replace("서울특별자치시" as any, "서울특별시"); // 표기 보정
+  const regionFullName = normalizeRegion(regionLike);
   if (address.startsWith(regionFullName)) {
     const cleaned = address.slice(regionFullName.length).trim();
     return cleaned ? `${regionFullName} ${cleaned}` : regionFullName;
@@ -125,11 +141,11 @@ async function rateLimit() {
 let coolUntil = 0;
 async function maybeCooldown(status: number) {
   const now = Date.now();
-  if (status === 429) coolUntil = now + 3000; // 3초
+  if (status === 429) coolUntil = now + 3000;
   if (now < coolUntil) throw Object.assign(new Error("쿼터 과부하(쿨다운 중)"), { code: 429 });
 }
 
-// 엔드포인트 단위 중복 요청 제어 + 재시도
+// 엔드포인트 단위 중복 제어 + 재시도
 const inflightControllers = new Map<string, AbortController>();
 function getAbortKey(url: string, logicalKey?: string) {
   return logicalKey ?? url;
@@ -269,19 +285,21 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
   const lotNumber = mainNo ? (subNo ? `${mainNo}-${subNo}` : mainNo) : "";
 
   let finalAddr = "주소를 찾을 수 없습니다.";
+
   if (roadAddr) {
-    finalAddr = cleanAddress(roadAddr, region1) || `${region1} ${roadAddr}`;
+    // ✔ 카카오가 축약형으로 주는 도입부(예: '부산 동구 …')를 항상 풀네임으로 표준화
+    finalAddr = enforceFullRegionPrefix(roadAddr);
   } else if (lotAddr) {
     const searchedRoad = await searchAddressByQuery(lotAddr, apiKey);
     if (searchedRoad) {
-      finalAddr = cleanAddress(searchedRoad, region1) || `${region1} ${searchedRoad}`;
+      finalAddr = enforceFullRegionPrefix(searchedRoad);
     } else {
       const keywordResults = await searchAddressByKeyword(lotAddr);
       const firstMatch =
         keywordResults?.[0]?.road_address_name || keywordResults?.[0]?.address_name || "";
       finalAddr = firstMatch
-        ? cleanAddress(firstMatch, region1) || `${region1} ${firstMatch}`
-        : `${region1} ${region2} ${region3}${lotNumber ? ` ${lotNumber}` : ""}`.trim();
+        ? enforceFullRegionPrefix(firstMatch)
+        : enforceFullRegionPrefix(`${region1} ${region2} ${region3}${lotNumber ? ` ${lotNumber}` : ""}`.trim());
     }
   }
 
@@ -290,7 +308,7 @@ export async function getKakaoAddress(latitude: number, longitude: number): Prom
 }
 
 // =========================
-/** 상태 반영 (최근 요청만 수용) */
+// 상태 반영 (최근 요청만 수용)
 // =========================
 let latestGpsReqId = 0;
 
@@ -314,3 +332,5 @@ export async function fetchAddressFromCoords(
 
 // 드래그/이동 이벤트용 디바운스 버전
 export const fetchAddressFromCoordsDebounced = debounce(fetchAddressFromCoords, 250);
+
+export { enforceFullRegionPrefix }; // (원하면 UI에서도 재사용)
