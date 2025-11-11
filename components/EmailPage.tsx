@@ -1,173 +1,130 @@
-// components/EmailModal.tsx
-import React, { useEffect, useRef, useState } from 'react';
-import { ActionButton } from './ActionButton';
-import { ImageInput, ImageInfo } from './ImageInput';
-import { CameraView } from './CameraView';
-import { ThumbnailGallery } from './ThumbnailGallery';
-import { Spinner } from './Spinner';
+import React, { useState } from 'react';
+import { ActionButton } from '../components/ActionButton';
+import { Spinner } from '../components/Spinner';
+import type { Application } from '../components/ApplicationOcrSection';
 
-export interface ApplicationForEmail {
-  id: number;
-  receipt_no: string;
-  site_name: string;
-  applicant_email: string;
-}
-
-interface EmailModalProps {
+type Props = {
   isOpen: boolean;
   onClose: () => void;
-  application: ApplicationForEmail;
+  application: Application;
   userName: string;
-  onSendSuccess: (appId: number) => Promise<void>;
-}
-
-const toPureBase64 = (s: string) => {
-  const i = s.indexOf('base64,');
-  return i >= 0 ? s.slice(i + 'base64,'.length) : s.trim();
+  onSendSuccess: (appId: number) => void;
 };
 
-const EmailModal: React.FC<EmailModalProps> = ({
-  isOpen, onClose, application, userName, onSendSuccess
-}) => {
-  const [recipientEmail, setRecipientEmail] = useState('');
-  const [subject, setSubject] = useState('');
-  const [htmlContent, setHtmlContent] = useState('');
-  const [attachments, setAttachments] = useState<ImageInfo[]>([]);
+const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, onSendSuccess }) => {
+  const [subject, setSubject] = useState<string>(`[KTL] 시험·검사 안내 – ${application.site_name}`);
+  const [body, setBody] = useState<string>([
+    `${application.applicant_name} 담당자님,`,
+    ``,
+    `KTL ${userName}입니다. 아래 건으로 시험·검사 일정을 안내드립니다.`,
+    ``,
+    `- 접수번호: ${application.receipt_no}`,
+    `- 현장(회사명): ${application.site_name}`,
+    ``,
+    `문의 사항은 본 메일에 회신 부탁드립니다.`,
+    ``,
+    `감사합니다.`,
+    `KTL ${userName}`,
+  ].join('\n'));
   const [isSending, setIsSending] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (isOpen && application) {
-      setRecipientEmail(application.applicant_email || '');
-      setSubject(`[KTL] ${application.site_name} 정도검사 기록부 전달`);
-      setHtmlContent(
-`안녕하십니까, KTL ${userName}입니다.
-
-접수번호: ${application.receipt_no}
-현장: ${application.site_name}
-
-정도검사가 완료되어 기록부 사본을 보내드리오니, 업무에 참고 바랍니다.
-
-감사합니다.
-
-본 메일은 발신 전용(no-reply) 주소에서 발송되었으며, 회신하신 메일은 확인되지 않습니다.`
-      );
-      setAttachments([]);
-      setStatusMessage(null);
-      setIsCameraOpen(false);
-    }
-  }, [isOpen, application, userName]);
-
-  useEffect(() => {
-    if (!statusMessage) return;
-    const t = setTimeout(() => setStatusMessage(null), 5000);
-    return () => clearTimeout(t);
-  }, [statusMessage]);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleSend = async () => {
-    if (!recipientEmail.trim()) return setStatusMessage({ type: 'error', text: '수신자 이메일이 없습니다.' });
-    if (!subject) return setStatusMessage({ type: 'error', text: '제목을 입력해주세요.' });
-    if (!htmlContent) return setStatusMessage({ type: 'error', text: '내용을 입력해주세요.' });
-
     setIsSending(true);
-    setStatusMessage(null);
-
+    setError(null);
     try {
-      const res = await fetch('/api/send-photos', {
+      // 서버의 이메일 전송 API 라우트(예: /api/send-email)를 호출합니다.
+      // 프로젝트에 이미 있는 라우트를 사용하세요. (BREVO 등 환경변수는 서버쪽에서 사용)
+      const res = await fetch('/api/send-email', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to: recipientEmail.trim(),
+          to: application.applicant_email,
           subject,
-          htmlContent,
-          attachments: attachments.map(a => ({
-            name: a.file.name,
-            content: toPureBase64(a.base64),
-          })),
+          text: body,
+          html: body.replace(/\n/g, '<br/>'),
+          meta: {
+            receipt_no: application.receipt_no,
+            site_name: application.site_name,
+            applicant_name: application.applicant_name,
+          },
         }),
       });
 
       if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error || `HTTP ${res.status}`);
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Email API failed with ${res.status}`);
       }
 
-      await onSendSuccess(application.id);
-      setStatusMessage({ type: 'success', text: '메일이 성공적으로 전송되었습니다.' });
-      setTimeout(onClose, 1200);
+      onSendSuccess(application.id);
+      onClose();
     } catch (e: any) {
-      setStatusMessage({ type: 'error', text: `전송 실패: ${e.message}` });
+      setError(e?.message || '이메일 전송에 실패했습니다.');
     } finally {
       setIsSending(false);
     }
   };
 
-  const handleImagesSet = (newImages: ImageInfo[]) => setAttachments(prev => [...prev, ...newImages]);
-  const handleCameraCapture = (file: File, base64: string, mimeType: string) => {
-    setAttachments(prev => [...prev, { file, base64, mimeType }]);
-    setIsCameraOpen(false);
-  };
-  const handleDeleteAttachment = (i: number) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
-
   return (
-    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={onClose} role="dialog" aria-modal="true" aria-label="이메일 전송 모달">
-      <div className="bg-slate-800 p-6 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <h2 className="text-2xl font-bold text-sky-400 mb-4 pb-3 border-b border-slate-700">
-          이메일 전송: {application.receipt_no}
-        </h2>
-
-        <div className="overflow-y-auto flex-grow pr-2 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">수신</label>
-                <input type="email" value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)} disabled={isSending}
-                  className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">제목</label>
-                <input type="text" value={subject} onChange={e => setSubject(e.target.value)} disabled={isSending}
-                  className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">내용</label>
-                <textarea value={htmlContent} onChange={e => setHtmlContent(e.target.value)} rows={8} disabled={isSending}
-                  className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm" />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-slate-100">사진 첨부</h3>
-              {isCameraOpen ? (
-                <CameraView onCapture={handleCameraCapture} onClose={() => setIsCameraOpen(false)} />
-              ) : (
-                <ImageInput onImagesSet={handleImagesSet} onOpenCamera={() => setIsCameraOpen(true)} isLoading={isSending} ref={fileInputRef} selectedImageCount={attachments.length} />
-              )}
-              <ThumbnailGallery
-                images={attachments}
-                currentIndex={-1}
-                onSelectImage={() => {}}
-                onDeleteImage={handleDeleteAttachment}
-                disabled={isSending}
-              />
-            </div>
-          </div>
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-xl bg-slate-800 border border-slate-700 shadow-xl p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold text-white">이메일 보내기</h3>
+          <button
+            onClick={onClose}
+            className="text-slate-300 hover:text-white rounded-md px-2 py-1"
+            aria-label="닫기"
+          >
+            ✕
+          </button>
         </div>
 
-        <div className="mt-6 pt-4 border-t border-slate-700 space-y-3">
-          {statusMessage && (
-            <p className={`text-sm text-center p-3 rounded-md ${statusMessage.type === 'success' ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300'}`}>
-              {statusMessage.text}
-            </p>
+        <div className="space-y-3">
+          <div className="text-sm text-slate-300 bg-slate-700/40 rounded-lg p-3">
+            <div><span className="font-semibold">수신</span>: {application.applicant_name} &lt;{application.applicant_email}&gt;</div>
+            <div><span className="font-semibold">접수번호</span>: {application.receipt_no}</div>
+            <div><span className="font-semibold">현장</span>: {application.site_name}</div>
+          </div>
+
+          <div>
+            <label className="block text-sm mb-1 text-slate-300">제목</label>
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="w-full rounded-md bg-white text-slate-900 p-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm mb-1 text-slate-300">본문</label>
+            <textarea
+              rows={10}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              className="w-full rounded-md bg-white text-slate-900 p-2 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            />
+          </div>
+
+          {error && (
+            <p className="text-red-400 text-sm p-2 bg-red-900/30 rounded-md">{error}</p>
           )}
-          <div className="flex flex-col sm:flex-row gap-4">
-            <ActionButton onClick={onClose} variant="secondary" disabled={isSending} fullWidth>취소</ActionButton>
-            <ActionButton onClick={handleSend} disabled={isSending || !recipientEmail} fullWidth icon={isSending ? <Spinner size="sm" /> : undefined}>
-              {isSending ? '전송 중...' : '전송'}
+
+          <div className="flex gap-2 justify-end pt-2">
+            <ActionButton variant="secondary" onClick={onClose} disabled={isSending}>
+              취소
+            </ActionButton>
+            <ActionButton onClick={handleSend} disabled={isSending}>
+              {isSending ? <Spinner size="sm" /> : '전송'}
             </ActionButton>
           </div>
         </div>
