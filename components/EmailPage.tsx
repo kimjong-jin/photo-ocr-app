@@ -186,7 +186,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
   const subject = useMemo(() => {
     const site = application?.site_name ?? '';
-    const base = site ? `[KTL] ${site} 사진 전달` : `[KTL] 사진 전달`;
+    const base = site ? `[KTL] ${site} 기록부 전달` : `[KTL] 기록부 전달`;
     return ENABLE_ENCRYPTION ? `${base} (암호화 첨부)` : base;
   }, [application?.site_name]);
 
@@ -197,7 +197,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       application?.receipt_no ? `접수번호: ${application.receipt_no}` : ``,
       application?.site_name ? `현장: ${application.site_name}` : ``,
       ``,
-      `요청하신 사진을 첨부드립니다.`,
+      `요청하신 기록부를 첨부드립니다.`,
       ``,
       ENABLE_ENCRYPTION ? `[중요] 첨부파일은 고객 보호를 위해 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.` : ``,
       `※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.`,
@@ -227,13 +227,13 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     const incoming = filtered.slice(0, room);
     const dropped = filtered.length - incoming.length;
     setAttachments((prev) => [...prev, ...incoming]);
-    if (dropped > 0) setStatus({ type: 'info', text: `사진은 최대 ${MAX_IMAGES}장까지 첨부됩니다. 초과 ${dropped}장은 제외되었습니다.` });
+    if (dropped > 0) setStatus({ type: 'info', text: `이미지는 최대 ${MAX_IMAGES}장까지 첨부됩니다. 초과 ${dropped}장은 제외되었습니다.` });
   };
 
   const handleCameraCapture = (file: File, base64: string, mimeType: string) => {
     if (!mimeType.startsWith('image/')) return;
     if (attachments.length >= MAX_IMAGES) {
-      setStatus({ type: 'info', text: `사진은 최대 ${MAX_IMAGES}장까지 첨부됩니다.` });
+      setStatus({ type: 'info', text: `이미지는 최대 ${MAX_IMAGES}장까지 첨부됩니다.` });
       return;
     }
     setAttachments((prev) => [...prev, { file, base64, mimeType }]);
@@ -244,7 +244,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
   const handleSend = async () => {
     if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
-    if (attachments.length === 0) return setStatus({ type: 'error', text: '사진을 최소 1장 첨부하세요.' });
+    if (attachments.length === 0) return setStatus({ type: 'error', text: '이미지를 최소 1장 첨부하세요.' });
 
     // 비밀번호(신청인 전화번호 뒷4자리) 계산 (암호화 켜져 있을 때만 필요)
     let pin: string | null = null;
@@ -266,30 +266,29 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         setStatus({ type: 'info', text: `용량 제한으로 ${capped.length - processed.length}장은 제외되었습니다.` });
       }
 
-      let outgoingAttachments: Array<{ name: string; mimeType: string; base64: string; meta?: any }> = [];
+      // 서버 스펙에 맞춰 {name, content}로 변환 (data: 프리픽스 포함)
+      let outgoingAttachments: Array<{ name: string; content: string }> = [];
 
       if (ENABLE_ENCRYPTION) {
-        // 클라이언트 측 AES-GCM 암호화
         for (const p of processed) {
           const bytes = await b64BodyToBytes(p.base64Body);
           const enc = await aesGcmEncrypt(bytes, pin!);
           outgoingAttachments.push({
             name: p.name + '.enc',
-            mimeType: 'application/octet-stream',
-            base64: enc.ciphertext,
-            meta: { alg: 'AES-GCM-256', salt: enc.salt, iv: enc.iv },
+            content: `data:application/octet-stream;base64,${enc.ciphertext}`,
           });
         }
       } else {
-        // 암호화 없이 전송
         outgoingAttachments = processed.map((p) => ({
           name: p.name,
-          mimeType: p.mimeType,
-          base64: p.base64Body,
+          content: `data:${p.mimeType};base64,${p.base64Body}`,
         }));
       }
 
-      const totalBytes = outgoingAttachments.reduce((s, a) => s + estimateBase64Bytes(a.base64), 0);
+      const totalBytes = outgoingAttachments.reduce(
+        (s, a) => s + estimateBase64Bytes(extractBase64Body(a.content)),
+        0
+      );
       const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
 
       const csrf = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '';
@@ -297,16 +296,17 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       const payload = {
         to: toEmail.trim(),
         meta: {
-          subject: subject,
+          subject,
           bodyText,
           receipt_no: application?.receipt_no ?? '',
           site_name: application?.site_name ?? '',
+          kind: '기록부',
           ...(ENABLE_ENCRYPTION && {
             encryption_notice: '첨부는 AES-GCM으로 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.',
           }),
           total_size_mb: totalMB,
         },
-        attachments: outgoingAttachments,
+        attachments: outgoingAttachments, // { name, content }[]
       };
 
       const res = await fetch('/api/send-photos', {
@@ -320,7 +320,6 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       });
 
       if (!res.ok) {
-        // 콘솔에만 상세 로그(개발/운영 확인용). 사용자 메시지는 일반화.
         try {
           const errJson = await res.json();
           console.warn('Email send failed:', res.status, errJson);
@@ -328,7 +327,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
           const errText = await res.text().catch(() => '');
           console.warn('Email send failed:', res.status, errText);
         }
-        if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 사진 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
+        if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 이미지 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
         throw new Error('전송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.');
       }
 
@@ -354,7 +353,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-xl sm:text-2xl font-semibold text-white">
-          사진 전송: <span className="text-sky-400">{application.receipt_no}</span>
+          기록부 전송: <span className="text-sky-400">{application.receipt_no}</span>
         </h2>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto pr-1">
@@ -385,7 +384,6 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
                 inputMode="email"
               />
               {!emailValid && <p className="mt-1 text-xs text-red-300">유효한 이메일 주소를 입력하세요.</p>}
-              {/* 경고/도메인 제한/이중확인 전부 제거 */}
             </div>
 
             <div>
@@ -410,7 +408,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-100">사진 첨부(최대 {MAX_IMAGES}장)</h3>
+              <h3 className="text-lg font-semibold text-slate-100">이미지 첨부(최대 {MAX_IMAGES}장)</h3>
               <ActionButton variant="secondary" onClick={() => setIsCameraOpen((v) => !v)} disabled={isSending}>
                 {isCameraOpen ? '카메라 닫기' : '카메라 열기'}
               </ActionButton>
