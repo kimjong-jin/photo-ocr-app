@@ -36,7 +36,6 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T, idx: number)
 }
 
 // 의심스러운 동형이의 문자 간단 감지(선택적 경고)
-// 예: 라틴 a(U+0061)처럼 보이는 키릴 a(U+0430)
 const CONFUSABLE_RANGES: Array<[number, number]> = [
   [0x0400, 0x04FF], // Cyrillic
   [0x0370, 0x03FF], // Greek
@@ -49,6 +48,65 @@ function hasSuspiciousUnicode(s: string) {
     if (CONFUSABLE_RANGES.some(([a, b]) => code >= a && code <= b)) return true;
   }
   return false;
+}
+
+// --- allowlist & 도메인 유틸 ---
+const ALLOWED_DOMAINS = ['customer.co.kr', 'partner.com', 'ktl.or.kr']; // 정책에 맞게 조정
+function domainOf(email: string) {
+  const m = email.trim().toLowerCase().match(/@([^@]+)$/);
+  return m ? m[1] : '';
+}
+
+// 메일 헤더 인젝션 방지(개행 제거 + 길이 제한)
+function sanitizeHeaderValue(s: string, limit = 200) {
+  return (s || '').replace(/[\r\n]+/g, ' ').slice(0, limit);
+}
+
+/* =========================
+   클라이언트 암호화(AES-GCM, 비번=전화번호 뒷4자리)
+========================= */
+function onlyDigits(s: string) {
+  return (s || '').replace(/\D+/g, '');
+}
+function last4FromApplication(app: any): string | null {
+  const candidates = [
+    app?.applicant_phone, app?.applicant_tel, app?.applicant_mobile,
+    app?.phone, app?.tel, app?.mobile,
+  ];
+  for (const cand of candidates) {
+    const d = onlyDigits(String(cand || ''));
+    if (d.length >= 4) return d.slice(-4);
+  }
+  return null;
+}
+function toB64(u8: Uint8Array) {
+  let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return btoa(s);
+}
+function fromB64(b64: string) {
+  const bin = atob(b64); const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+async function deriveKeyFromPassword(password: string, salt: Uint8Array) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 150_000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+async function aesGcmEncrypt(bytes: Uint8Array, password: string) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKeyFromPassword(password, salt);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes);
+  return { salt: toB64(salt), iv: toB64(iv), ciphertext: toB64(new Uint8Array(ct)) };
+}
+async function b64BodyToBytes(b64Body: string) {
+  return fromB64(b64Body); // base64 본문 -> 바이너리
 }
 
 async function resizeImageToJpeg(
@@ -91,9 +149,7 @@ async function resizeImageToJpeg(
 
     return { base64Body, mimeType: 'image/jpeg', name };
   } finally {
-    try {
-      (bmp as any)?.close?.();
-    } catch {}
+    try { (bmp as any)?.close?.(); } catch {}
   }
 }
 
@@ -161,6 +217,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       ``,
       `요청하신 사진을 첨부드립니다.`,
       ``,
+      `[중요] 첨부파일은 고객 보호를 위해 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.`,
       `※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.`,
     ].filter(Boolean);
     return lines.join('\n');
@@ -210,6 +267,18 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     }
     if (attachments.length === 0) return setStatus({ type: 'error', text: '사진을 최소 1장 첨부하세요.' });
 
+    // 허용 도메인 검사
+    const dom = domainOf(toEmail);
+    if (!ALLOWED_DOMAINS.includes(dom)) {
+      return setStatus({ type: 'error', text: '허용되지 않은 수신 도메인입니다. 주소를 다시 확인하세요.' });
+    }
+
+    // 비밀번호(신청인 전화번호 뒷4자리) 계산
+    const pin = last4FromApplication(application as any);
+    if (!pin || pin.length !== 4) {
+      return setStatus({ type: 'error', text: '신청인의 전화번호 정보가 없어 암호화 비밀번호(뒷 4자리)를 생성할 수 없습니다.' });
+    }
+
     setIsSending(true);
     setStatus(null);
 
@@ -221,24 +290,43 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
         setStatus({ type: 'info', text: `용량 제한으로 ${capped.length - processed.length}장은 제외되었습니다.` });
       }
 
-      // base64 본문만 사용하도록 보정
-      const safeProcessed = processed.map((p) => ({
-        name: p.name,
-        mimeType: p.mimeType,
-        base64: p.base64Body, // 이미 본문만
-      }));
+      // 클라이언트 측 AES-GCM 암호화
+      const encryptedAttachments = [];
+      for (const p of processed) {
+        const bytes = await b64BodyToBytes(p.base64Body);
+        const enc = await aesGcmEncrypt(bytes, pin);
+        encryptedAttachments.push({
+          name: p.name + '.enc',
+          mimeType: 'application/octet-stream',
+          base64: enc.ciphertext,
+          meta: { alg: 'AES-GCM-256', salt: enc.salt, iv: enc.iv },
+        });
+      }
+
+      // 전송 전 요약(휴먼 에러 방지)
+      const totalBytes = encryptedAttachments.reduce((s, a) => s + estimateBase64Bytes(a.base64), 0);
+      const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+      const confirmMsg =
+        `전송 대상: ${toEmail}\n도메인: ${dom}\n암호화 첨부: ${encryptedAttachments.length}개\n총용량(암호문 기준): ${totalMB} MB\n\n전송하시겠습니까?`;
+      if (!window.confirm(confirmMsg)) {
+        setIsSending(false);
+        return;
+      }
 
       const csrf = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '';
+      const cleanSubject = sanitizeHeaderValue(subject) + ' (암호화 첨부)';
 
       const payload = {
         to: toEmail.trim(),
         meta: {
-          subject,
+          subject: cleanSubject,
           bodyText,
           receipt_no: application?.receipt_no ?? '',
           site_name: application?.site_name ?? '',
+          // 서버가 원하면 메타에 "암호는 신청인 전화 뒷 4자리" 안내만 포함(실제 숫자는 절대 포함 금지)
+          encryption_notice: '첨부는 AES-GCM으로 암호화되었습니다. 비밀번호는 신청인 전화번호 뒷 4자리입니다.',
         },
-        attachments: safeProcessed,
+        attachments: encryptedAttachments,
       };
 
       const res = await fetch('/api/send-photos', {
@@ -247,14 +335,13 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
           'Content-Type': 'application/json',
           ...(csrf && { 'X-CSRF-Token': csrf }),
         },
-        credentials: 'same-origin', // CSRF 조합
+        credentials: 'same-origin',
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        // 내부 사유 노출 방지: 메시지 일반화
         if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 사진 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
-        throw new Error('전송에 실패했습니다. 잠시 후 다시 시도해주세요.');
+        throw new Error('전송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.');
       }
 
       await onSendSuccess(application.id);
@@ -275,7 +362,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       aria-modal="true"
     >
       <div
-        className="bg-slate-800 w-full max-w-4xl max-h/[92vh] rounded-xl border border-slate-700 shadow-2xl p-6 flex flex-col"
+        className="bg-slate-800 w-full max-w-4xl max-h-[92vh] rounded-xl border border-slate-700 shadow-2xl p-6 flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-xl sm:text-2xl font-semibold text-white">
@@ -310,13 +397,18 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
                 inputMode="email"
               />
               {!emailValid && <p className="mt-1 text-xs text-red-300">유효한 이메일 주소를 입력하세요.</p>}
+              {toEmail && !ALLOWED_DOMAINS.includes(domainOf(toEmail)) && (
+                <p className="mt-1 text-xs rounded bg-red-900/30 text-red-200 p-2">
+                  외부/비허용 도메인입니다. 전송 전 반드시 주소를 확인하세요.
+                </p>
+              )}
             </div>
 
             <div>
               <label className="block text-sm mb-1 text-slate-300">제목(고정)</label>
               <input
                 type="text"
-                value={subject}
+                value={subject + ' (암호화 첨부)'}
                 readOnly
                 className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm opacity-70 cursor-not-allowed"
               />
