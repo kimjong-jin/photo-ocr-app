@@ -373,16 +373,16 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
             </div>
 
             <div>
-              <label className=\"block text-sm mb-1 text-slate-300\">제목<\/label>
+              <label className="block text-sm mb-1 text-slate-300">제목</label>
               <input
-                type=\"text\"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                disabled={isSending}
-                className=\"block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm\"
-                placeholder={initialSubject}
-              />
-            </div>
+                  type="text"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  disabled={isSending}
+                  className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md text-sm"
+                  placeholder={initialSubject}
+               />
+             </div>
 
             {/* 본문 편집 가능 */}
             <div>
