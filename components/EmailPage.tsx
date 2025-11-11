@@ -1,19 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Application } from './ApplicationOcrSection';
 import { ActionButton } from './ActionButton';
-import { ImageInput, type ImageInfo } from './ImageInput';
 import { CameraView } from './CameraView';
 import { ThumbnailGallery } from './ThumbnailGallery';
 import { Spinner } from './Spinner';
 
-// ===== 이미지 유틸 =====
+// 기존 ImageInput 대신 파일 입력을 직접 처리(이미지+PDF)
+// 필요 시 별도 컴포넌트로 분리해도 됩니다.
+
+export type ImageInfo = { file: File; base64: string; mimeType: string; name?: string };
+type PdfInfo = { file: File; base64: string; mimeType: 'application/pdf'; name: string };
+
 function estimateBase64Bytes(b64: string) {
   const i = b64.indexOf('base64,');
   const pure = i >= 0 ? b64.slice(i + 'base64,'.length) : b64;
   return Math.floor(pure.length * 0.75);
 }
 
-async function resizeImageToJpeg(file: File, maxW: number, quality: number): Promise<{ base64: string; mimeType: string; name: string }> {
+async function resizeImageToJpeg(
+  file: File,
+  maxW: number,
+  quality: number
+): Promise<{ base64: string; mimeType: string; name: string }> {
   const bmp = await createImageBitmap(file);
   const scale = Math.min(1, maxW / bmp.width);
   const w = Math.max(1, Math.floor(bmp.width * scale));
@@ -33,8 +41,8 @@ async function resizeImageToJpeg(file: File, maxW: number, quality: number): Pro
   return { base64, mimeType: 'image/jpeg', name: file.name.replace(/\.[^.]+$/, '') + '.jpg' };
 }
 
-// 총합 3.5MB 이하 목표
-async function shrinkToMaxSize(images: ImageInfo[], maxTotalBytes = 3_500_000) {
+// 총합 3.5MB 이하 목표 (이미지만 축소; PDF는 그대로)
+async function shrinkImagesToMaxSize(images: ImageInfo[], maxTotalBytes = 3_500_000) {
   const passes: Array<[number, number]> = [
     [1600, 0.8],
     [1400, 0.72],
@@ -51,7 +59,7 @@ async function shrinkToMaxSize(images: ImageInfo[], maxTotalBytes = 3_500_000) {
     if (total <= maxTotalBytes) return processed;
   }
 
-  // 마지막 패스(가장 작은 설정) 기준으로 가능한 만큼만 포함
+  // 마지막 패스 기준으로 가능한 만큼만 포함
   const fallback = await Promise.all(images.map((img) => resizeImageToJpeg(img.file, 600, 0.45)));
   const result: typeof fallback = [];
   let accum = 0;
@@ -72,11 +80,12 @@ type Props = {
   onSendSuccess: (appId: number) => void | Promise<void>;
 };
 
-const MAX_IMAGES = 15;
+const MAX_FILES = 15;
 
 const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, onSendSuccess }) => {
   const [toEmail, setToEmail] = useState('');
-  const [attachments, setAttachments] = useState<ImageInfo[]>([]);
+  const [images, setImages] = useState<ImageInfo[]>([]);
+  const [pdfs, setPdfs] = useState<PdfInfo[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -84,7 +93,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
 
   const subject = useMemo(() => {
     const site = application?.site_name ?? '';
-    return site ? `[KTL] ${site} 사진 전달` : `[KTL] 사진 전달`;
+    return site ? `[KTL] ${site} 사진/문서 전달` : `[KTL] 사진/문서 전달`;
   }, [application?.site_name]);
 
   const bodyText = useMemo(() => {
@@ -94,7 +103,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       application?.receipt_no ? `접수번호: ${application.receipt_no}` : ``,
       application?.site_name ? `현장: ${application.site_name}` : ``,
       ``,
-      `요청하신 사진을 첨부드립니다.`,
+      `요청하신 자료(사진/기록부)를 암호화 ZIP으로 첨부드립니다.`,
+      `※ 비밀번호는 신청자 전화번호 뒷 4자리입니다. (전화번호가 없으면 별도 안내)`,
       ``,
       `※ 본 메일은 발신 전용(no-reply) 주소에서 발송되었습니다. 회신 메일은 확인되지 않습니다.`,
     ].filter(Boolean);
@@ -104,7 +114,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   useEffect(() => {
     if (!isOpen) return;
     setToEmail(application?.applicant_email || '');
-    setAttachments([]);
+    setImages([]);
+    setPdfs([]);
     setStatus(null);
     setIsCameraOpen(false);
   }, [isOpen, application]);
@@ -112,41 +123,75 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
   const emailValid = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail.trim()), [toEmail]);
   if (!isOpen) return null;
 
-  const handleImagesSet = (newImages: ImageInfo[]) => {
-    const filtered = newImages.filter((i) => i.mimeType.startsWith('image/'));
-    const room = Math.max(0, MAX_IMAGES - attachments.length);
-    const incoming = filtered.slice(0, room);
-    const dropped = filtered.length - incoming.length;
-    setAttachments((prev) => [...prev, ...incoming]);
-    if (dropped > 0) setStatus({ type: 'info', text: `사진은 최대 ${MAX_IMAGES}장까지 첨부됩니다. 초과 ${dropped}장은 제외되었습니다.` });
+  const totalCount = images.length + pdfs.length;
+
+  const handleFilePick = async (files: FileList | null) => {
+    if (!files) return;
+
+    const incoming: Array<ImageInfo | PdfInfo> = [];
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('image/')) {
+        const base64 = await new Promise<string>((res) => {
+          const fr = new FileReader();
+          fr.onload = () => res(String(fr.result));
+          fr.readAsDataURL(file);
+        });
+        incoming.push({ file, base64, mimeType: file.type, name: file.name });
+      } else if (file.type === 'application/pdf') {
+        const base64 = await new Promise<string>((res) => {
+          const fr = new FileReader();
+          fr.onload = () => res(String(fr.result));
+          fr.readAsDataURL(file);
+        });
+        incoming.push({ file, base64, mimeType: 'application/pdf', name: file.name });
+      }
+    }
+
+    const room = Math.max(0, MAX_FILES - totalCount);
+    const picked = incoming.slice(0, room);
+    const dropped = incoming.length - picked.length;
+
+    const imgs = picked.filter((x): x is ImageInfo => (x as any).mimeType?.startsWith('image/'));
+    const docs = picked.filter((x): x is PdfInfo => (x as any).mimeType === 'application/pdf');
+
+    setImages((prev) => [...prev, ...imgs]);
+    setPdfs((prev) => [...prev, ...docs]);
+
+    if (dropped > 0) {
+      setStatus({ type: 'info', text: `최대 ${MAX_FILES}개까지 첨부됩니다. 초과 ${dropped}개는 제외되었습니다.` });
+    }
   };
 
   const handleCameraCapture = (file: File, base64: string, mimeType: string) => {
     if (!mimeType.startsWith('image/')) return;
-    if (attachments.length >= MAX_IMAGES) {
-      setStatus({ type: 'info', text: `사진은 최대 ${MAX_IMAGES}장까지 첨부됩니다.` });
+    if (totalCount >= MAX_FILES) {
+      setStatus({ type: 'info', text: `최대 ${MAX_FILES}개까지 첨부됩니다.` });
       return;
     }
-    setAttachments((prev) => [...prev, { file, base64, mimeType }]);
+    setImages((prev) => [...prev, { file, base64, mimeType }]);
     setIsCameraOpen(false);
   };
 
-  const handleDeleteAttachment = (idx: number) => setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  const handleDeleteImage = (idx: number) => setImages((prev) => prev.filter((_, i) => i !== idx));
+  const handleDeletePdf = (idx: number) => setPdfs((prev) => prev.filter((_, i) => i !== idx));
 
   const handleSend = async () => {
     if (!emailValid) return setStatus({ type: 'error', text: '유효한 수신 이메일을 입력하세요.' });
-    if (attachments.length === 0) return setStatus({ type: 'error', text: '사진을 최소 1장 첨부하세요.' });
+    if (totalCount === 0) return setStatus({ type: 'error', text: '파일을 최소 1개 첨부하세요.' });
 
     setIsSending(true);
     setStatus(null);
 
     try {
-      const capped = attachments.slice(0, MAX_IMAGES);
-      const processed = await shrinkToMaxSize(capped, 3_500_000);
+      // 이미지 축소(총 3.5MB 목표). PDF는 원본 유지.
+      const processedImages = await shrinkImagesToMaxSize(images, 3_500_000);
 
-      // 축소 과정에서 일부 제외되었는지 간단 안내
-      if (processed.length < capped.length) {
-        setStatus({ type: 'info', text: `용량 제한으로 ${capped.length - processed.length}장은 제외되었습니다.` });
+      // PDF는 그대로 포함
+      const pdfPayload = pdfs.map((p) => ({ name: p.name || 'doc.pdf', content: p.base64 }));
+
+      // 축소 과정에서 제외 발생 안내
+      if (processedImages.length < images.length) {
+        setStatus({ type: 'info', text: `용량 제한으로 이미지 ${images.length - processedImages.length}개가 제외되었습니다.` });
       }
 
       const payload = {
@@ -156,8 +201,12 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
           bodyText,
           receipt_no: application?.receipt_no ?? '',
           site_name: application?.site_name ?? '',
+          applicant_phone: (application as any)?.applicant_phone ?? '',
         },
-        attachments: processed.map((p) => ({ name: p.name, content: p.base64 })),
+        attachments: [
+          ...processedImages.map((p) => ({ name: p.name || 'photo.jpg', content: p.base64 })),
+          ...pdfPayload,
+        ],
       };
 
       const res = await fetch('/api/send-photos', {
@@ -167,7 +216,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       });
 
       if (!res.ok) {
-        if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 사진 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
+        if (res.status === 413) throw new Error('첨부 용량이 너무 큽니다. 파일 수를 줄이거나 해상도를 낮춰 다시 시도하세요.');
         const data = await res.json().catch(() => ({} as any));
         throw new Error(data?.error || `Email API failed with ${res.status}`);
       }
@@ -186,10 +235,11 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={onClose} role="dialog" aria-modal="true">
       <div className="bg-slate-800 w-full max-w-4xl max-h-[92vh] rounded-xl border border-slate-700 shadow-2xl p-6 flex flex-col" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl sm:text-2xl font-semibold text-white">
-          사진 전송: <span className="text-sky-400">{application.receipt_no}</span>
+          자료 전송: <span className="text-sky-400">{application.receipt_no}</span>
         </h2>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto pr-1">
+          {/* 좌측 정보 */}
           <div className="space-y-4">
             <div className="text-sm text-slate-300 bg-slate-700/40 rounded-lg p-3">
               <div className="truncate"><span className="font-semibold">수신(이름)</span>: {application.applicant_name}</div>
@@ -220,9 +270,10 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
             </div>
           </div>
 
+          {/* 우측 첨부 */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-100">사진 첨부(최대 {MAX_IMAGES}장)</h3>
+              <h3 className="text-lg font-semibold text-slate-100">첨부(이미지/PDF, 최대 {MAX_FILES}개)</h3>
               <ActionButton variant="secondary" onClick={() => setIsCameraOpen((v) => !v)} disabled={isSending}>
                 {isCameraOpen ? '카메라 닫기' : '카메라 열기'}
               </ActionButton>
@@ -231,22 +282,50 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
             {isCameraOpen ? (
               <CameraView onCapture={handleCameraCapture} onClose={() => setIsCameraOpen(false)} />
             ) : (
-              <ImageInput
-                ref={fileInputRef}
-                onImagesSet={handleImagesSet}
-                onOpenCamera={() => setIsCameraOpen(true)}
-                isLoading={isSending}
-                selectedImageCount={attachments.length}
-              />
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  multiple
+                  disabled={isSending}
+                  className="block w-full text-sm text-slate-200 file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-slate-600 file:text-white hover:file:bg-slate-500"
+                  onChange={(e) => handleFilePick(e.target.files)}
+                />
+                <p className="mt-2 text-xs text-slate-400">이미지는 자동으로 용량 최적화되어 전송됩니다. PDF는 원본 그대로 첨부됩니다.</p>
+              </div>
             )}
 
+            {/* 이미지 썸네일 */}
             <ThumbnailGallery
-              images={attachments}
+              images={images}
               currentIndex={-1}
               onSelectImage={() => {}}
-              onDeleteImage={handleDeleteAttachment}
+              onDeleteImage={handleDeleteImage}
               disabled={isSending}
             />
+
+            {/* PDF 목록 */}
+            {pdfs.length > 0 && (
+              <div className="bg-slate-700/40 rounded-md p-3">
+                <div className="text-sm font-semibold text-slate-200 mb-2">PDF 첨부</div>
+                <ul className="space-y-2">
+                  {pdfs.map((p, idx) => (
+                    <li key={idx} className="flex items-center justify-between text-sm text-slate-200">
+                      <span className="truncate">{p.name || 'document.pdf'}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePdf(idx)}
+                        className="text-xs px-2 py-1 rounded bg-slate-600 hover:bg-slate-500"
+                        disabled={isSending}
+                      >
+                        삭제
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
 
@@ -264,7 +343,7 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
             <ActionButton onClick={onClose} variant="secondary" disabled={isSending} fullWidth>취소</ActionButton>
             <ActionButton
               onClick={handleSend}
-              disabled={isSending || !emailValid || attachments.length === 0}
+              disabled={isSending || !emailValid || totalCount === 0}
               fullWidth
               icon={isSending ? <Spinner size="sm" /> : undefined}
             >
