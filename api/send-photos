@@ -7,6 +7,7 @@ const MAX_TOTAL_BYTES = 3_800_000; // 클라 3.5MB 목표 + 여유
 
 function stripDataPrefix(b64: string) {
   const i = b64.indexOf('base64,');
+  // data:...;base64, 또는 "base64," 접두사만 들어와도 제거
   return i >= 0 ? b64.slice(i + 'base64,'.length) : b64.trim().replace(/^base64,?/, '');
 }
 
@@ -31,6 +32,7 @@ function isAllowedAttachment(buf: Buffer) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'content-type, api-key');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -59,7 +61,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!to || !attachments || !Array.isArray(attachments) || attachments.length === 0) {
       return res.status(400).json({ error: 'to and attachments are required.' });
     }
-
     if (attachments.length > MAX_ATTACHMENTS) {
       return res.status(400).json({ error: `Too many attachments. Max ${MAX_ATTACHMENTS}.` });
     }
@@ -91,21 +92,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .slice(0, 100) || 'file';
 
       const hasAllowedExt = /\.(jpg|jpeg|png|pdf)$/i.test(cleaned);
-      // PDF인지 간단 판별하여 확장자 보정
-      const isPdf = buf.length >= 5 &&
+      const looksPdf = buf.length >= 5 &&
         buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 && buf[4] === 0x2d;
 
-      const finalName = hasAllowedExt
-        ? cleaned
-        : cleaned + (isPdf ? '.pdf' : '.jpg');
-
+      const finalName = hasAllowedExt ? cleaned : cleaned + (looksPdf ? '.pdf' : '.jpg');
       safeAttachments.push({ name: finalName, content: b64 });
     }
 
     const site = (meta?.site_name || '').toString().slice(0, 120);
     const receipt = (meta?.receipt_no || '').toString().slice(0, 120);
 
-    // meta.subject / meta.bodyText 있으면 우선 사용
+    // meta.subject / meta.bodyText 우선 사용
     const subject =
       (meta?.subject && String(meta.subject).slice(0, 200)) ||
       (site ? `[KTL] ${site} 사진/문서 전달` : `[KTL] 사진/문서 전달`);
@@ -126,12 +123,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const htmlContent = bodyText.replace(/\n/g, '<br>');
 
-    const payload: any = {
+    const payload = {
       sender: { email: senderEmail, name: senderName },
       to: [{ email: to }],
       subject,
       htmlContent,
-      attachment: safeAttachments, // Brevo: { name, content(base64) } 배열
+      attachment: safeAttachments, // Brevo: { name, content(base64) }[]
     };
 
     const brevoRes = await fetch(BREVO_API_URL, {
