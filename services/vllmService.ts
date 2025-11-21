@@ -1,8 +1,8 @@
 import axios from "axios";
 
 const VLLM_BASE_URL = "https://mobile.ktl.re.kr/genai/v1";
-const API_KEY = "qwen3vl-30b";
-const MODEL = "/root/.cache/huggingface/Qwen72B-AWQ";
+const API_KEY = "EMPTY";
+const MODEL = "/root/.cache/huggingface/qwen3vl-30b";
 
 interface VllmChatCompletionResponse {
   choices: {
