@@ -9,7 +9,7 @@ import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
 import { CameraView } from './CameraView';
-import EmailModal from "./EmailModal";
+import EmailModal from './EmailModal'; // Import the new modal
 
 export interface Application {
   id: number;
@@ -267,7 +267,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
 
                     const dataToUpdate = { 
                         ...ocrResult,
-                        queue_slot: existingData.queue_slot 
+                        queue_slot: existingData.queue_slot,
+                        user_name: userName // Update user_name to ensure visibility for current user
                     };
                     
                     const { error: updateError } = await supabase
