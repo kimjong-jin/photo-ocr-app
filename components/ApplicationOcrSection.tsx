@@ -178,23 +178,35 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
         clearMessages();
     }, []);
 
-    const handleAnalyzeAndSave = async () => {
-        if (!image) { setError('분석할 이미지를 먼저 업로드해주세요.'); return; }
-        if (!supabase) { setError("데이터베이스에 연결할 수 없습니다."); return; }
+const handleAnalyzeAndSave = async () => {
+    if (!image) {
+        setError('분석할 이미지를 먼저 업로드해주세요.');
+        return;
+    }
+    if (!supabase) {
+        setError("데이터베이스에 연결할 수 없습니다.");
+        return;
+    }
 
-        setIsProcessing(true);
-        clearMessages();
+    setIsProcessing(true);
+    clearMessages();
 
-        const originalApiMode = localStorage.getItem('apiMode') || 'gemini';
-        localStorage.setItem('apiMode', ocrApiMode);
+    const originalApiMode = localStorage.getItem('apiMode') || 'gemini';
+    localStorage.setItem('apiMode', ocrApiMode);
 
-        try {
-            const currentApps = [...applications];
-            const maxSlot = Math.max(0, ...currentApps.filter(app => app.queue_slot !== null).map(app => app.queue_slot!));
-            const provisionalSlot = maxSlot + 1;
+    try {
+        const currentApps = [...applications];
+        const maxSlot = Math.max(
+            0,
+            ...currentApps
+                .filter(app => app.queue_slot !== null)
+                .map(app => app.queue_slot!)
+        );
+        const provisionalSlot = maxSlot + 1;
 
-            const geminiPrompt = `너는 ‘검사(시험)신청서’ 이미지에서 지정 필드만 추출하는 OCR 파서다.
-반드시 **단일 JSON 한 줄**만 출력하고, 다른 텍스트는 금지한다.
+        const geminiPrompt = `
+너는 '검사(시험)신청서' 이미지에서 지정 필드만 추출하는 OCR 파서다.
+반드시 단일 JSON 한 줄만 출력하고, 다른 텍스트는 금지한다.
 
 [입력 파라미터]
 - slot: "${provisionalSlot}"
@@ -202,162 +214,168 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({ userName,
 [출력 스키마(모두 문자열)]
 {"queue_slot":"","receipt_no":"","site_name":"","representative_name":"","applicant_name":"","applicant_phone":"","applicant_email":""}
 
-[추출 규칙]
-- receipt_no: 상단 ‘접수번호’ 값(예: 25-069243-01). trim만. 형식 다르면 원문 유지, 없으면 "".
-- site_name: "성적서 발급" 섹션의 '회사명'. 회사명에 부서명('과', '팀' 등)이 포함된 경우, 전체를 하나로 추출하라. (예: 포항시 맑은물사업본부 정수과)
-- representative_name: “성적서 발급” 섹션의 ‘대표자’.
-- applicant_name / applicant_email: “신청인” 섹션의 성명/E-mail.
-- applicant_phone: "신청인" 섹션의 "휴대폰" 번호. 숫자만 추출해 010-****-**** 표준화(모호하면 원문 유지). 모두 trim.
-- applicant_email: 소문자화 + trim.
-- 확실치 않으면 "".
-- 출력은 위 7개 키만 포함한 **단일 JSON 1줄**.`;
+[출력 형식]
+- 출력은 위 7개 키만 포함한 단일 JSON 객체 1개만 허용한다.
+- 마크다운 코드블록과 설명 문장은 절대 출력하지 마라.
+- 줄바꿈 없이 한 줄로만 출력한다.
 
-            const modelConfig = {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        queue_slot: { type: Type.STRING },
-                        receipt_no: { type: Type.STRING },
-                        site_name: { type: Type.STRING },
-                        representative_name: { type: Type.STRING },
-                        applicant_name: { type: Type.STRING },
-                        applicant_phone: { type: Type.STRING },
-                        applicant_email: { type: Type.STRING },
-                    },
-                    required: ["queue_slot", "receipt_no", "site_name", "representative_name", "applicant_name", "applicant_phone", "applicant_email"],
+[추출 규칙 (필드별 의미와 대략적 위치)]
+- queue_slot:
+  - 입력 파라미터 slot 값을 그대로 문자열로 넣는다.
+  - 예: slot이 "3"이면 "queue_slot":"3".
+
+- receipt_no:
+  - 문서 맨 위 오른쪽 상단에 있는 '접수번호' 라벨 옆 값.
+  - 보통 바코드 또는 QR 코드 근처 상단 박스 안에 위치한다.
+  - 예: 25-069243-01.
+  - 앞뒤 공백만 제거(trim)하고, 형식이 달라도 원문 그대로 유지한다.
+  - 없으면 ""(빈 문자열)로 둔다.
+
+- site_name:
+  - 문서 중단부의 "성적서 발급" 섹션 표에서 '회사명' 칸의 값.
+  - "성적서 발급" 제목 바로 아래 표에서 첫 번째 행/열에 위치하는 회사명을 사용한다.
+  - 회사명에 부서명('과', '팀' 등)이 포함된 경우, 전체를 하나의 문자열로 추출한다.
+    - 예: 포항시 맑은물사업본부 정수과.
+
+- representative_name:
+  - 같은 "성적서 발급" 섹션 표에서 '대표자' 칸의 값.
+  - '회사명'과 같은 표 안에서, '대표자' 라벨이 붙어 있는 셀의 이름을 가져온다.
+
+- applicant_name:
+  - 문서 하단의 "신청인" 섹션에서 '성명' 칸의 값.
+  - 보통 서명란 또는 도장란 근처, '신청인' 제목 아래 표 안에 위치한다.
+
+- applicant_email:
+  - 같은 "신청인" 섹션에서 E-mail(또는 '이메일') 칸의 값.
+  - 앞뒤 공백을 제거한 뒤 소문자화한다.
+
+- applicant_phone:
+  - 같은 "신청인" 섹션에서 '휴대폰' 또는 '핸드폰' 라벨이 붙은 칸의 값.
+  - 숫자만 추출해 010-0000-0000 형식으로 하이픈을 넣어 표준화하라.
+  - 숫자는 가리지 말고 그대로 유지한다.
+  - 번호 형식이 모호하면 원문을 그대로 사용한다.
+  - 앞뒤 공백은 제거(trim)한다.
+
+- 위 필드 중 어느 것이든 값이 확실치 않으면 ""(빈 문자열)로 둔다.
+`;
+
+        const modelConfig = {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    queue_slot: { type: Type.STRING },
+                    receipt_no: { type: Type.STRING },
+                    site_name: { type: Type.STRING },
+                    representative_name: { type: Type.STRING },
+                    applicant_name: { type: Type.STRING },
+                    applicant_phone: { type: Type.STRING },
+                    applicant_email: { type: Type.STRING },
                 },
-            };
+                required: [
+                    "queue_slot",
+                    "receipt_no",
+                    "site_name",
+                    "representative_name",
+                    "applicant_name",
+                    "applicant_phone",
+                    "applicant_email",
+                ],
+            },
+        };
 
-            const { base64: preprocessedBase64, mimeType: preprocessedMimeType } = await preprocessImageForGemini(
-                image.file,
-                {
-                    maxWidth: 1600,
-                    jpegQuality: 0.9,
-                    grayscale: true,
-                }
-            );
+        const { base64: preprocessedBase64, mimeType: preprocessedMimeType } =
+            await preprocessImageForGemini(image.file, {
+                maxWidth: 1600,
+                jpegQuality: 0.9,
+                grayscale: true,
+            });
 
-            const jsonString = await extractTextFromImage(preprocessedBase64, preprocessedMimeType, geminiPrompt, modelConfig);
-            const ocrResult = JSON.parse(jsonString);
-            
-            const newApp = { 
-                ...ocrResult,
-                queue_slot: provisionalSlot,
-                user_name: userName
-            };
+        const jsonString = await extractTextFromImage(
+            preprocessedBase64,
+            preprocessedMimeType,
+            geminiPrompt,
+            modelConfig
+        );
 
-            const { error: insertError } = await supabase
-                .from('applications')
-                .insert(newApp);
+        const ocrResult = JSON.parse(jsonString.trim());
 
-            if (insertError) {
-                if (insertError.code === '23505' || (insertError.message && insertError.message.includes('duplicate key'))) {
-                    console.warn(`[OCR Save] Insert failed due to duplicate receipt_no '${ocrResult.receipt_no}'. Attempting to update instead.`);
-                    
-                    const { data: existingData, error: fetchError } = await supabase
-                        .from('applications')
-                        .select('id, queue_slot')
-                        .eq('receipt_no', ocrResult.receipt_no)
+        const newApp = {
+            ...ocrResult,
+            // queue_slot은 어차피 서버에서 사용할 순번 기준으로 덮어쓴다
+            queue_slot: provisionalSlot,
+            user_name: userName,
+        };
+
+        const { error: insertError } = await supabase
+            .from("applications")
+            .insert(newApp);
+
+        if (insertError) {
+            if (
+                insertError.code === "23505" ||
+                (insertError.message &&
+                    insertError.message.includes("duplicate key"))
+            ) {
+                console.warn(
+                    `[OCR Save] Insert failed due to duplicate receipt_no '${ocrResult.receipt_no}'. Attempting to update instead.`
+                );
+
+                const { data: existingData, error: fetchError } =
+                    await supabase
+                        .from("applications")
+                        .select("id, queue_slot")
+                        .eq("receipt_no", ocrResult.receipt_no)
                         .single();
 
-                    if (fetchError || !existingData) {
-                        throw new Error(`중복된 항목 '${ocrResult.receipt_no}'을(를) 업데이트하는데 실패했습니다: 기존 데이터를 찾을 수 없습니다.`);
-                    }
-
-                    const dataToUpdate = { 
-                        ...ocrResult,
-                        queue_slot: existingData.queue_slot,
-                        user_name: userName // Update user_name to ensure visibility for current user
-                    };
-                    
-                    const { error: updateError } = await supabase
-                        .from('applications')
-                        .update(dataToUpdate)
-                        .eq('id', existingData.id);
-                        
-                    if (updateError) {
-                        throw new Error(`중복된 항목 '${ocrResult.receipt_no}' 업데이트 실패: ${updateError.message}`);
-                    }
-                    
-                    setSuccessMessage(`'${ocrResult.receipt_no}' 데이터가 성공적으로 업데이트되었습니다 (중복 감지).`);
-                } else {
-                    throw insertError;
+                if (fetchError || !existingData) {
+                    throw new Error(
+                        `중복된 항목 '${ocrResult.receipt_no}'을(를) 업데이트하는데 실패했습니다: 기존 데이터를 찾을 수 없습니다.`
+                    );
                 }
+
+                const dataToUpdate = {
+                    ...ocrResult,
+                    queue_slot: existingData.queue_slot,
+                    user_name: userName,
+                };
+
+                const { error: updateError } = await supabase
+                    .from("applications")
+                    .update(dataToUpdate)
+                    .eq("id", existingData.id);
+
+                if (updateError) {
+                    throw new Error(
+                        `중복된 항목 '${ocrResult.receipt_no}' 업데이트 실패: ${updateError.message}`
+                    );
+                }
+
+                setSuccessMessage(
+                    `'${ocrResult.receipt_no}' 데이터가 성공적으로 업데이트되었습니다 (중복 감지).`
+                );
             } else {
-                setSuccessMessage(`'${ocrResult.receipt_no}' 데이터가 성공적으로 저장되었습니다.`);
+                throw insertError;
             }
-            
-            loadApplications();
-            setImage(null);
-        } catch (err: any) {
-            setError('작업 실패: ' + (err.message || '알 수 없는 오류가 발생했습니다.'));
-        } finally {
-            localStorage.setItem('apiMode', originalApiMode);
-            setIsProcessing(false);
-        }
-    };
-
-    const handleDeleteApplication = async (idToDelete: number) => {
-        if (!supabase) { setError("데이터베이스에 연결할 수 없습니다."); return; }
-        const appToDelete = applications.find(app => app.id === idToDelete);
-        if (!appToDelete) {
-            setError('삭제할 항목을 찾을 수 없습니다.');
-            return;
-        }
-        
-        clearMessages();
-        try {
-            const { error: deleteError } = await supabase
-                .from('applications')
-                .delete()
-                .eq('id', idToDelete);
-
-            if (deleteError) throw deleteError;
-
-            // Re-sequence queue_slot if necessary
-            const deletedSlot = appToDelete.queue_slot;
-            if (deletedSlot !== null) {
-                const appsToUpdate = applications
-                    .filter(app => app.queue_slot !== null && app.queue_slot > deletedSlot)
-                    .map(app => ({...app, queue_slot: app.queue_slot! - 1}));
-
-                if (appsToUpdate.length > 0) {
-                    const { error: updateError } = await supabase
-                        .from('applications')
-                        .upsert(appsToUpdate);
-                    if (updateError) console.error("Failed to re-sequence queue slots:", updateError);
-                }
-            }
-
-            setSuccessMessage(`'${appToDelete.receipt_no}' 데이터가 삭제되었습니다.`);
-            loadApplications();
-        } catch (err: any) {
-            setError('삭제 실패: ' + err.message);
-        }
-    };
-
-    const handleEdit = (app: Application) => { setEditingId(app.id); setEditedData(app); setIsAddingNew(false); };
-    const handleCancelEdit = () => { setEditingId(null); setEditedData({}); };
-    const handleSaveEdit = async (id: number) => {
-        if (!supabase) { setError("데이터베이스에 연결할 수 없습니다."); return; }
-        const { id: appId, created_at, user_name, ...dataToUpdate } = editedData;
-        
-        const finalData = { ...dataToUpdate, queue_slot: dataToUpdate.queue_slot ? Number(dataToUpdate.queue_slot) : null };
-
-        const { error } = await supabase
-            .from('applications')
-            .update(finalData)
-            .eq('id', id);
-
-        if (error) {
-            setError('업데이트 실패: ' + error.message);
         } else {
-            loadApplications();
-            setEditingId(null); 
-            setEditedData({});
+            setSuccessMessage(
+                `'${ocrResult.receipt_no}' 데이터가 성공적으로 저장되었습니다.`
+            );
         }
-    };
+
+        loadApplications();
+        setImage(null);
+    } catch (err: any) {
+        setError(
+            "작업 실패: " +
+                (err.message || "알 수 없는 오류가 발생했습니다.")
+        );
+    } finally {
+        localStorage.setItem("apiMode", originalApiMode);
+        setIsProcessing(false);
+    }
+};
+
     const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setEditedData(prev => ({ ...prev, [name]: value }));
