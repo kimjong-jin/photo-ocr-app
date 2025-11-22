@@ -236,6 +236,12 @@ const handleAnalyzeAndSave = async () => {
   - "성적서 발급" 제목 바로 아래 표에서 첫 번째 행/열에 위치하는 회사명을 사용한다.
   - 회사명에 부서명('과', '팀' 등)이 포함된 경우, 전체를 하나의 문자열로 추출한다.
     - 예: 포항시 맑은물사업본부 정수과.
+  - 단, 다음과 같은 발급기관/기관장 이름은 site_name으로 사용하면 안 된다:
+    - "한국산업기술시험원"
+    - "한국산업기술시험원장"
+    - "산업기술시험원장"
+    - 위와 유사한 발급기관 이름/직함(원장, 소장 등)을 포함하는 문자열
+  - 이런 값이 보이면 무시하고, 실제 시험·검사를 의뢰한 현장(회사) 이름만 site_name으로 추출한다.
 
 - representative_name:
   - 같은 "성적서 발급" 섹션 표에서 '대표자' 칸의 값.
@@ -244,6 +250,8 @@ const handleAnalyzeAndSave = async () => {
 - applicant_name:
   - 문서 하단의 "신청인" 섹션에서 '성명' 칸의 값.
   - 보통 서명란 또는 도장란 근처, '신청인' 제목 아래 표 안에 위치한다.
+  - 이름 뒤에 붙는 "(인)", "(서명)", "직인" 등은 모두 제거하고 이름만 남긴다.
+    - 예: "홍길동(인)" → "홍길동"
 
 - applicant_email:
   - 같은 "신청인" 섹션에서 E-mail(또는 '이메일') 칸의 값.
@@ -251,9 +259,12 @@ const handleAnalyzeAndSave = async () => {
 
 - applicant_phone:
   - 같은 "신청인" 섹션에서 '휴대폰' 또는 '핸드폰' 라벨이 붙은 칸의 값.
-  - 숫자만 추출해 010-0000-0000 형식으로 하이픈을 넣어 표준화하라.
+  - 반드시 휴대폰 번호(010, 011, 016, 017, 018, 019로 시작하는 번호)만 사용한다.
+  - 02-, 031-, 054-, 055- 등 지역번호(일반 전화번호)로 시작하는 번호는 휴대폰 번호가 아니므로 applicant_phone에 쓰지 말고 무시한다.
+  - 휴대폰 번호가 여러 개 보이면 가장 대표로 보이는 하나만 선택한다.
+  - 숫자만 추출해 010-0000-0000 또는 011-000-0000 형식으로 하이픈을 넣어 표준화하라.
   - 숫자는 가리지 말고 그대로 유지한다.
-  - 번호 형식이 모호하면 원문을 그대로 사용한다.
+  - 번호 형식이 너무 애매하면 ""(빈 문자열)로 둔다.
   - 앞뒤 공백은 제거(trim)한다.
 
 - 위 필드 중 어느 것이든 값이 확실치 않으면 ""(빈 문자열)로 둔다.
@@ -298,7 +309,64 @@ const handleAnalyzeAndSave = async () => {
             modelConfig
         );
 
-        const ocrResult = JSON.parse(jsonString.trim());
+        // --- 후처리 헬퍼들 ---
+        const INVALID_SITE_NAMES = [
+            '한국산업기술시험원',
+            '한국산업기술시험원장',
+            '산업기술시험원장',
+        ];
+
+        const sanitizeSiteName = (name: string): string => {
+            if (!name) return '';
+            const trimmed = name.trim();
+            if (!trimmed) return '';
+            // 발급기관/기관장 이름이 들어가 있으면 현장명으로는 쓰지 않는다
+            if (INVALID_SITE_NAMES.some(bad => trimmed.includes(bad))) {
+                return '';
+            }
+            return trimmed;
+        };
+
+        const cleanApplicantName = (name: string): string => {
+            if (!name) return '';
+            return name
+                .replace(/\(.*?\)/g, '')      // (인), (서명) 등 괄호 안 전체 제거
+                .replace(/직인\s*$/g, '')      // 끝에 붙은 '직인' 제거
+                .trim();
+        };
+
+        const normalizeMobile = (phone: string): string => {
+            if (!phone) return '';
+            const digits = phone.replace(/\D/g, '');
+            if (!digits) return '';
+            const prefix = digits.slice(0, 3);
+            const mobilePrefixes = ['010', '011', '016', '017', '018', '019'];
+            if (!mobilePrefixes.includes(prefix)) {
+                // 휴대폰 번호가 아니면 버린다
+                return '';
+            }
+            // 011-xxx-xxxx (10자리) 또는 010-xxxx-xxxx (11자리) 처리
+            if (digits.length === 10) {
+                // 0111234567 → 011-123-4567
+                return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+            }
+            if (digits.length === 11) {
+                // 01012345678 → 010-1234-5678
+                return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+            }
+            // 길이가 이상하면 그냥 버림
+            return '';
+        };
+        // -----------------------
+
+        const rawOcrResult = JSON.parse(jsonString.trim());
+
+        const ocrResult = {
+            ...rawOcrResult,
+            site_name: sanitizeSiteName(rawOcrResult.site_name),
+            applicant_name: cleanApplicantName(rawOcrResult.applicant_name),
+            applicant_phone: normalizeMobile(rawOcrResult.applicant_phone),
+        };
 
         const newApp = {
             ...ocrResult,
@@ -376,83 +444,83 @@ const handleAnalyzeAndSave = async () => {
     }
 };
 
-    const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setEditedData(prev => ({ ...prev, [name]: value }));
-    };
+const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setEditedData(prev => ({ ...prev, [name]: value }));
+};
 
-    const handleStartAdding = () => {
-        setEditingId(null);
-        setIsAddingNew(true);
-        setNewApplicationData({
-            receipt_no: '', site_name: '', representative_name: '',
-            applicant_name: '', applicant_phone: '', applicant_email: '',
-            p1_check: false, p2_check: false, p3_check: false,
-            p4_check: false, p5_check: false, p6_check: false, p7_check: false
-        });
-    };
-    
-    const handleCancelAdding = () => {
+const handleStartAdding = () => {
+    setEditingId(null);
+    setIsAddingNew(true);
+    setNewApplicationData({
+        receipt_no: '', site_name: '', representative_name: '',
+        applicant_name: '', applicant_phone: '', applicant_email: '',
+        p1_check: false, p2_check: false, p3_check: false,
+        p4_check: false, p5_check: false, p6_check: false, p7_check: false
+    });
+};
+
+const handleCancelAdding = () => {
+    setIsAddingNew(false);
+    setNewApplicationData({});
+};
+
+const handleNewDataChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value, type, checked } = e.target;
+    setNewApplicationData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+};
+
+const handleSaveNewApplication = async () => {
+    if (!supabase) { setError("데이터베이스에 연결할 수 없습니다."); return; }
+    if (!newApplicationData.receipt_no || !newApplicationData.site_name) {
+        setError("접수번호와 현장명은 필수 항목입니다.");
+        return;
+    }
+    clearMessages();
+    setIsProcessing(true);
+
+    try {
+        const dataToInsert = {
+            ...newApplicationData,
+            user_name: userName,
+            queue_slot: newApplicationData.queue_slot ? Number(newApplicationData.queue_slot) : null,
+        };
+        delete (dataToInsert as any).id;
+        
+        const { error: insertError } = await supabase.from('applications').insert(dataToInsert);
+
+        if (insertError) {
+            if (insertError.code === '23505' || (insertError.message && insertError.message.includes('duplicate key'))) { // Unique constraint violation
+                console.warn(`[Save New] Insert failed due to duplicate receipt_no '${dataToInsert.receipt_no}'. Attempting to update.`);
+                
+                const { receipt_no, ...updateData } = dataToInsert;
+                
+                const { error: updateError } = await supabase
+                    .from('applications')
+                    .update(updateData)
+                    .eq('receipt_no', receipt_no);
+                    
+                if (updateError) {
+                    throw new Error(`항목 '${receipt_no}'이(가) 이미 존재하여 업데이트를 시도했으나 실패했습니다: ${updateError.message}`);
+                }
+                setSuccessMessage(`'${receipt_no}' 항목이 이미 존재하여 내용이 업데이트되었습니다.`);
+            } else {
+                throw insertError; // Re-throw other errors
+            }
+        } else {
+            setSuccessMessage(`'${dataToInsert.receipt_no}'이(가) 성공적으로 추가되었습니다.`);
+        }
+
         setIsAddingNew(false);
         setNewApplicationData({});
-    };
+        loadApplications();
 
-    const handleNewDataChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value, type, checked } = e.target;
-        setNewApplicationData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-    };
-
-    const handleSaveNewApplication = async () => {
-        if (!supabase) { setError("데이터베이스에 연결할 수 없습니다."); return; }
-        if (!newApplicationData.receipt_no || !newApplicationData.site_name) {
-            setError("접수번호와 현장명은 필수 항목입니다.");
-            return;
-        }
-        clearMessages();
-        setIsProcessing(true);
-    
-        try {
-            const dataToInsert = {
-                ...newApplicationData,
-                user_name: userName,
-                queue_slot: newApplicationData.queue_slot ? Number(newApplicationData.queue_slot) : null,
-            };
-            delete (dataToInsert as any).id;
-            
-            const { error: insertError } = await supabase.from('applications').insert(dataToInsert);
-    
-            if (insertError) {
-                if (insertError.code === '23505' || (insertError.message && insertError.message.includes('duplicate key'))) { // Unique constraint violation
-                    console.warn(`[Save New] Insert failed due to duplicate receipt_no '${dataToInsert.receipt_no}'. Attempting to update.`);
-                    
-                    const { receipt_no, ...updateData } = dataToInsert;
-                    
-                    const { error: updateError } = await supabase
-                        .from('applications')
-                        .update(updateData)
-                        .eq('receipt_no', receipt_no);
-                        
-                    if (updateError) {
-                        throw new Error(`항목 '${receipt_no}'이(가) 이미 존재하여 업데이트를 시도했으나 실패했습니다: ${updateError.message}`);
-                    }
-                    setSuccessMessage(`'${receipt_no}' 항목이 이미 존재하여 내용이 업데이트되었습니다.`);
-                } else {
-                    throw insertError; // Re-throw other errors
-                }
-            } else {
-                setSuccessMessage(`'${dataToInsert.receipt_no}'이(가) 성공적으로 추가되었습니다.`);
-            }
-
-            setIsAddingNew(false);
-            setNewApplicationData({});
-            loadApplications();
-
-        } catch (err: any) {
-            setError('작업 실패: ' + err.message);
-        } finally {
-            setIsProcessing(false);
-        }
-    };
+    } catch (err: any) {
+        setError('작업 실패: ' + err.message);
+    } finally {
+        setIsProcessing(false);
+    }
+};
 
     const handleCheckChange = async (appId: number, checkField: keyof Application, isChecked: boolean) => {
         if (!supabase) return;
