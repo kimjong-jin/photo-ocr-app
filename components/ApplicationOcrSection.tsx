@@ -15,7 +15,7 @@ export interface Application {
   created_at: string;
   queue_slot: number | null;
   receipt_no: string;
-  site_name: string; // 현장(회사명)
+  site_name: string; // 현장
   representative_name: string; // 대표자
   applicant_name: string; // 신청인
   applicant_phone: string; // 휴대폰
@@ -249,7 +249,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 - 줄바꿈 없이 한 줄로만 출력한다.
 
 [필드별 매핑 규칙]
-- site_name: 신청서의 "성적서 발급" 표에 있는 "회사명" → 현장(회사명)
+- site_name: 신청서의 "성적서 발급" 표에 있는 "회사명" → 현장
 - representative_name: "성적서 발급" 표에 있는 "대표자" → 대표자
 - applicant_name: "신청인" 섹션의 "성명" → 신청인
 - applicant_phone: "신청인" 섹션의 "휴대폰" → 휴대폰
@@ -277,7 +277,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     - "한국산업기술시험원장"
     - "산업기술시험원장"
     - 위와 유사한 발급기관 이름/직함(원장, 소장 등)을 포함하는 문자열
-  - 이런 값이 보이면 무시하고, 실제 시험·검사를 의뢰한 현장(회사) 이름만 site_name으로 추출한다.
+  - 이런 값이 보이면 무시하고, 실제 시험·검사를 의뢰한 현장 이름만 site_name으로 추출한다.
   - 회사명 안에 "(인)", "(서명)", "직인" 같은 표기들은 절대 포함하지 말고 제거한다.
 
 - representative_name:
