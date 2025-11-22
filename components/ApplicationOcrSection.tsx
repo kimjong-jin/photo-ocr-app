@@ -252,7 +252,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 - site_name: 신청서의 "성적서 발급" 표에 있는 "회사명" → 현장(회사명)
 - representative_name: "성적서 발급" 표에 있는 "대표자" → 대표자
 - applicant_name: "신청인" 섹션의 "성명" → 신청인
-- applicant_phone: "신청인" 섹션의 "휴대폰" → 휴대폰폰
+- applicant_phone: "신청인" 섹션의 "휴대폰" → 휴대폰
 - applicant_email: "신청인" 섹션의 "E-mail" → 이메일
 
 [추출 규칙 (필드별 의미와 대략적 위치)]
@@ -581,7 +581,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     }
   };
 
-  // --- 삭제/수정 핸들러들 추가 ---
+  // --- 삭제/수정 핸들러들 ---
   const handleDeleteApplication = async (idToDelete: number) => {
     if (!supabase) {
       setError('데이터베이스에 연결할 수 없습니다.');
@@ -862,7 +862,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       )}
 
       <div className="pt-4 border-t border-slate-700">
-        <div className="flex justify_between items-center mb-2">
+        <div className="flex justify-between items-center mb-2">
           <h4 className="text-lg font-semibold text-slate-100">저장된 목록</h4>
           <div className="flex items-center gap-2">
             <ActionButton
