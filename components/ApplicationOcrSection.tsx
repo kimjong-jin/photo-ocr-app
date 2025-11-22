@@ -18,7 +18,7 @@ export interface Application {
   site_name: string; // 현장(회사명)
   representative_name: string; // 대표자
   applicant_name: string; // 신청인
-  applicant_phone: string; // 휴대전화
+  applicant_phone: string; // 휴대폰
   applicant_email: string; // 이메일
   maintenance_company?: string;
   user_name?: string;
@@ -252,7 +252,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 - site_name: 신청서의 "성적서 발급" 표에 있는 "회사명" → 현장(회사명)
 - representative_name: "성적서 발급" 표에 있는 "대표자" → 대표자
 - applicant_name: "신청인" 섹션의 "성명" → 신청인
-- applicant_phone: "신청인" 섹션의 "휴대폰" → 휴대전화
+- applicant_phone: "신청인" 섹션의 "휴대폰" → 휴대폰폰
 - applicant_email: "신청인" 섹션의 "E-mail" → 이메일
 
 [추출 규칙 (필드별 의미와 대략적 위치)]
