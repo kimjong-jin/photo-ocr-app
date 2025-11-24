@@ -226,25 +226,27 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     localStorage.setItem('apiMode', ocrApiMode);
 
     try {
-      const currentApps = [...applications];
-      const maxSlot = Math.max(
-        0,
-        ...currentApps.filter((app) => app.queue_slot !== null).map((app) => app.queue_slot!),
-      );
-      const provisionalSlot = maxSlot + 1;
+      // ✅ DB에서 직접 가장 높은 순번을 조회 (목록 로딩 지연으로 인한 중복 방지)
+      const { data: maxSlotData } = await supabase
+        .from('applications')
+        .select('queue_slot')
+        .eq('user_name', userName)
+        .order('queue_slot', { ascending: false })
+        .limit(1)
+        .single();
+      
+      const currentMaxSlot = maxSlotData?.queue_slot ?? 0;
+      const provisionalSlot = currentMaxSlot + 1;
 
       const geminiPrompt = `
 너는 '검사(시험)신청서' 이미지에서 지정 필드만 추출하는 OCR 파서다.
 반드시 단일 JSON 한 줄만 출력하고, 다른 텍스트는 금지한다.
 
-[입력 파라미터]
-- slot: "${provisionalSlot}"
-
 [출력 스키마(모두 문자열)]
-{"queue_slot":"","receipt_no":"","site_name":"","representative_name":"","applicant_name":"","applicant_phone":"","applicant_email":""}
+{"receipt_no":"","site_name":"","representative_name":"","applicant_name":"","applicant_phone":"","applicant_email":""}
 
 [출력 형식]
-- 출력은 위 7개 키만 포함한 단일 JSON 객체 1개만 허용한다.
+- 출력은 위 6개 키만 포함한 단일 JSON 객체 1개만 허용한다.
 - 마크다운 코드블록과 설명 문장은 절대 출력하지 마라.
 - 줄바꿈 없이 한 줄로만 출력한다.
 
@@ -256,10 +258,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 - applicant_email: "신청인" 섹션의 "E-mail" → 이메일
 
 [추출 규칙 (필드별 의미와 대략적 위치)]
-- queue_slot:
-  - 입력 파라미터 slot 값을 그대로 문자열로 넣는다.
-  - 예: slot이 "3"이면 "queue_slot":"3".
-
 - receipt_no:
   - 문서 맨 위 오른쪽 상단에 있는 '접수번호' 라벨 옆 값.
   - 보통 바코드 또는 QR 코드 근처 상단 박스 안에 위치한다.
@@ -313,7 +311,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            queue_slot: { type: Type.STRING },
             receipt_no: { type: Type.STRING },
             site_name: { type: Type.STRING },
             representative_name: { type: Type.STRING },
@@ -322,7 +319,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
             applicant_email: { type: Type.STRING },
           },
           required: [
-            'queue_slot',
             'receipt_no',
             'site_name',
             'representative_name',
@@ -413,7 +409,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 
       const newApp = {
         ...ocrResult,
-        // queue_slot은 어차피 서버에서 사용할 순번 기준으로 덮어쓴다
+        // ✅ AI 결과와 무관하게, DB에서 조회한 다음 순번을 사용
         queue_slot: provisionalSlot,
         user_name: userName,
       };
@@ -842,10 +838,10 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
           <ActionButton
             onClick={handleAnalyzeAndSave}
             fullWidth
-            disabled={isProcessing || !image}
+            disabled={isProcessing || !image || isLoadingApplications} // Loading 중엔 비활성
             icon={isProcessing ? <Spinner size="sm" /> : undefined}
           >
-            {isProcessing ? '처리 중...' : '분석 및 저장'}
+            {isProcessing ? '처리 중...' : (isLoadingApplications ? '목록 로딩 중...' : '분석 및 저장')}
           </ActionButton>
         </div>
       </div>
