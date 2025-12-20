@@ -1255,14 +1255,19 @@ export const sendBatchStructuralChecksToKtlApi = async (
 
 
 // --- START: Page 5 (KakaoTalk) Functionality ---
+// 보안상: 카카오톡 중계 APIKEY는 프론트에 두지 않고 서버(/api/kakao)에서만 사용합니다.
+// 프론트는 키 없이 /api/kakao 엔드포인트만 호출합니다.
 
-const KAKAO_API_KEY = '9f04ece57d9f1f613b8888dae1997c57d3f';
+interface KakaoTalkRequestBody {
+  message: string;
+  phoneNumbers: string;
+  reservationTime?: string;
+}
 
-interface KakaoTalkInnerPayload {
-  APIKEY: string;
-  MSG: string;
-  PHONE: string;
-  RESERVETIME?: string;
+interface KakaoTalkApiResponse {
+  message?: string;
+  data?: KtlApiResponseData;
+  [key: string]: any;
 }
 
 export const sendKakaoTalkMessage = async (
@@ -1270,50 +1275,54 @@ export const sendKakaoTalkMessage = async (
   phoneNumbers: string,
   reservationTime?: string
 ): Promise<{ message: string; data?: KtlApiResponseData }> => {
-  const innerPayload: KakaoTalkInnerPayload = {
-    APIKEY: KAKAO_API_KEY,
-    MSG: message,
-    PHONE: phoneNumbers,
-  };
-
-  if (reservationTime) {
-    innerPayload.RESERVETIME = reservationTime;
-  }
-
-  const labviewItemValue = JSON.stringify(innerPayload);
-
-  const payloadForJsonRequest = {
-    LABVIEW_ITEM: labviewItemValue,
+  const body: KakaoTalkRequestBody = {
+    message,
+    phoneNumbers,
+    ...(reservationTime ? { reservationTime } : {}),
   };
 
   try {
-    console.log('[KtlApiService] Sending KakaoTalk message with payload:', labviewItemValue);
-    const response = await retryKtlApiCall<KtlApiResponseData>(
-      () => axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_KAKAO_API_ENDPOINT}`, payloadForJsonRequest, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 30000, // Use a specific timeout for KakaoTalk
-      }),
-      2, 2000, "KakaoTalk Send"
-    );
-    console.log('[KtlApiService] KakaoTalk message sent. Response:', response.data);
-    return { message: response.data?.message || '카카오톡 메시지 전송 요청 완료', data: response.data };
+    console.log("[KtlApiService] Sending KakaoTalk via /api/kakao:", body);
 
+    const response = await retryKtlApiCall<KakaoTalkApiResponse>(
+      () =>
+        axios.post<KakaoTalkApiResponse>("/api/kakao", body, {
+          headers: { "Content-Type": "application/json" },
+          timeout: 30000,
+        }),
+      2,
+      2000,
+      "KakaoTalk Send (/api/kakao)"
+    );
+
+    const msg =
+      response.data?.message && String(response.data.message).trim()
+        ? String(response.data.message).trim()
+        : "카카오톡 메시지 전송 요청 완료";
+
+    console.log("[KtlApiService] KakaoTalk sent. Response:", response.data);
+    return { message: msg, data: response.data?.data };
   } catch (error: any) {
-    let errorMsg = '알 수 없는 오류 발생';
+    let errorMsg = "알 수 없는 오류 발생";
     if (axios.isAxiosError(error)) {
-        const axiosError = error as AxiosError;
-        const responseData = axiosError.response?.data;
-         if (responseData && typeof responseData === 'object' && 'message' in responseData && typeof (responseData as any).message === 'string') {
-            errorMsg = (responseData as any).message;
-        } else if (typeof responseData === 'string' && responseData.length < 500 && responseData.trim()) {
-            errorMsg = responseData.trim();
-        } else if (axiosError.message) {
-            errorMsg = axiosError.message;
-        }
-    } else if (error.message) {
-        errorMsg = error.message;
+      const axiosError = error as AxiosError;
+      const responseData = axiosError.response?.data as any;
+
+      if (responseData && typeof responseData === "object" && typeof responseData.message === "string") {
+        errorMsg = responseData.message;
+      } else if (typeof responseData === "string" && responseData.length < 500 && responseData.trim()) {
+        errorMsg = responseData.trim();
+      } else if (axiosError.message) {
+        errorMsg = axiosError.message;
+      }
+    } else if (error?.message) {
+      errorMsg = error.message;
     }
-    console.error('[KtlApiService] Final error message to throw:', errorMsg);
+
+    console.error("[KtlApiService] KakaoTalk send failed:", errorMsg);
     throw new Error(errorMsg);
   }
 };
+
+// --- END: Page 5 (KakaoTalk) Functionality ---
+
