@@ -484,7 +484,7 @@ Priority when multiple '제..호' exist:
 CRITICAL FORMATTING RULES:
 1) Dates: 'inspectionDate' and 'validity' MUST be 'YYYY-MM-DD' exactly (zero-padded).
 2) Type Approval: 'typeApprovalNumber' MUST start with '제' and end with '호' (add them if missing).
-3) Output Shape: Return a SINGLE JSON object with ALL keys above present (use "" if a value is not visible). No markdown, no additional text.
+3) Output Shape: Return a SINGLE JSON object with ALL keys above present (use "" if a value is not visible). No markdown, no extra text.
 
 .trim();
 
@@ -869,6 +869,7 @@ OUTPUT FORMAT:
     onProgress('전송 시작...');
 
     try {
+      // FIX: Swap p_key and selectedApplication to match function signature in claydoxApiService.
       const result = await sendSingleStructuralCheckToKtlApi(
         activeJob,
         ktlPreflightData.generatedChecklistImage,
@@ -876,8 +877,8 @@ OUTPUT FORMAT:
         userName,
         currentGpsAddress,
         onProgress,
-        selectedApplication,
-        'p1_check'
+        'p1_check',
+        selectedApplication || undefined
       );
 
       if (result && result.success) {
@@ -907,17 +908,24 @@ OUTPUT FORMAT:
         setBatchSendProgress(`(0/${jobs.length}) 체크리스트 이미지 생성 시작...`);
         setJobs(prev => prev.map(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' })));
         
+        // 각 작업별로 해당 접수번호의 신청 정보를 주입하여 API로 전달
         const jobsWithAppData = jobs.map(job => {
             const appData = applications.find(a => a.receipt_no === job.receiptNumber);
-            return { ...job, applicationData: appData };
+            return { 
+                ...job, 
+                representative_name: appData?.representative_name,
+                applicant_name: appData?.applicant_name,
+                applicant_phone: appData?.applicant_phone,
+                maintenance_company: appData?.maintenance_company
+            };
         });
 
         const generatedChecklistImages: ImageInfo[] = [];
         let imageGenError = false;
 
-        for (let i = 0; i < jobs.length; i++) {
-            const job = jobs[i];
-            setBatchSendProgress(`(${(i + 1)}/${jobs.length}) '${job.receiptNumber}' 체크리스트 캡처 중...`);
+        for (let i = 0; i < jobsWithAppData.length; i++) {
+            const job = jobsWithAppData[i];
+            setBatchSendProgress(`(${(i + 1)}/${jobsWithAppData.length}) '${job.receiptNumber}' 체크리스트 캡처 중...`);
             
             if (snapshotHostRef.current) {
                 const snapshotRoot = createRoot(snapshotHostRef.current);
