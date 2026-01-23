@@ -56,4 +56,9 @@ export interface StructuralJob {
   postInspectionDateConfirmedAt: string | null;
   submissionStatus: 'idle' | 'sending' | 'success' | 'error';
   submissionMessage?: string;
+  // 추가된 필드들 (일괄 전송 시 데이터 주입용)
+  representative_name?: string;
+  applicant_name?: string;
+  applicant_phone?: string;
+  maintenance_company?: string;
 }
