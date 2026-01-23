@@ -1,7 +1,14 @@
-//claydoxApiService.ts
+// claydoxApiService.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import type { ExtractedEntry } from '../shared/types';
-import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, ANALYSIS_ITEM_GROUPS, P3_TN_IDENTIFIERS, P3_TP_IDENTIFIERS } from '../shared/constants';
+import {
+  IDENTIFIER_OPTIONS,
+  TN_IDENTIFIERS,
+  TP_IDENTIFIERS,
+  ANALYSIS_ITEM_GROUPS,
+  P3_TN_IDENTIFIERS,
+  P3_TP_IDENTIFIERS,
+} from '../shared/constants';
 import {
   MainStructuralItemKey,
   ChecklistStatus,
@@ -12,10 +19,16 @@ import {
   ANALYSIS_IMPOSSIBLE_OPTION,
   OTHER_DIRECT_INPUT_OPTION,
   EMISSION_STANDARD_ITEM_NAME,
-  RESPONSE_TIME_ITEM_NAME
+  RESPONSE_TIME_ITEM_NAME,
 } from '../shared/StructuralChecklists';
 import { ImageInfo } from '../components/ImageInput';
-import { generateCompositeImage, dataURLtoBlob, generateStampedImage, CompositeImageInput, compressImage } from './imageStampingService';
+import {
+  generateCompositeImage,
+  dataURLtoBlob,
+  generateStampedImage,
+  CompositeImageInput,
+  compressImage,
+} from './imageStampingService';
 import JSZip from 'jszip';
 import type { StructuralJob } from '../shared/types';
 import { supabase } from './supabaseClient';
@@ -30,9 +43,21 @@ const KTL_API_TIMEOUT = 300000; // 5 minutes (increased from 90000)
 // === Composite naming helpers for Photo Log (Page 1) ===
 // 여러 장 합성 JPG를 M1→M2→M3→Z1→Z2→S1→S2… 순으로 매핑할 때 쓰는 기본 키 순서
 const DEFAULT_PHOTO_KEY_ORDER = [
-  'M1','M2','M3',
-  'Z1','Z2',
-  'S1','S2','S3','S4','S5','S6','S7','S8','S9','S10'
+  'M1',
+  'M2',
+  'M3',
+  'Z1',
+  'Z2',
+  'S1',
+  'S2',
+  'S3',
+  'S4',
+  'S5',
+  'S6',
+  'S7',
+  'S8',
+  'S9',
+  'S10',
 ];
 
 // 파일명 "..._composite_07.jpg"에서 7을 뽑아 정렬에 사용
@@ -50,15 +75,17 @@ interface KtlApiResponseData {
 export const sanitizeFilename = (name: string): string => {
   if (!name) return 'untitled';
   // 점(.) 허용
-  let s = name
-    .replace(/[^\w.\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_');
+  let s = name.replace(
+    /[^\w.\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g,
+    '_'
+  );
 
   // 중복 언더스코어/점 정리 + 앞/뒤 점 제거(숨김파일 방지)
   s = s
     .replace(/__+/g, '_')
-    .replace(/\.{2,}/g, '.')  // ..... → .
-    .replace(/^\.+/, '')      // 앞쪽 점 제거
-    .replace(/\.+$/, '');     // 뒤쪽 점 제거
+    .replace(/\.{2,}/g, '.') // ..... → .
+    .replace(/^\.+/, '') // 앞쪽 점 제거
+    .replace(/\.+$/, ''); // 뒤쪽 점 제거
 
   return s || 'untitled';
 };
@@ -75,10 +102,10 @@ export const getFileExtensionFromMime = (mimeType: string): string => {
 export const safeNameWithExt = (originalName: string, mimeType: string): string => {
   const dotIdx = originalName.lastIndexOf('.');
   const baseRaw = dotIdx > 0 ? originalName.slice(0, dotIdx) : originalName;
-  const extRaw  = dotIdx > 0 ? originalName.slice(dotIdx + 1).toLowerCase() : '';
+  const extRaw = dotIdx > 0 ? originalName.slice(dotIdx + 1).toLowerCase() : '';
 
   const sanitizedBase = sanitizeFilename(baseRaw) || 'image';
-  const known = new Set(['jpg','jpeg','png','webp','gif']);
+  const known = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
 
   let ext = known.has(extRaw) ? (extRaw === 'jpeg' ? 'jpg' : extRaw) : getFileExtensionFromMime(mimeType);
   if (!ext || ext === 'bin') ext = 'jpg';
@@ -104,7 +131,10 @@ async function retryKtlApiCall<TResponseData>(
       const isRetryable = errorMessage.includes('network error') || status === 503 || status === 504;
 
       if (attempt === retries) {
-        console.error(`[ClaydoxAPI] ${operationName} call failed after ${attempt + 1} attempt(s). Final error:`, lastError.message || lastError);
+        console.error(
+          `[ClaydoxAPI] ${operationName} call failed after ${attempt + 1} attempt(s). Final error:`,
+          lastError.message || lastError
+        );
         if (errorMessage.includes('network error')) {
           const enhancedError = new Error(
             `${operationName} 전송 실패 (네트워크 오류). 인터넷 연결을 확인하거나 잠시 후 다시 시도해 주세요. ` +
@@ -155,31 +185,50 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   const labviewItemObject: { [key: string]: string } = {};
 
   const compositeFiles = actualKtlFileNames
-    .filter(n => /_composite(_\d+)?\.(jpg|jpeg|png)$/i.test(n))
+    .filter((n) => /_composite(_\d+)?\.(jpg|jpeg|png)$/i.test(n))
     .sort((a, b) => extractCompositeNo(a) - extractCompositeNo(b));
-  const zipPhotoFileName = actualKtlFileNames.find((name) => /_Compression\.zip$/i.test(name) || name.toLowerCase().endsWith('.zip'));
-  const dataTableFileName = actualKtlFileNames.find((name) => name.toLowerCase().includes('datatable') && name.toLowerCase().endsWith('.png'));
+  const zipPhotoFileName = actualKtlFileNames.find(
+    (name) => /_Compression\.zip$/i.test(name) || name.toLowerCase().endsWith('.zip')
+  );
+  const dataTableFileName = actualKtlFileNames.find(
+    (name) => name.toLowerCase().includes('datatable') && name.toLowerCase().endsWith('.png')
+  );
 
   const identifierRemapping: { [key: string]: string[] } = {
-    Z1: ['Z1', 'Z3', 'Z5', 'Z7'], Z2: ['Z2', 'Z4', 'Z6'],
-    S1: ['S1', 'S3', 'S5', 'S7'], S2: ['S2', 'S4', 'S6'],
-    현장1: ['현장1', '현장2']
+    Z1: ['Z1', 'Z3', 'Z5', 'Z7'],
+    Z2: ['Z2', 'Z4', 'Z6'],
+    S1: ['S1', 'S3', 'S5', 'S7'],
+    S2: ['S2', 'S4', 'S6'],
+    현장1: ['현장1', '현장2'],
   };
   const identifierRemappingTP: { [key: string]: string[] } = {
-    Z1P: ['Z1P', 'Z3P', 'Z5P', 'Z7P'], Z2P: ['Z2P', 'Z4P', 'Z6P'],
-    S1P: ['S1P', 'S3P', 'S5P', 'S7P'], S2P: ['S2P', 'S4P', 'S6P'],
-    현장1P: ['현장1P', '현장2P']
+    Z1P: ['Z1P', 'Z3P', 'Z5P', 'Z7P'],
+    Z2P: ['Z2P', 'Z4P', 'Z6P'],
+    S1P: ['S1P', 'S3P', 'S5P', 'S7P'],
+    S2P: ['S2P', 'S4P', 'S6P'],
+    현장1P: ['현장1P', '현장2P'],
   };
-  const identifierCounters: { [key: string]: number } = { Z1: 0, Z2: 0, S1: 0, S2: 0, 현장1: 0, Z1P: 0, Z2P: 0, S1P: 0, S2P: 0, 현장1P: 0 };
+  const identifierCounters: { [key: string]: number } = {
+    Z1: 0,
+    Z2: 0,
+    S1: 0,
+    S2: 0,
+    현장1: 0,
+    Z1P: 0,
+    Z2P: 0,
+    S1P: 0,
+    S2P: 0,
+    현장1P: 0,
+  };
 
   const getNextKtlIdentifier = (baseIdentifier: string): string => {
     const remapping = baseIdentifier.endsWith('P') ? identifierRemappingTP : identifierRemapping;
     const mappingTable = remapping[baseIdentifier];
     if (mappingTable) {
-        const count = identifierCounters[baseIdentifier] || 0;
-        const newIdentifier = mappingTable[count] || baseIdentifier;
-        identifierCounters[baseIdentifier] = count + 1;
-        return newIdentifier;
+      const count = identifierCounters[baseIdentifier] || 0;
+      const newIdentifier = mappingTable[count] || baseIdentifier;
+      identifierCounters[baseIdentifier] = count + 1;
+      return newIdentifier;
     }
     return baseIdentifier;
   };
@@ -193,23 +242,23 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
         if (!valueStr || !valueStr.trim()) return;
         const valueToUse = valueStr.match(/-?\d+(\.\d+)?/)?.[0] || null;
         if (valueToUse !== null) {
-            const finalKey = key === 'M' ? `M${suffix}` : `${key}${suffix}`;
-            labviewItemObject[finalKey] = valueToUse;
+          const finalKey = key === 'M' ? `M${suffix}` : `${key}${suffix}`;
+          labviewItemObject[finalKey] = valueToUse;
         }
       };
 
       const parseAndAssignResponseTime = (valueStr: string | undefined, suffix: 'C' | 'P' | '' = '') => {
         if (!valueStr || !valueStr.trim()) return;
         try {
-            const values = JSON.parse(valueStr);
-            if (Array.isArray(values) && values.length >= 3) {
-                const [seconds, minutes, length] = values.map(v => String(v || '').trim());
-                if (seconds) labviewItemObject[`응답시간_초${suffix}`] = seconds;
-                if (minutes) labviewItemObject[`응답시간_분${suffix}`] = minutes;
-                if (length) labviewItemObject[`응답시간_길이${suffix}`] = length;
-            }
+          const values = JSON.parse(valueStr);
+          if (Array.isArray(values) && values.length >= 3) {
+            const [seconds, minutes, length] = values.map((v) => String(v || '').trim());
+            if (seconds) labviewItemObject[`응답시간_초${suffix}`] = seconds;
+            if (minutes) labviewItemObject[`응답시간_분${suffix}`] = minutes;
+            if (length) labviewItemObject[`응답시간_길이${suffix}`] = length;
+          }
         } catch (e) {
-            console.warn('Failed to parse response time JSON string:', valueStr, e);
+          console.warn('Failed to parse response time JSON string:', valueStr, e);
         }
       };
 
@@ -222,33 +271,34 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
         } else {
           parseAndAssign(entry.identifier, entry.value);
           if (payload.item === 'TU/CL') {
-              parseAndAssign(entry.identifier, entry.valueTP, 'C');
+            parseAndAssign(entry.identifier, entry.valueTP, 'C');
           } else if (payload.item === 'TN/TP') {
-              parseAndAssign(entry.identifier, entry.valueTP, 'P');
+            parseAndAssign(entry.identifier, entry.valueTP, 'P');
           }
         }
       }
-    } else if (payload.pageType === 'FieldCount') { // ✅ P3(현장 계수)만 제한
-      if (entry.identifier
-          && P3_TN_IDENTIFIERS.includes(entry.identifier)
-          && typeof entry.value === 'string'
-          && entry.value.trim()) {
+    } else if (payload.pageType === 'FieldCount') {
+      // ✅ P3(현장 계수)만 제한
+      if (entry.identifier && P3_TN_IDENTIFIERS.includes(entry.identifier) && typeof entry.value === 'string' && entry.value.trim()) {
         const valueToUse = entry.value.match(/-?\d+(\.\d+)?/)?.[0] || null;
         if (valueToUse !== null) {
           labviewItemObject[getNextKtlIdentifier(entry.identifier)] = valueToUse;
         }
       }
-      if (payload.item === 'TN/TP'
-          && entry.identifierTP
-          && P3_TP_IDENTIFIERS.includes(entry.identifierTP)
-          && typeof entry.valueTP === 'string'
-          && entry.valueTP.trim()) {
+      if (
+        payload.item === 'TN/TP' &&
+        entry.identifierTP &&
+        P3_TP_IDENTIFIERS.includes(entry.identifierTP) &&
+        typeof entry.valueTP === 'string' &&
+        entry.valueTP.trim()
+      ) {
         const valueTPToUse = entry.valueTP.match(/-?\d+(\.\d+)?/)?.[0] || null;
         if (valueTPToUse !== null) {
           labviewItemObject[getNextKtlIdentifier(entry.identifierTP)] = valueTPToUse;
         }
       }
-    } else { // ✅ P2(수질 분석=PhotoLog) - 제한 없음
+    } else {
+      // ✅ P2(수질 분석=PhotoLog) - 제한 없음
       if (entry.identifier && typeof entry.value === 'string' && entry.value.trim()) {
         const valueToUse = entry.value.match(/-?\d+(\.\d+)?/)?.[0] || null;
         if (valueToUse !== null) {
@@ -284,13 +334,12 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   if (payload.inspectionEndDate) {
     labviewItemObject['검사종료일'] = payload.inspectionEndDate;
   }
-  
+
   if (payload.pageType === 'DrinkingWater') {
     if (payload.siteNameOnly) labviewItemObject['현장'] = payload.siteNameOnly;
   } else {
     if (payload.siteLocation) labviewItemObject['현장'] = payload.siteLocation;
   }
-
 
   let gubnPrefix = '수질';
   const drinkingWaterItems = ANALYSIS_ITEM_GROUPS.find((g) => g.label === '먹는물')?.items || [];
@@ -305,7 +354,7 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
     LABVIEW_DESC: JSON.stringify({ comment: labviewDescComment }),
     LABVIEW_RECEIPTNO: payload.receiptNumber,
     UPDATE_USER: payload.updateUser,
-    LABVIEW_ITEM: JSON.stringify(labviewItemObject)
+    LABVIEW_ITEM: JSON.stringify(labviewItemObject),
   };
 };
 
@@ -345,7 +394,7 @@ export const sendToClaydoxApi = async (
         () =>
           axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
-            timeout: KTL_API_TIMEOUT
+            timeout: KTL_API_TIMEOUT,
           }),
         2,
         2000,
@@ -362,9 +411,9 @@ export const sendToClaydoxApi = async (
         axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, ktlJsonObject, {
           headers: {
             'Content-Type': 'application/json',
-            Accept: 'application/json'
+            Accept: 'application/json',
           },
-          timeout: KTL_API_TIMEOUT
+          timeout: KTL_API_TIMEOUT,
         }),
       2,
       2000,
@@ -373,16 +422,16 @@ export const sendToClaydoxApi = async (
     console.log(`${logIdentifier} JSON sent successfully. Response:`, jsonResponse.data);
 
     if (supabase && p_key && payload.receiptNumber) {
-        const { data, error: updateError } = await supabase
-            .from('applications')
-            .update({ [p_key]: true })
-            .eq('receipt_no', payload.receiptNumber)
-            .select();
-        if (updateError) {
-            console.warn(`[Supabase Check] Failed to update ${p_key} for ${payload.receiptNumber}:`, updateError.message);
-        } else if (data && data.length > 0) {
-            window.dispatchEvent(new CustomEvent('applicationsUpdated'));
-        }
+      const { data, error: updateError } = await supabase
+        .from('applications')
+        .update({ [p_key]: true })
+        .eq('receipt_no', payload.receiptNumber)
+        .select();
+      if (updateError) {
+        console.warn(`[Supabase Check] Failed to update ${p_key} for ${payload.receiptNumber}:`, updateError.message);
+      } else if (data && data.length > 0) {
+        window.dispatchEvent(new CustomEvent('applicationsUpdated'));
+      }
     }
 
     return { message: jsonResponse.data?.message || `데이터 및 파일 전송 완료 (${pageIdentifier})`, data: jsonResponse.data };
@@ -464,10 +513,10 @@ const constructMergedLabviewItemForStructural = (
 
   const firstJobInGroup = jobsInGroup[0];
   if (firstJobInGroup) {
-    if (firstJobInGroup.representative_name)  mergedItems['대표자'] = firstJobInGroup.representative_name;
-    if (firstJobInGroup.applicant_name)       mergedItems['유지관리담당자'] = firstJobInGroup.applicant_name;
-    if (firstJobInGroup.applicant_phone)      mergedItems['유지관리담당자연락처'] = firstJobInGroup.applicant_phone;
-    if (firstJobInGroup.maintenance_company)  mergedItems['유지관리업체'] = firstJobInGroup.maintenance_company;
+    if (firstJobInGroup.representative_name) mergedItems['대표자'] = firstJobInGroup.representative_name;
+    if (firstJobInGroup.applicant_name) mergedItems['유지관리담당자'] = firstJobInGroup.applicant_name;
+    if (firstJobInGroup.applicant_phone) mergedItems['유지관리담당자연락처'] = firstJobInGroup.applicant_phone;
+    if (firstJobInGroup.maintenance_company) mergedItems['유지관리업체'] = firstJobInGroup.maintenance_company;
   }
 
   jobsInGroup.forEach((payload) => {
@@ -507,7 +556,7 @@ const constructMergedLabviewItemForStructural = (
 
       const sanitizedChecklistItemName = sanitizeFilename(checklistItemName).replace(/_/g, '');
       const itemSuffix = payload.mainItemKey === 'TP' ? 'P' : payload.mainItemKey === 'Cl' ? 'C' : '';
-      
+
       const baseKeyForData = `구조_${sanitizedChecklistItemName}${itemSuffix}`;
 
       if (checklistItemName !== '기기번호 확인') {
@@ -571,9 +620,11 @@ const constructMergedLabviewItemForStructural = (
           }
           mergedItems[`${baseKeyForData}_세부상태`] = statusText;
 
+          // ✅✅✅ [핵심 수정] baseFileKey(미선언) → baseKeyForData
           if (certDetails.productName && certDetails.productName.trim() !== '') {
-            mergedItems[`${baseFileKey}_품명`] = certDetails.productName.trim();
+            mergedItems[`${baseKeyForData}_품명`] = certDetails.productName.trim();
           }
+
           if (certDetails.manufacturer && certDetails.manufacturer.trim() !== '') {
             mergedItems[`${baseKeyForData}_제작사`] = certDetails.manufacturer.trim();
           }
@@ -676,9 +727,7 @@ export const generateStructuralKtlJsonForPreview = (
     } else {
       itemPartForFilename = sanitizeFilename(p.mainItemKey);
     }
-    const finalChecklistImageName = `${receiptSanitized}${
-      itemPartForFilename ? `_${itemPartForFilename}` : ''
-    }_checklist.png`;
+    const finalChecklistImageName = `${receiptSanitized}${itemPartForFilename ? `_${itemPartForFilename}` : ''}_checklist.png`;
 
     return {
       ...p,
@@ -698,22 +747,14 @@ export const generateStructuralKtlJsonForPreview = (
 
   const mainItemNamesForDesc = Array.from(
     new Set(
-      jobPayloadsForReceipt.map(
-        (p) =>
-          MAIN_STRUCTURAL_ITEMS.find((it) => it.key === p.mainItemKey)?.name ||
-          p.mainItemKey
-      )
+      jobPayloadsForReceipt.map((p) => MAIN_STRUCTURAL_ITEMS.find((it) => it.key === p.mainItemKey)?.name || p.mainItemKey)
     )
   );
 
-  const labviewDescComment = `구조 (항목: ${mainItemNamesForDesc.join(
-    ', '
-  )}, 현장: ${siteNameGlobal})`;
+  const labviewDescComment = `구조 (항목: ${mainItemNamesForDesc.join(', ')}, 현장: ${siteNameGlobal})`;
   const labviewDescObject = { comment: labviewDescComment };
 
-  const uniqueMainItemKeys = Array.from(
-    new Set(jobPayloadsForReceipt.map((job) => job.mainItemKey))
-  ).sort();
+  const uniqueMainItemKeys = Array.from(new Set(jobPayloadsForReceipt.map((job) => job.mainItemKey))).sort();
   const dynamicLabviewGubn = `구조_${uniqueMainItemKeys.join(',')}`;
 
   const objectToFormat = {
@@ -774,13 +815,12 @@ export const sendSingleStructuralCheckToKtlApi = async (
     // 2a) 종합 이미지 생성 + 압축
     onProgress('(2/4) [P1 구조 확인] 참고사진 종합 이미지 생성 중...');
     try {
-      const imageSourcesForComposite: CompositeImageInput[] = job.photos.map(p => ({
+      const imageSourcesForComposite: CompositeImageInput[] = job.photos.map((p) => ({
         base64: p.base64,
         mimeType: p.mimeType,
         comment: job.photoComments[p.uid],
       }));
-      const itemSummaryForStamp =
-        MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey;
+      const itemSummaryForStamp = MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey;
 
       const stampDetailsComposite = {
         receiptNumber: job.receiptNumber,
@@ -788,11 +828,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
         item: itemSummaryForStamp,
       };
 
-      const compositeDataUrl = await generateCompositeImage(
-        imageSourcesForComposite,
-        stampDetailsComposite,
-        'image/png'
-      );
+      const compositeDataUrl = await generateCompositeImage(imageSourcesForComposite, stampDetailsComposite, 'image/png');
       const compressedCompositeUrl = await compressImage(compositeDataUrl.split(',')[1], 'image/png');
       compositeFileNameOnServer = generateCompositeImageNameForKtl(job.receiptNumber).replace(/\.png$/, '.jpg');
       filesToUpload.push(new File([dataURLtoBlob(compressedCompositeUrl)], compositeFileNameOnServer, { type: 'image/jpeg' }));
@@ -811,7 +847,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
           job.receiptNumber,
           siteNameGlobal,
           '',
-          MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey,
+          MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey,
           job.photoComments[photo.uid]
         );
         const compressedUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
@@ -831,14 +867,9 @@ export const sendSingleStructuralCheckToKtlApi = async (
   if (filesToUpload.length > 0) {
     onProgress('(4/4) [P1 구조 확인] KTL 서버로 파일 업로드 중...');
     const formData = new FormData();
-    filesToUpload.forEach(file => formData.append('files', file, file.name));
+    filesToUpload.forEach((file) => formData.append('files', file, file.name));
     try {
-      await retryKtlApiCall(
-        () => axios.post(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, { timeout: KTL_API_TIMEOUT }),
-        2,
-        2000,
-        'P1 Single Upload'
-      );
+      await retryKtlApiCall(() => axios.post(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, { timeout: KTL_API_TIMEOUT }), 2, 2000, 'P1 Single Upload');
     } catch (e: any) {
       throw new Error(`파일 업로드 실패: ${e.message}`);
     }
@@ -856,12 +887,14 @@ export const sendSingleStructuralCheckToKtlApi = async (
     photoFileNames: {},
     checklistImageFileName: checklistImage.file.name,
     postInspectionDateValue: job.postInspectionDate,
-    ...(selectedApplication ? {
-      representative_name: selectedApplication.representative_name,
-      applicant_name: selectedApplication.applicant_name,
-      applicant_phone: selectedApplication.applicant_phone,
-      maintenance_company: selectedApplication.maintenance_company,
-    } : {})
+    ...(selectedApplication
+      ? {
+          representative_name: selectedApplication.representative_name,
+          applicant_name: selectedApplication.applicant_name,
+          applicant_phone: selectedApplication.applicant_phone,
+          maintenance_company: selectedApplication.maintenance_company,
+        }
+      : {}),
   };
 
   const mergedLabviewItem = constructMergedLabviewItemForStructural(
@@ -880,13 +913,11 @@ export const sendSingleStructuralCheckToKtlApi = async (
     inspectionDate = rangeCheckData.confirmedAt.split(' ')[0];
   } else {
     const today = new Date();
-    inspectionDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
-      today.getDate()
-    ).padStart(2, '0')}`;
+    inspectionDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   }
   mergedLabviewItem['검사시작일'] = inspectionDate;
 
-  const mainItemName = MAIN_STRUCTURAL_ITEMS.find(it => it.key === job.mainItemKey)?.name || job.mainItemKey;
+  const mainItemName = MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey;
   const labviewDescComment = `구조 (항목: ${mainItemName}, 현장: ${siteNameGlobal})`;
   const dynamicLabviewGubn = `구조_${job.mainItemKey}`;
 
@@ -899,19 +930,10 @@ export const sendSingleStructuralCheckToKtlApi = async (
   };
 
   try {
-    const jsonResponse = await retryKtlApiCall(
-      () => axios.post(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, { timeout: KTL_API_TIMEOUT }),
-      2,
-      2000,
-      'P1 Single JSON Send'
-    );
+    const jsonResponse = await retryKtlApiCall(() => axios.post(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, { timeout: KTL_API_TIMEOUT }), 2, 2000, 'P1 Single JSON Send');
 
     if (supabase && p_key && job.receiptNumber) {
-      const { data, error: updateError } = await supabase
-        .from('applications')
-        .update({ [p_key]: true })
-        .eq('receipt_no', job.receiptNumber)
-        .select();
+      const { data, error: updateError } = await supabase.from('applications').update({ [p_key]: true }).eq('receipt_no', job.receiptNumber).select();
       if (updateError) {
         console.warn(`[Supabase Check] Failed to update ${p_key} for ${job.receiptNumber}:`, updateError.message);
       } else if (data && data.length > 0) {
@@ -948,7 +970,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
         jobId: job.id,
         jobReceipt: job.receiptNumber,
         jobItemKey: job.mainItemKey,
-        jobItemName: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey
+        jobItemName: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey,
       });
     });
     payloadsForKtlService.push({
@@ -963,7 +985,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       representative_name: job.representative_name,
       applicant_name: job.applicant_name,
       applicant_phone: job.applicant_phone,
-      maintenance_company: job.maintenance_company
+      maintenance_company: job.maintenance_company,
     });
   }
 
@@ -981,7 +1003,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
         return {
           base64: stampedBase64,
           mimeType: p.mimeType,
-          comment: comment
+          comment: comment,
         };
       });
       const itemsForThisReceipt = jobs
@@ -992,7 +1014,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       const stampDetailsComposite = {
         receiptNumber: receiptNo,
         siteLocation: siteNameGlobal,
-        item: itemSummaryForStamp
+        item: itemSummaryForStamp,
       };
 
       try {
@@ -1008,12 +1030,18 @@ export const sendBatchStructuralChecksToKtlApi = async (
         jobs
           .filter((j) => j.receiptNumber === receiptNo)
           .forEach((job) => {
-            if (!results.find((r) => r.receiptNo === job.receiptNumber && r.mainItem === (MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey))) {
+            if (
+              !results.find(
+                (r) =>
+                  r.receiptNo === job.receiptNumber &&
+                  r.mainItem === (MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey)
+              )
+            ) {
               results.push({
                 receiptNo: job.receiptNumber,
                 mainItem: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey,
                 success: false,
-                message: `참고사진 종합 이미지 생성 실패: ${compositeGenError.message || '알 수 없는 오류'}`
+                message: `참고사진 종합 이미지 생성 실패: ${compositeGenError.message || '알 수 없는 오류'}`,
               });
             }
           });
@@ -1039,7 +1067,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
           );
           const compressedUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
           const safeName = safeNameWithExt(photo.file.name, photo.mimeType);
-          const jpegName = safeName.replace(/\.[^/.]+$/, "") + ".jpg";
+          const jpegName = safeName.replace(/\.[^/.]+$/, '') + '.jpg';
           const stampedBlob = dataURLtoBlob(compressedUrl);
           zip.file(jpegName, stampedBlob);
         } catch (zipError: any) {
@@ -1048,7 +1076,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       }
       if (Object.keys(zip.files).length > 0) {
         try {
-          const zipBlob = await zip.generateAsync({ type: "blob" });
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
           const zipFileNameOnServer = generateZipFileNameForKtl(receiptNo);
           const zipFile = new File([zipBlob], zipFileNameOnServer, { type: 'application/zip' });
           filesToUploadDirectly.push(zipFile);
@@ -1070,7 +1098,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
                   receiptNo: job.receiptNumber,
                   mainItem: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey,
                   success: false,
-                  message: `참고사진 ZIP 생성 실패: ${zipGenError.message || '알 수 없는 오류'}`
+                  message: `참고사진 ZIP 생성 실패: ${zipGenError.message || '알 수 없는 오류'}`,
                 });
               }
             });
@@ -1126,7 +1154,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
               // 브라우저에서는 Content-Type을 명시하지 않으면 경계(boundary)가 자동 설정됩니다.
               timeout: Math.max(KTL_API_TIMEOUT, 120000),
               maxBodyLength: Infinity,
-              maxContentLength: Infinity
+              maxContentLength: Infinity,
             }),
           2,
           2000,
@@ -1137,12 +1165,18 @@ export const sendBatchStructuralChecksToKtlApi = async (
     } catch (filesUploadError: any) {
       console.error('[ClaydoxAPI - P1] Files upload to KTL /uploadfiles failed:', filesUploadError);
       jobs.forEach((job) => {
-        if (!results.find((r) => r.receiptNo === job.receiptNumber && (MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey) === r.mainItem)) {
+        if (
+          !results.find(
+            (r) =>
+              r.receiptNo === job.receiptNumber &&
+              (MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey) === r.mainItem
+          )
+        ) {
           results.push({
             receiptNo: job.receiptNumber,
             mainItem: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey,
             success: false,
-            message: `파일 업로드 실패 (KTL /uploadfiles): ${filesUploadError.message || '알 수 없는 파일 업로드 오류'}`
+            message: `파일 업로드 실패 (KTL /uploadfiles): ${filesUploadError.message || '알 수 없는 파일 업로드 오류'}`,
           });
         }
       });
@@ -1164,25 +1198,25 @@ export const sendBatchStructuralChecksToKtlApi = async (
     const zipFileNameForThisReceipt = receiptToZipFileNameMap.get(receiptNo);
 
     const mergedLabviewItem = constructMergedLabviewItemForStructural(
-      currentGroupOfJobs, 
+      currentGroupOfJobs,
       userNameGlobal,
       siteNameGlobal,
       gpsAddressGlobal,
-      compositeFileNameForThisReceipt, 
+      compositeFileNameForThisReceipt,
       zipFileNameForThisReceipt
     );
 
     let inspectionDate = '';
     const firstJobInGroup = currentGroupOfJobs[0];
     if (firstJobInGroup) {
-        const rangeCheckData = firstJobInGroup.checklistData["측정범위확인"];
-        if (rangeCheckData?.confirmedAt) {
-            inspectionDate = rangeCheckData.confirmedAt.split(' ')[0];
-        }
+      const rangeCheckData = firstJobInGroup.checklistData['측정범위확인'];
+      if (rangeCheckData?.confirmedAt) {
+        inspectionDate = rangeCheckData.confirmedAt.split(' ')[0];
+      }
     }
     if (!inspectionDate) {
-        const today = new Date();
-        inspectionDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const today = new Date();
+      inspectionDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     }
     mergedLabviewItem['검사시작일'] = inspectionDate;
 
@@ -1211,9 +1245,9 @@ export const sendBatchStructuralChecksToKtlApi = async (
           axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, {
             headers: {
               'Content-Type': 'application/json',
-              Accept: 'application/json'
+              Accept: 'application/json',
             },
-            timeout: KTL_API_TIMEOUT
+            timeout: KTL_API_TIMEOUT,
           }),
         2,
         2000,
@@ -1221,25 +1255,21 @@ export const sendBatchStructuralChecksToKtlApi = async (
       );
       console.log(`[ClaydoxAPI - P1] JSON for ${receiptNo} sent successfully. Response:`, jsonResponse.data);
 
-       if (supabase && p_key && receiptNo) {
-            const { data, error: updateError } = await supabase
-                .from('applications')
-                .update({ [p_key]: true })
-                .eq('receipt_no', receiptNo)
-                .select();
-            if (updateError) {
-                console.warn(`[Supabase Check] Failed to update ${p_key} for ${receiptNo}:`, updateError.message);
-            } else if (data && data.length > 0) {
-                 window.dispatchEvent(new CustomEvent('applicationsUpdated'));
-            }
+      if (supabase && p_key && receiptNo) {
+        const { data, error: updateError } = await supabase.from('applications').update({ [p_key]: true }).eq('receipt_no', receiptNo).select();
+        if (updateError) {
+          console.warn(`[Supabase Check] Failed to update ${p_key} for ${receiptNo}:`, updateError.message);
+        } else if (data && data.length > 0) {
+          window.dispatchEvent(new CustomEvent('applicationsUpdated'));
         }
+      }
 
       currentGroupOfJobs.forEach((jobPayload) => {
         results.push({
           receiptNo: jobPayload.receiptNumber,
           mainItem: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === jobPayload.mainItemKey)?.name || jobPayload.mainItemKey,
           success: true,
-          message: jsonResponse.data?.message || '데이터 전송 성공'
+          message: jsonResponse.data?.message || '데이터 전송 성공',
         });
       });
     } catch (jsonSendError: any) {
@@ -1249,7 +1279,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
           receiptNo: jobPayload.receiptNumber,
           mainItem: MAIN_STRUCTURAL_ITEMS.find((it) => it.key === jobPayload.mainItemKey)?.name || jobPayload.mainItemKey,
           success: false,
-          message: `JSON 데이터 전송 실패: ${jsonSendError.message || '알 수 없는 오류'}`
+          message: `JSON 데이터 전송 실패: ${jsonSendError.message || '알 수 없는 오류'}`,
         });
       });
     }
@@ -1257,7 +1287,6 @@ export const sendBatchStructuralChecksToKtlApi = async (
 
   return results;
 };
-
 
 // --- START: Page 5 (KakaoTalk) Functionality ---
 // 보안상: 카카오톡 중계 APIKEY는 프론트에 두지 않고 서버(/api/kakao)에서만 사용합니다.
@@ -1287,35 +1316,35 @@ export const sendKakaoTalkMessage = async (
   };
 
   try {
-    console.log("[KtlApiService] Sending KakaoTalk via /api/kakao:", body);
+    console.log('[KtlApiService] Sending KakaoTalk via /api/kakao:', body);
 
     const response = await retryKtlApiCall<KakaoTalkApiResponse>(
       () =>
-        axios.post<KakaoTalkApiResponse>("/api/kakao", body, {
-          headers: { "Content-Type": "application/json" },
+        axios.post<KakaoTalkApiResponse>('/api/kakao', body, {
+          headers: { 'Content-Type': 'application/json' },
           timeout: 30000,
         }),
       2,
       2000,
-      "KakaoTalk Send (/api/kakao)"
+      'KakaoTalk Send (/api/kakao)'
     );
 
     const msg =
       response.data?.message && String(response.data.message).trim()
         ? String(response.data.message).trim()
-        : "카카오톡 메시지 전송 요청 완료";
+        : '카카오톡 메시지 전송 요청 완료';
 
-    console.log("[KtlApiService] KakaoTalk sent. Response:", response.data);
+    console.log('[KtlApiService] KakaoTalk sent. Response:', response.data);
     return { message: msg, data: response.data?.data };
   } catch (error: any) {
-    let errorMsg = "알 수 없는 오류 발생";
+    let errorMsg = '알 수 없는 오류 발생';
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError;
       const responseData = axiosError.response?.data as any;
 
-      if (responseData && typeof responseData === "object" && typeof responseData.message === "string") {
+      if (responseData && typeof responseData === 'object' && typeof responseData.message === 'string') {
         errorMsg = responseData.message;
-      } else if (typeof responseData === "string" && responseData.length < 500 && responseData.trim()) {
+      } else if (typeof responseData === 'string' && responseData.length < 500 && responseData.trim()) {
         errorMsg = responseData.trim();
       } else if (axiosError.message) {
         errorMsg = axiosError.message;
@@ -1324,7 +1353,7 @@ export const sendKakaoTalkMessage = async (
       errorMsg = error.message;
     }
 
-    console.error("[KtlApiService] KakaoTalk send failed:", errorMsg);
+    console.error('[KtlApiService] KakaoTalk send failed:', errorMsg);
     throw new Error(errorMsg);
   }
 };
