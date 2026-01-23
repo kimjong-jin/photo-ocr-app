@@ -572,7 +572,7 @@ const constructMergedLabviewItemForStructural = (
           mergedItems[`${baseKeyForData}_세부상태`] = statusText;
 
           if (certDetails.productName && certDetails.productName.trim() !== '') {
-            mergedItems[`${baseKeyForData}_품명`] = certDetails.productName.trim();
+            mergedItems[`${baseFileKey}_품명`] = certDetails.productName.trim();
           }
           if (certDetails.manufacturer && certDetails.manufacturer.trim() !== '') {
             mergedItems[`${baseKeyForData}_제작사`] = certDetails.manufacturer.trim();
@@ -958,7 +958,12 @@ export const sendBatchStructuralChecksToKtlApi = async (
       checklistData: job.checklistData,
       updateUser: userNameGlobal,
       photoFileNames: {},
-      postInspectionDateValue: job.postInspectionDate
+      postInspectionDateValue: job.postInspectionDate,
+      // 배치 전송 시 주입된 신청 정보를 페이로드에 반영
+      representative_name: job.representative_name,
+      applicant_name: job.applicant_name,
+      applicant_phone: job.applicant_phone,
+      maintenance_company: job.maintenance_company
     });
   }
 
@@ -1043,7 +1048,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       }
       if (Object.keys(zip.files).length > 0) {
         try {
-          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          const zipBlob = await zip.generateAsync({ type: "blob" });
           const zipFileNameOnServer = generateZipFileNameForKtl(receiptNo);
           const zipFile = new File([zipBlob], zipFileNameOnServer, { type: 'application/zip' });
           filesToUploadDirectly.push(zipFile);
@@ -1325,4 +1330,3 @@ export const sendKakaoTalkMessage = async (
 };
 
 // --- END: Page 5 (KakaoTalk) Functionality ---
-
