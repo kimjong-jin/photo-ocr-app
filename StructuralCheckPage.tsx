@@ -869,7 +869,6 @@ OUTPUT FORMAT:
     onProgress('전송 시작...');
 
     try {
-      // FIX: Swap p_key and selectedApplication to match function signature in claydoxApiService.
       const result = await sendSingleStructuralCheckToKtlApi(
         activeJob,
         ktlPreflightData.generatedChecklistImage,
@@ -910,7 +909,8 @@ OUTPUT FORMAT:
         
         // 각 작업별로 해당 접수번호의 신청 정보를 주입하여 API로 전달
         const jobsWithAppData = jobs.map(job => {
-            const appData = applications.find(a => a.receipt_no === job.receiptNumber);
+            // ✅ 수정: 접수번호가 세부번호를 포함하더라도 매칭되도록 startsWith 적용
+            const appData = applications.find(a => job.receiptNumber === a.receipt_no || job.receiptNumber.startsWith(a.receipt_no + '-'));
             return { 
                 ...job, 
                 representative_name: appData?.representative_name,
