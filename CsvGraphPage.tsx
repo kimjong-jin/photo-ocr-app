@@ -7,7 +7,9 @@ import { parseGraphtecCsv } from './utils/parseGraphtecCsv';
 import type { 
     CsvGraphJob, 
     SensorType,
-    AiAnalysisPoint
+    AiAnalysisPoint,
+    DataPoint,
+    ParsedCsvData
 } from './types/csvGraph';
 
 interface CsvGraphPageProps {
@@ -48,9 +50,9 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     if (!activeJob?.parsedData?.data || activeJob.parsedData.data.length < 2) {
       return { fullTimeRange: null };
     }
-    const sortedData = [...activeJob.parsedData.data].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-    const minTimestamp = sortedData[0].timestamp.getTime();
-    const maxTimestamp = sortedData[sortedData.length - 1].timestamp.getTime();
+    // 이미 정렬되어 있지만 안전을 위해 한 번 더 확인
+    const minTimestamp = activeJob.parsedData.data[0].timestamp.getTime();
+    const maxTimestamp = activeJob.parsedData.data[activeJob.parsedData.data.length - 1].timestamp.getTime();
     return { fullTimeRange: { min: minTimestamp, max: maxTimestamp } };
   }, [activeJob?.parsedData]);
 
@@ -64,44 +66,87 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     setSequentialPlacementState({ isActive: false, currentIndex: 0 });
   }, [activeJobId, activeJob?.fileName]);
 
-  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!activeJob) {
         alert("파일을 업로드할 작업을 먼저 선택하거나 추가해주세요.");
         return;
     }
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
 
     setIsLoading(true);
     setError(null);
     
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = (e.target?.result as string) || '';
-        const parsed = parseGraphtecCsv(content, file.name);
+    try {
+        const fileArray = Array.from(files);
+        const parsedResults: ParsedCsvData[] = [];
+
+        // 1. 모든 파일 파싱
+        for (const file of fileArray) {
+            const content = await file.text();
+            const parsed = parseGraphtecCsv(content, file.name);
+            parsedResults.push(parsed);
+        }
+
+        // 2. 파일들을 시작 시간 기준으로 정렬
+        parsedResults.sort((a, b) => a.data[0].timestamp.getTime() - b.data[0].timestamp.getTime());
+
+        // 3. 데이터 병합 및 "Stitching" (끊긴 부분 연결)
+        const combinedData: DataPoint[] = [];
+        let cumulativeOffset = 0;
+        const GESTALT_GAP_MS = 1000; // 끊긴 구간을 시각적으로 1초 간격으로 붙임
+
+        for (let i = 0; i < parsedResults.length; i++) {
+            const p = parsedResults[i];
+            
+            if (i > 0) {
+                const prevEnd = combinedData[combinedData.length - 1].timestamp.getTime();
+                const currentStart = p.data[0].timestamp.getTime();
+                const realGap = currentStart - prevEnd;
+
+                // 5초 이상의 실제 간격이 있다면 보정 적용
+                if (realGap > 5000) {
+                    cumulativeOffset += (realGap - GESTALT_GAP_MS);
+                }
+            }
+
+            const adjustedPoints = p.data.map(dp => ({
+                ...dp,
+                originalTime: dp.originalTime || dp.timestamp, // 실제 측정 시간 보존
+                timestamp: new Date(dp.timestamp.getTime() - cumulativeOffset) // 그래프 표시용 보정 시간
+            }));
+
+            combinedData.push(...adjustedPoints);
+        }
+
+        const firstParsed = parsedResults[0];
+        const fileNames = fileArray.map(f => f.name).join(', ');
+
         updateActiveJob(job => ({
             ...job,
-            fileName: file.name,
-            parsedData: parsed,
-            channelAnalysis: job.fileName === file.name ? job.channelAnalysis : {},
+            fileName: fileNames,
+            parsedData: {
+                channels: firstParsed.channels,
+                data: combinedData,
+                fileName: fileNames,
+                measurementRange: firstParsed.measurementRange
+            },
+            channelAnalysis: job.fileName === fileNames ? job.channelAnalysis : {},
             autoMinMaxResults: null,
-            selectedChannelId: job.fileName === file.name ? job.selectedChannelId : (parsed.channels[0]?.id || null),
-            timeRangeInMs: job.fileName === file.name ? job.timeRangeInMs : 'all',
-            viewEndTimestamp: job.fileName === file.name ? job.viewEndTimestamp : null,
+            selectedChannelId: job.fileName === fileNames ? job.selectedChannelId : (firstParsed.channels[0]?.id || null),
+            timeRangeInMs: job.fileName === fileNames ? job.timeRangeInMs : 'all',
+            viewEndTimestamp: null, // fullTimeRange useEffect에서 설정됨
             isRangeSelecting: false,
             isMaxMinMode: false,
             rangeSelection: null,
         }));
-      } catch (err: any) {
+
+    } catch (err: any) {
         setError(err?.message || '파일 처리 중 오류가 발생했습니다.');
-        updateActiveJob(j => ({...j, parsedData: null, fileName: file.name}));
-      } finally {
+        updateActiveJob(j => ({...j, parsedData: null, fileName: '오류'}));
+    } finally {
         setIsLoading(false);
-      }
-    };
-    reader.onerror = () => { setError('파일을 읽는 데 실패했습니다.'); setIsLoading(false); };
-    reader.readAsText(file, 'UTF-8');
+    }
   }, [activeJob, updateActiveJob]);
 
   const handleClear = () => {
@@ -397,7 +442,8 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
       {activeJob && !activeJob.parsedData && (
           <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 flex flex-col sm:flex-row gap-4 items-center">
               <div className="flex-grow text-center sm:text-left">
-                  <input ref={fileInputRef} id="csv-upload-prompt" type="file" accept=".csv,.txt" onChange={handleFileChange} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600" disabled={isLoading} />
+                  <input ref={fileInputRef} id="csv-upload-prompt" type="file" accept=".csv,.txt" multiple onChange={handleFileChange} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600" disabled={isLoading} />
+                  <p className="mt-2 text-xs text-slate-400">※ 끊긴 파일이 있다면 여러 장을 동시에 선택하여 업로드하세요. 자동으로 연결됩니다.</p>
               </div>
               <ActionButton onClick={handleClear} variant="secondary" disabled={isLoading}>초기화</ActionButton>
           </div>
