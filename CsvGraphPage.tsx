@@ -6,7 +6,8 @@ import { CsvDisplay } from './components/csv/CsvDisplay';
 import { parseGraphtecCsv } from './utils/parseGraphtecCsv';
 import type { 
     CsvGraphJob, 
-    SensorType
+    SensorType,
+    AiAnalysisPoint
 } from './types/csvGraph';
 
 interface CsvGraphPageProps {
@@ -152,7 +153,6 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     return { filteredData: dataInWindow, currentWindowDisplay: windowDisplay };
   }, [activeJob]);
 
-  // ✅ Added logic to define isAtStart and isAtEnd to fix reference errors
   const { isAtStart, isAtEnd } = useMemo(() => {
     if (!fullTimeRange || !activeJob || activeJob.viewEndTimestamp === null || activeJob.timeRangeInMs === 'all' || typeof activeJob.timeRangeInMs !== 'number') {
       return { isAtStart: true, isAtEnd: true };
@@ -231,7 +231,6 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
   const toggleMaxMinMode = () => {
     updateActiveJob(job => {
         const currentMode = !job.isMaxMinMode;
-        // 기존 채널들의 선택 상태 초기화
         const newChannelAnalysis = { ...job.channelAnalysis };
         Object.keys(newChannelAnalysis).forEach(cid => {
             newChannelAnalysis[cid] = { ...newChannelAnalysis[cid], selection: { start: null, end: null } };
@@ -242,7 +241,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
   
   const handleClearAnalysis = useCallback(() => {
     if (!activeJob) return;
-    updateActiveJob(job => ({ ...job, channelAnalysis: {}, autoMinMaxResults: null, isRangeSelecting: false, isMaxMinMode: false, rangeSelection: null }));
+    updateActiveJob(job => ({ ...job, channelAnalysis: {}, autoMinMaxResults: null, aiAnalysisResult: null, isRangeSelecting: false, isMaxMinMode: false, rangeSelection: null }));
   }, [activeJob, updateActiveJob]);
 
   const handleCancelSelection = (channelId: string) => {
@@ -282,11 +281,9 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     updateActiveJob(job => {
       const state = job.channelAnalysis[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
       if (job.isMaxMinMode) {
-          // ✅ 첫 번째 클릭: 시작점 지정
           if (!state.selection.start) {
               return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...state, selection: { start: point, end: null } } }};
           }
-          // ✅ 두 번째 클릭: 범위 계산 및 결과 저장
           const [startTime, endTime] = [state.selection.start.timestamp, point.timestamp].sort((a, b) => a.getTime() - b.getTime());
           const valuesInRange = (job.parsedData?.data || []).filter(d => d.timestamp >= startTime && d.timestamp <= endTime).map(d => d.values[channelIndex]).filter(v => v !== null) as number[];
           
@@ -313,10 +310,15 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
   }, [activeJob?.parsedData, updateActiveJob]);
 
     const handleManualAiPointPlacement = useCallback((label: string, point: { timestamp: Date; value: number }) => {
-        // AI Point logic removed but kept manual placement support for potential future manual point tagging if needed,
-        // although current requirement is to delete AI pattern.
+        updateActiveJob(job => ({
+            ...job,
+            aiAnalysisResult: {
+                ...(job.aiAnalysisResult || {}),
+                [label.toLowerCase()]: { timestamp: point.timestamp.toISOString(), value: point.value }
+            }
+        }));
         setPlacingAiPointLabel(null);
-    }, []);
+    }, [updateActiveJob]);
 
     const SEQUENTIAL_POINT_ORDER = useMemo(() => {
         const type = activeJob?.sensorType;
@@ -355,7 +357,14 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
             return;
         }
         
-        // Custom points are not saved in this simplified version to fully remove AI-related result structures
+        updateActiveJob(job => ({
+            ...job,
+            aiAnalysisResult: {
+                ...(job.aiAnalysisResult || {}),
+                [pointLabel.toLowerCase()]: { timestamp: point.timestamp.toISOString(), value: point.value }
+            }
+        }));
+
         const nextIndex = sequentialPlacementState.currentIndex + 1;
         if (nextIndex >= SEQUENTIAL_POINT_ORDER.length) {
             setSequentialPlacementState({ isActive: false, currentIndex: 0 });
@@ -363,7 +372,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         } else {
             setSequentialPlacementState(prev => ({ ...prev, currentIndex: nextIndex }));
         }
-    }, [sequentialPlacementState, SEQUENTIAL_POINT_ORDER]);
+    }, [sequentialPlacementState, SEQUENTIAL_POINT_ORDER, updateActiveJob]);
 
   return (
     <div className={`w-full max-w-7xl bg-slate-800 shadow-2xl space-y-6 ${isFullScreenGraph ? '' : 'sm:rounded-xl sm:p-6 lg:p-8'}`}>
