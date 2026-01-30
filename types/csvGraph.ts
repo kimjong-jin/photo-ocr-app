@@ -7,7 +7,8 @@ export interface ChannelInfo {
 }
 
 export interface DataPoint {
-  timestamp: Date;
+  timestamp: Date;         // 시각적 표시용 (보정된 시간)
+  originalTime?: Date;    // 실제 측정 시간 (툴팁/데이터용)
   values: (number | null)[];
 }
 
@@ -73,6 +74,7 @@ export interface AiAnalysisResult {
     responseError?: string;
     // For PH
     identifiedPatternNumber?: number;
+    isReagent?: boolean;
     [key: string]: any; // For dynamic labels like (A)_4_1, S_1, etc.
 }
 
