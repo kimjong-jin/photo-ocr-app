@@ -29,7 +29,6 @@ const TrashIcon: React.FC = () => (
 );
 
 const ONE_MINUTE_MS = 60 * 1000;
-const BIG_PAN_RATIO = 0.25;
 
 const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -50,7 +49,6 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     if (!activeJob?.parsedData?.data || activeJob.parsedData.data.length < 2) {
       return { fullTimeRange: null };
     }
-    // 이미 정렬되어 있지만 안전을 위해 한 번 더 확인
     const minTimestamp = activeJob.parsedData.data[0].timestamp.getTime();
     const maxTimestamp = activeJob.parsedData.data[activeJob.parsedData.data.length - 1].timestamp.getTime();
     return { fullTimeRange: { min: minTimestamp, max: maxTimestamp } };
@@ -81,43 +79,20 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         const fileArray = Array.from(files);
         const parsedResults: ParsedCsvData[] = [];
 
-        // 1. 모든 파일 파싱
         for (const file of fileArray) {
             const content = await file.text();
             const parsed = parseGraphtecCsv(content, file.name);
             parsedResults.push(parsed);
         }
 
-        // 2. 파일들을 시작 시간 기준으로 정렬
-        parsedResults.sort((a, b) => a.data[0].timestamp.getTime() - b.data[0].timestamp.getTime());
+        // 1. 단순 데이터 병합: 어떠한 시간 계산이나 보정도 하지 않음
+        let combinedData: DataPoint[] = [];
+        parsedResults.forEach(p => {
+            combinedData.push(...p.data);
+        });
 
-        // 3. 데이터 병합 및 "Stitching" (끊긴 부분 연결)
-        const combinedData: DataPoint[] = [];
-        let cumulativeOffset = 0;
-        const GESTALT_GAP_MS = 1000; // 끊긴 구간을 시각적으로 1초 간격으로 붙임
-
-        for (let i = 0; i < parsedResults.length; i++) {
-            const p = parsedResults[i];
-            
-            if (i > 0) {
-                const prevEnd = combinedData[combinedData.length - 1].timestamp.getTime();
-                const currentStart = p.data[0].timestamp.getTime();
-                const realGap = currentStart - prevEnd;
-
-                // 5초 이상의 실제 간격이 있다면 보정 적용
-                if (realGap > 5000) {
-                    cumulativeOffset += (realGap - GESTALT_GAP_MS);
-                }
-            }
-
-            const adjustedPoints = p.data.map(dp => ({
-                ...dp,
-                originalTime: dp.originalTime || dp.timestamp, // 실제 측정 시간 보존
-                timestamp: new Date(dp.timestamp.getTime() - cumulativeOffset) // 그래프 표시용 보정 시간
-            }));
-
-            combinedData.push(...adjustedPoints);
-        }
+        // 2. 시간 순서대로 정렬만 수행하여 무결성 유지
+        combinedData.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
         const firstParsed = parsedResults[0];
         const fileNames = fileArray.map(f => f.name).join(', ');
@@ -135,7 +110,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
             autoMinMaxResults: null,
             selectedChannelId: job.fileName === fileNames ? job.selectedChannelId : (firstParsed.channels[0]?.id || null),
             timeRangeInMs: job.fileName === fileNames ? job.timeRangeInMs : 'all',
-            viewEndTimestamp: null, // fullTimeRange useEffect에서 설정됨
+            viewEndTimestamp: null,
             isRangeSelecting: false,
             isMaxMinMode: false,
             rangeSelection: null,
