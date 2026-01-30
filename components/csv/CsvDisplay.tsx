@@ -4,6 +4,8 @@ import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
 import type {
   CsvGraphJob,
+  AiAnalysisPoint,
+  AiAnalysisResult,
   AnalysisResult as JobAnalysisResult,
   SensorType,
 } from '../../types/csvGraph';
@@ -194,6 +196,7 @@ interface GraphCanvasProps {
   onPointSelect: (point: { timestamp: Date; value: number }) => void;
   selection: RangeSelection | null;
   analysisResults: AnalysisResult[];
+  aiAnalysisResult: AiAnalysisResult | null;
   placingAiPointLabel: string | null;
   onManualAiPointPlacement: (label: string, point: { timestamp: Date; value: number; }) => void;
   setPlacingAiPointLabel: (label: string | null) => void;
@@ -209,7 +212,7 @@ interface GraphCanvasProps {
 const GraphCanvas: React.FC<GraphCanvasProps> = ({ 
     data, fullData, channelIndex, channelInfo, width, height, viewEndTimestamp, timeRangeInMs, fullTimeRange,
     onFinePan, onPanByAmount, onZoom, showMajorTicks, yMinMaxOverall,
-    isAnalyzing, isMaxMinMode, onPointSelect, selection, analysisResults,
+    isAnalyzing, isMaxMinMode, onPointSelect, selection, analysisResults, aiAnalysisResult,
     placingAiPointLabel, onManualAiPointPlacement,
     setPlacingAiPointLabel, isRangeSelecting, rangeSelection, onRangeSelectComplete,
     sequentialPlacementState, onSequentialPointPlacement, sensorType, SEQUENTIAL_POINT_ORDER
@@ -339,7 +342,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
     // ✅ 2. 일반 그래프 영역 클릭 처리
     if (x >= padding.left && x <= width - padding.right) {
-        // 기준선 이동을 위한 클릭 위치의 데이터 찾기
         const graphWidth = width - padding.left - padding.right;
         const timeAtLine = viewportMin + ((x - padding.left) / graphWidth) * (viewportMax - viewportMin);
         let minDistance = Infinity;
@@ -349,10 +351,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             if (dist < minDistance) { minDistance = dist; closest = d; }
         });
 
-        // 일단 기준선은 어디를 클릭하든 이동시킴
         setFixedGuidelineX(x);
 
-        // ✅ 3. 빈 공간 클릭 방지 로직: 데이터 곡선(파란색 선) 근처를 클릭했는지 확인
         const currentLabel = placingAiPointLabel || (sequentialPlacementState.isActive ? SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex] : null);
         if (currentLabel || isMaxMinMode) {
             const py = mapY(closest.value);
@@ -478,7 +478,26 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
         ctx.restore();
     }
-  }, [getChannelData, width, height, getYBounds, mapX, mapY, fixedGuidelineX, currentGuideData, sensorType, isMaxMinMode, placingAiPointLabel, sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout]);
+
+    // 5. ✅ AI 마커들 (수동 지정된 포인트 표시)
+    if (aiAnalysisResult) {
+      Object.entries(aiAnalysisResult).forEach(([key, pt]) => {
+        if (pt && typeof pt === 'object' && (pt as any).timestamp) {
+          const px = mapX(new Date((pt as any).timestamp).getTime());
+          const py = mapY((pt as any).value); 
+          const label = key.toUpperCase();
+          if (px < padding.left || px > width - padding.right) return;
+          ctx.save();
+          ctx.fillStyle = (label === 'ST' ? '#fbbf24' : label === 'EN' ? '#ef4444' : '#38bdf8');
+          ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 9px Inter'; ctx.textAlign = 'center';
+          ctx.fillText(label, px, py - 12); ctx.restore();
+        }
+      });
+    }
+
+  }, [getChannelData, width, height, getYBounds, mapX, mapY, aiAnalysisResult, fixedGuidelineX, currentGuideData, sensorType, isMaxMinMode, placingAiPointLabel, sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout]);
 
   return (
     <canvas ref={canvasRef} 
@@ -510,6 +529,7 @@ interface GraphProps {
     onPointSelect: (point: { timestamp: Date; value: number }) => void;
     selection: RangeSelection | null;
     analysisResults: AnalysisResult[];
+    aiAnalysisResult: AiAnalysisResult | null;
     placingAiPointLabel: string | null;
     onManualAiPointPlacement: (label: string, point: { timestamp: Date; value: number; }) => void;
     setPlacingAiPointLabel: (label: string | null) => void;
@@ -586,13 +606,20 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
 
     useEffect(() => {
         const results: any[] = [];
+        if (activeJob.aiAnalysisResult) {
+            Object.entries(activeJob.aiAnalysisResult).forEach(([key, point]) => {
+                if (point && typeof point === 'object' && (point as any).timestamp) {
+                    results.push({ id: `pt-${key}`, type: '지정 포인트', name: key.toUpperCase(), startTime: new Date((point as any).timestamp), value: (point as any).value });
+                }
+            });
+        }
         if (selectedChannel) {
             (activeJob.channelAnalysis[selectedChannel.id]?.results || []).forEach((res, idx) => {
                  results.push({ id: res.id, type: '수동 분석', channelId: selectedChannel.id, name: `구간 ${idx + 1}`, startTime: res.startTime, endTime: res.endTime, max: res.max, min: res.min, diff: res.diff });
             });
         }
         setUnifiedResults(results.sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
-    }, [activeJob.channelAnalysis, selectedChannel]);
+    }, [activeJob.channelAnalysis, activeJob.aiAnalysisResult, selectedChannel]);
 
     const getSensorPoints = (type: SensorType) => {
         switch (type) {
@@ -612,6 +639,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         onPointSelect: (pt: { timestamp: Date; value: number }) => selectedChannel && handlePointSelect(selectedChannel.id, pt),
         selection: selectedChannel ? activeJob.channelAnalysis[selectedChannel.id]?.selection || null : null,
         analysisResults: selectedChannel ? activeJob.channelAnalysis[selectedChannel.id]?.results || [] : [],
+        aiAnalysisResult: activeJob.aiAnalysisResult || null, 
         placingAiPointLabel: placingAiPointLabel, onManualAiPointPlacement: handleManualAiPointPlacement,
         setPlacingAiPointLabel: setPlacingAiPointLabel, isRangeSelecting: activeJob.isRangeSelecting || false,
         rangeSelection: activeJob.rangeSelection || null, onRangeSelectComplete: (sel: any) => updateActiveJob(j => ({ ...j, rangeSelection: sel })),
@@ -656,7 +684,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                                             key={p} 
                                             id={`point-btn-${p}`} 
                                             onClick={() => setPlacingAiPointLabel(p)} 
-                                            className={`text-[10px] font-bold rounded px-1 py-2 transition-colors truncate ${placingAiPointLabel === p ? 'bg-sky-500 text-white ring-2 ring-sky-300' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                                            className={`text-[10px] font-bold rounded px-1 py-2 transition-colors truncate ${placingAiPointLabel === p ? 'bg-sky-500 text-white ring-2 ring-sky-300' : !!(activeJob.aiAnalysisResult as any)?.[p.toLowerCase()] ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
                                             title={p}
                                         >
                                             {p}
@@ -713,22 +741,26 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                             </tr>
                         ) : unifiedResults.map(item => (
                             <tr key={item.id} className="hover:bg-slate-700/30 text-slate-300">
-                                <td className="px-3 py-2">{item.type}</td>
+                                <td className="px-3 py-2">
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${item.type === '지정 포인트' ? 'bg-sky-500/20 text-sky-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                        {item.type}
+                                    </span>
+                                </td>
                                 <td className="px-3 py-2 font-bold text-sky-400">{item.name}</td>
                                 <td className="px-3 py-2">
                                     {item.endTime ? `${item.startTime.toLocaleTimeString()} ~ ${item.endTime.toLocaleTimeString()}` : item.startTime.toLocaleTimeString()}
                                 </td>
-                                <td className="px-3 py-2 text-right">
+                                <td className="px-3 py-2 text-right font-mono">
                                     {item.type === '수동 분석' ? (
                                         <span className="text-amber-400">{item.diff?.toFixed(3)}</span>
                                     ) : (
                                         item.value?.toFixed(3) || '-'
                                     )}
                                 </td>
-                                <td className="px-3 py-2 text-right text-slate-400">
+                                <td className="px-3 py-2 text-right text-slate-400 font-mono">
                                     {item.max?.toFixed(3) || '-'}
                                 </td>
-                                <td className="px-3 py-2 text-right text-slate-400">
+                                <td className="px-3 py-2 text-right text-slate-400 font-mono">
                                     {item.min?.toFixed(3) || '-'}
                                 </td>
                                 <td className="px-3 py-2 text-center">
@@ -740,6 +772,9 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                                         >
                                             <TrashIcon />
                                         </button>
+                                    )}
+                                    {item.type === '지정 포인트' && (
+                                        <span className="text-[10px] text-slate-500">M</span>
                                     )}
                                 </td>
                             </tr>
