@@ -288,48 +288,70 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   useEffect(() => { updateGuideData(); }, [updateGuideData]);
 
-  // ✅ [공통] EN 포인트 자동 Snap/보정 로직
+  // ✅ [공통] 포인트 자동 Snap/보정 로직
   const getSnappedPoint = useCallback((label: string, basePoint: { timestamp: Date; value: number }) => {
-    if (label.toUpperCase() === 'EN' && (sensorType === 'PH' || sensorType === 'DO')) {
+    const upperLabel = label.toUpperCase();
+    
+    // PH/DO의 고정 타겟 보정 혹은 TU/Cl의 S1 90% 보정
+    if (upperLabel === 'EN') {
         const stPoint = (aiAnalysisResult as any)?.st;
         const stTime = stPoint ? new Date(stPoint.timestamp).getTime() : 0;
-        const targetValue = sensorType === 'PH' ? (basePoint.value > 7 ? 9.7 : 4.3) : 1.0;
         
-        let interpPoint = null;
-        let minTimeDiff = Infinity;
-
-        // 마우스(혹은 드래그) 위치 근처에서 가장 가까운 교차점을 탐색
-        for (let i = 0; i < getChannelData.length - 1; i++) {
-            const d1 = getChannelData[i]; 
-            const d2 = getChannelData[i+1];
-            
-            // ST 이후 시점만 탐색
-            if (d1.timestamp.getTime() <= stTime) continue;
-            
-            let crossed = false;
-            if (sensorType === 'PH') {
-                if (targetValue === 9.7) crossed = (d1.value < 9.7 && d2.value >= 9.7) || (d1.value >= 9.7 && d2.value < 9.7); 
-                else crossed = (d1.value > 4.3 && d2.value <= 4.3) || (d1.value <= 4.3 && d2.value > 4.3); 
-            } else {
-                crossed = (d1.value > 1.0 && d2.value <= 1.0) || (d1.value <= 1.0 && d2.value > 1.0); 
-            }
-
-            if (crossed) {
-                const ratio = (targetValue - d1.value) / (d2.value - d1.value);
-                const interpTs = d1.timestamp.getTime() + (d2.timestamp.getTime() - d1.timestamp.getTime()) * ratio;
-                const timeDiff = Math.abs(interpTs - basePoint.timestamp.getTime());
+        let targetValue: number | null = null;
+        if (sensorType === 'PH') targetValue = basePoint.value > 7 ? 9.7 : 4.3;
+        else if (sensorType === 'DO') targetValue = 1.0;
+        else if (sensorType === 'TU' || sensorType === 'Cl') {
+            const s1Point = (aiAnalysisResult as any)?.s1;
+            if (s1Point) targetValue = s1Point.value * 0.9;
+        }
+        
+        if (targetValue !== null) {
+            let interpPoint = null;
+            let minTimeDiff = Infinity;
+            for (let i = 0; i < getChannelData.length - 1; i++) {
+                const d1 = getChannelData[i]; 
+                const d2 = getChannelData[i+1];
+                if (d1.timestamp.getTime() <= stTime) continue;
                 
-                // 현재 마우스 위치와 시간상 가장 가까운 교차점을 선택
-                if (timeDiff < minTimeDiff) {
-                    minTimeDiff = timeDiff;
-                    interpPoint = { timestamp: new Date(interpTs), value: targetValue };
+                let crossed = false;
+                if (sensorType === 'PH') {
+                    if (targetValue === 9.7) crossed = (d1.value < 9.7 && d2.value >= 9.7) || (d1.value >= 9.7 && d2.value < 9.7); 
+                    else crossed = (d1.value > 4.3 && d2.value <= 4.3) || (d1.value <= 4.3 && d2.value > 4.3); 
+                } else if (sensorType === 'DO' || sensorType === 'TU' || sensorType === 'Cl') {
+                    crossed = (d1.value > targetValue && d2.value <= targetValue) || (d1.value <= targetValue && d2.value > targetValue); 
+                }
+
+                if (crossed) {
+                    const ratio = (targetValue - d1.value) / (d2.value - d1.value);
+                    const interpTs = d1.timestamp.getTime() + (d2.timestamp.getTime() - d1.timestamp.getTime()) * ratio;
+                    const timeDiff = Math.abs(interpTs - basePoint.timestamp.getTime());
+                    if (timeDiff < minTimeDiff) {
+                        minTimeDiff = timeDiff;
+                        interpPoint = { timestamp: new Date(interpTs), value: targetValue };
+                    }
                 }
             }
+            return interpPoint || basePoint;
         }
-        return interpPoint || basePoint;
     }
     return basePoint;
   }, [sensorType, aiAnalysisResult, getChannelData]);
+
+  // ✅ 포인트 확정 로직 (수동 분석, 개별 포인트, 순차 지정 통합)
+  const confirmPoint = useCallback((point: { timestamp: Date; value: number }) => {
+    if (isMaxMinMode) {
+      onPointSelect(point);
+    } else if (placingAiPointLabel) {
+      const snapped = getSnappedPoint(placingAiPointLabel, point);
+      onManualAiPointPlacement(placingAiPointLabel, snapped);
+    } else if (sequentialPlacementState.isActive) {
+      const label = SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex];
+      if (label) {
+        const snapped = getSnappedPoint(label, point);
+        onSequentialPointPlacement(snapped);
+      }
+    }
+  }, [isMaxMinMode, onPointSelect, placingAiPointLabel, getSnappedPoint, onManualAiPointPlacement, sequentialPlacementState, onSequentialPointPlacement, SEQUENTIAL_POINT_ORDER]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
       const rect = canvasRef.current?.getBoundingClientRect();
@@ -402,7 +424,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-      // ✅ 마커 드래그 종료 시 위치 확정 (EN인 경우 Snap 보정 수행)
+      // ✅ 마커 드래그 종료 시 위치 확정 (보정 수행)
       if (draggedMarkerKey && currentGuideData) {
           const finalPoint = getSnappedPoint(draggedMarkerKey, currentGuideData);
           onManualAiPointPlacement(draggedMarkerKey.toUpperCase(), finalPoint);
@@ -452,18 +474,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     }
   };
 
-  const confirmPoint = (point: { timestamp: Date; value: number }) => {
-    const currentLabel = placingAiPointLabel || (sequentialPlacementState.isActive ? SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex] : null);
-    if (!currentLabel) return;
-
-    // 클릭 시에도 Snap 보정 로직 적용
-    const finalPoint = getSnappedPoint(currentLabel, point);
-
-    if (sequentialPlacementState.isActive) onSequentialPointPlacement(finalPoint);
-    else if (placingAiPointLabel) onManualAiPointPlacement(placingAiPointLabel, finalPoint);
-    else if (isMaxMinMode) onPointSelect(point); // Max/Min 모드는 Snap 하지 않음
-  };
-
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
         const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
@@ -508,8 +518,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       ctx.textAlign = 'right'; ctx.fillText(val.toFixed(2), padding.left - 8, y + 3);
     }
 
-    // 2. PH / DO 타겟 기준선
-    const drawTargetLine = (val: number) => {
+    // 2. PH / DO 타겟 기준선 + TU/Cl S1 90% 기준선
+    const drawTargetLine = (val: number, label: string) => {
         const py = mapY(val);
         if (py >= padding.top && py <= padding.top + graphHeight) {
             ctx.save(); 
@@ -517,11 +527,21 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             ctx.setLineDash([8, 4]); ctx.lineWidth = 2;
             ctx.beginPath(); ctx.moveTo(padding.left, py); ctx.lineTo(padding.left + graphWidth, py); ctx.stroke();
             ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 11px Inter'; ctx.textAlign = 'left';
-            ctx.fillText(`TARGET ${val.toFixed(1)}`, padding.left + 5, py - 5); ctx.restore();
+            ctx.fillText(label, padding.left + 5, py - 5); ctx.restore();
         }
     };
-    if (sensorType === 'PH') [4.3, 9.7].forEach(drawTargetLine);
-    else if (sensorType === 'DO') drawTargetLine(1.0);
+    if (sensorType === 'PH') {
+        drawTargetLine(4.3, 'TARGET 4.3');
+        drawTargetLine(9.7, 'TARGET 9.7');
+    } else if (sensorType === 'DO') {
+        drawTargetLine(1.0, 'TARGET 1.0');
+    } else if (sensorType === 'TU' || sensorType === 'Cl') {
+        const s1 = (aiAnalysisResult as any)?.s1;
+        if (s1) {
+            const targetVal = s1.value * 0.9;
+            drawTargetLine(targetVal, `TARGET (S1 90%: ${targetVal.toFixed(3)})`);
+        }
+    }
 
     // 3. ST-EN 면적 하이라이트 (응답 구간 시각화)
     if (aiAnalysisResult) {
@@ -729,6 +749,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
             }
             
             Object.entries(activeJob.aiAnalysisResult).forEach(([key, point]) => {
+                if (key === 'isReagent') return;
                 if (point && typeof point === 'object' && (point as any).timestamp) {
                     results.push({ id: `pt-${key}`, type: '지정 포인트', name: key.toUpperCase(), startTime: new Date((point as any).timestamp), value: (point as any).value });
                 }
@@ -747,10 +768,16 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     }, [activeJob.channelAnalysis, activeJob.aiAnalysisResult, selectedChannel]);
 
     const getSensorPoints = (type: SensorType) => {
+        const isReagent = !!(activeJob.aiAnalysisResult as any)?.isReagent;
         switch (type) {
             case 'SS': return ['M1', 'M2', 'M3', 'Z1', 'Z2', 'S1', 'S2', 'Z3', 'Z4', 'S3', 'S4', 'Z5', 'S5', 'Z6', 'S6', 'Z7', 'S7', '현장1', '현장2'];
             case 'PH': return ['(A)_4_1', '(A)_4_2', '(A)_4_3', '(A)_7_1', '(A)_7_2', '(A)_7_3', '(A)_10_1', '(A)_10_2', '(A)_10_3', '(B)_7_1', '(B)_4_1', '(B)_7_2', '(B)_4_2', '(B)_7_3', '(B)_4_3', '(C)_4_1', '(C)_4_2', '(C)_4_3', '(C)_7_1', '(C)_7_2', '(C)_7_3', '(C)_4_4', '(C)_4_5', '(C)_4_6', '(C)_7_4', '(C)_7_5', '(C)_7_6', '4_10', '4_15', '4_20', '4_25', '4_30', 'ST', 'EN', '현장1', '현장2'];
             case 'DO': return ['(A)_S1', '(A)_S2', '(A)_S3', 'S_1', 'S_2', 'S_3', 'Z_1', 'Z_2', 'Z_3', 'Z_4', 'Z_5', 'Z_6', 'S_4', 'S_5', 'S_6', '20_S_1', '20_S_2', '20_S_3', '30_S_1', '30_S_2', '30_S_3', 'ST', 'EN'];
+            case 'Cl':
+                const baseCl = ['Z1', 'Z2', 'S1', 'S2', 'Z3', 'Z4', 'S3', 'S4', 'Z5', 'S5', 'M1'];
+                return isReagent ? baseCl : [...baseCl, 'ST', 'EN'];
+            case 'TU':
+                return ['Z1', 'Z2', 'S1', 'S2', 'Z3', 'Z4', 'S3', 'S4', 'Z5', 'S5', 'M1', 'ST', 'EN'];
             default: return ['Z1', 'Z2', 'S1', 'S2', 'Z3', 'Z4', 'S3', 'S4', 'Z5', 'S5', 'M1', 'ST', 'EN'];
         }
     };
@@ -770,6 +797,19 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         rangeSelection: activeJob.rangeSelection || null, onRangeSelectComplete: (sel: any) => updateActiveJob(j => ({ ...j, rangeSelection: sel })),
         sequentialPlacementState: sequentialPlacementState, onSequentialPointPlacement: handleSequentialPointPlacement, sensorType: activeJob.sensorType,
         SEQUENTIAL_POINT_ORDER
+    };
+
+    const handleToggleReagent = () => {
+        updateActiveJob(job => {
+            const currentIsReagent = !!(job.aiAnalysisResult as any)?.isReagent;
+            const newIsReagent = !currentIsReagent;
+            const newAiResult = { ...(job.aiAnalysisResult || {}), isReagent: newIsReagent };
+            if (newIsReagent) {
+                delete (newAiResult as any).st;
+                delete (newAiResult as any).en;
+            }
+            return { ...job, aiAnalysisResult: newAiResult };
+        });
     };
 
     if (isFullScreenGraph) return (
@@ -799,6 +839,14 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                                         <button key={opt} onClick={() => updateActiveJob(j => ({ ...j, sensorType: opt as SensorType }))} className={`px-2 py-1 rounded text-[10px] transition-colors ${activeJob.sensorType === opt ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-300'}`}>{opt}</button>
                                     ))}
                                 </div>
+                                {activeJob.sensorType === 'Cl' && (
+                                    <button 
+                                        onClick={handleToggleReagent}
+                                        className={`w-full py-2 rounded text-xs font-bold transition-all border-2 ${!!(activeJob.aiAnalysisResult as any)?.isReagent ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-900/50' : 'bg-slate-800 border-slate-600 text-slate-400'}`}
+                                    >
+                                        {!!(activeJob.aiAnalysisResult as any)?.isReagent ? '✓ 시약식 모드 활성 (ST/EN 제외)' : '시약식 여부 (클릭 시 ST/EN 삭제)'}
+                                    </button>
+                                )}
                                 <h4 className="text-sm font-semibold text-slate-200">포인트 지정 ({activeJob.sensorType})</h4>
                                 <div className="flex gap-2">
                                     <ActionButton onClick={handleToggleSequentialPlacement} fullWidth variant={sequentialPlacementState.isActive ? 'danger' : 'primary'} className="!text-[10px] py-1">{sequentialPlacementState.isActive ? '중단' : '순차 지정 시작'}</ActionButton>
