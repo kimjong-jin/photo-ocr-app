@@ -108,7 +108,7 @@ export const extractTextFromImage = async (
     { inlineData: { mimeType, data: imageBase64 } },
   ];
   // FIX: Per coding guidelines, use 'gemini-2.5-flash' for general text tasks.
-  const model = "gemini-3.0-flash";
+  const model = "gemini-3-flash-preview";
 
   // 실제 API 호출 함수
   const callApi = async (): Promise<string> => {
