@@ -4,8 +4,6 @@ import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
 import type {
   CsvGraphJob,
-  AiAnalysisPoint,
-  AiAnalysisResult,
   AnalysisResult as JobAnalysisResult,
   SensorType,
 } from '../../types/csvGraph';
@@ -196,8 +194,6 @@ interface GraphCanvasProps {
   onPointSelect: (point: { timestamp: Date; value: number }) => void;
   selection: RangeSelection | null;
   analysisResults: AnalysisResult[];
-  aiAnalysisResult: AiAnalysisResult | null;
-  onAiPointChange: (label: string, newPoint: AiAnalysisPoint) => void;
   placingAiPointLabel: string | null;
   onManualAiPointPlacement: (label: string, point: { timestamp: Date; value: number; }) => void;
   setPlacingAiPointLabel: (label: string | null) => void;
@@ -213,18 +209,29 @@ interface GraphCanvasProps {
 const GraphCanvas: React.FC<GraphCanvasProps> = ({ 
     data, fullData, channelIndex, channelInfo, width, height, viewEndTimestamp, timeRangeInMs, fullTimeRange,
     onFinePan, onPanByAmount, onZoom, showMajorTicks, yMinMaxOverall,
-    isAnalyzing, isMaxMinMode, onPointSelect, selection, analysisResults, aiAnalysisResult,
-    onAiPointChange, placingAiPointLabel, onManualAiPointPlacement,
+    isAnalyzing, isMaxMinMode, onPointSelect, selection, analysisResults,
+    placingAiPointLabel, onManualAiPointPlacement,
     setPlacingAiPointLabel, isRangeSelecting, rangeSelection, onRangeSelectComplete,
     sequentialPlacementState, onSequentialPointPlacement, sensorType, SEQUENTIAL_POINT_ORDER
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [draggingPoint, setDraggingPoint] = useState<{ label: string } | null>(null);
-  // ✅ 회색 점선 가이드 상태
-  const [crosshairPos, setCrosshairPos] = useState<{ x: number; y: number; timestamp: Date; value: number } | null>(null);
+  const padding = { top: 40, right: 60, bottom: 40, left: 60 };
+
+  // ✅ [중요] 화면 고정 가이드라인의 X 좌표 (픽셀 단위)
+  const [fixedGuidelineX, setFixedGuidelineX] = useState<number>(0);
+  const [currentGuideData, setCurrentGuideData] = useState<{ timestamp: Date; value: number } | null>(null);
+  
+  // ✅ 마우스가 상단 데이터 리드아웃 박스 위에 있는지 여부
+  const [isOverReadout, setIsOverReadout] = useState<boolean>(false);
   
   const touchState = useRef({ isPanning: false, lastX: 0, initialDistance: 0, isZooming: false, hasMoved: false });
-  const padding = { top: 40, right: 60, bottom: 40, left: 60 };
+
+  // 초기 기준선 위치를 화면 중앙으로 설정
+  useEffect(() => {
+    if (width && fixedGuidelineX === 0) {
+      setFixedGuidelineX(padding.left + (width - padding.left - padding.right) / 2);
+    }
+  }, [width, fixedGuidelineX]);
 
   const viewportMax = useMemo(() => viewEndTimestamp || fullTimeRange.max, [viewEndTimestamp, fullTimeRange.max]);
   const viewportMin = useMemo(() => {
@@ -258,34 +265,29 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     return padding.top + graphHeight - ((val - getYBounds.yMin) / (getYBounds.yMax - getYBounds.yMin)) * graphHeight;
   }, [height, getYBounds, padding.top, padding.bottom]);
 
+  // ✅ 현재 고정 기준선(X)이 가리키는 시간과 값 계산
+  const updateGuideData = useCallback(() => {
+      if (width === 0 || getChannelData.length === 0) return;
+      const graphWidth = width - padding.left - padding.right;
+      const timeAtLine = viewportMin + ((fixedGuidelineX - padding.left) / graphWidth) * (viewportMax - viewportMin);
+      
+      let minDistance = Infinity;
+      let closest = getChannelData[0];
+      getChannelData.forEach(d => {
+          const dist = Math.abs(d.timestamp.getTime() - timeAtLine);
+          if (dist < minDistance) { minDistance = dist; closest = d; }
+      });
+      setCurrentGuideData(closest);
+  }, [fixedGuidelineX, width, viewportMin, viewportMax, getChannelData, padding.left, padding.right]);
+
+  useEffect(() => { updateGuideData(); }, [updateGuideData]);
+
   const handlePointerDown = (e: React.PointerEvent) => {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
 
       touchState.current.hasMoved = false;
       touchState.current.lastX = e.clientX;
-
-      // 마커 드래그 판정 우선
-      let markerHit = null;
-      if (aiAnalysisResult) {
-          Object.entries(aiAnalysisResult).forEach(([key, pt]) => {
-              if (pt && typeof pt === 'object' && (pt as any).timestamp) {
-                  const px = mapX(new Date((pt as any).timestamp).getTime());
-                  const py = mapY((pt as any).value);
-                  if (Math.abs(x - px) < 25 && Math.abs(y - py) < 25) markerHit = { label: key };
-              }
-          });
-      }
-
-      if (markerHit) {
-          setDraggingPoint(markerHit);
-          (e.target as Element).setPointerCapture(e.pointerId);
-          return;
-      }
-
-      // 롱프레스 없이 즉시 드래그 팬 시작
       touchState.current.isPanning = true;
       (e.target as Element).setPointerCapture(e.pointerId);
   };
@@ -296,6 +298,15 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // ✅ 데이터 리드아웃 박스(말풍선) 영역 감지
+    if (currentGuideData) {
+        const tw = 180; // 근사치 (텍스트 길이에 따라 다름)
+        const rx = fixedGuidelineX - (tw + 20) / 2;
+        const ry = padding.top - 35;
+        const isOver = x >= rx && x <= rx + tw + 20 && y >= ry && y <= ry + 24;
+        setIsOverReadout(isOver);
+    }
+
     if (touchState.current.isPanning) {
         const dx = e.clientX - touchState.current.lastX;
         if (Math.abs(dx) > 3) touchState.current.hasMoved = true;
@@ -303,83 +314,59 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         const timeDelta = -(dx / graphWidth) * (viewportMax - viewportMin);
         onPanByAmount(timeDelta);
         touchState.current.lastX = e.clientX;
-    }
-
-    if (draggingPoint) {
-        touchState.current.hasMoved = true;
-        const graphWidth = width - padding.left - padding.right;
-        const timeAtMouse = viewportMin + ((x - padding.left) / graphWidth) * (viewportMax - viewportMin);
-        let minDistance = Infinity;
-        let closest = null;
-        getChannelData.forEach(d => {
-            const dist = Math.abs(d.timestamp.getTime() - timeAtMouse);
-            if (dist < minDistance) { minDistance = dist; closest = d; }
-        });
-        if (closest) onAiPointChange(draggingPoint.label, { timestamp: closest.timestamp.toISOString(), value: closest.value });
-    }
-
-    // ✅ 데이터 가이드(회색 점선) 실시간 갱신 (마우스 오버 시 상시 작동)
-    if (x >= padding.left && x <= width - padding.right && getChannelData.length > 0) {
-        const graphWidth = width - padding.left - padding.right;
-        const timeAtMouse = viewportMin + ((x - padding.left) / graphWidth) * (viewportMax - viewportMin);
-        let minDistance = Infinity;
-        let closest = getChannelData[0];
-        getChannelData.forEach(d => {
-            const dist = Math.abs(d.timestamp.getTime() - timeAtMouse);
-            if (dist < minDistance) { minDistance = dist; closest = d; }
-        });
-        setCrosshairPos({ x: mapX(closest.timestamp.getTime()), y: mapY(closest.value), timestamp: closest.timestamp, value: closest.value });
-    } else {
-        setCrosshairPos(null);
+        return;
     }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-      setDraggingPoint(null);
       touchState.current.isPanning = false;
       (e.target as Element).releasePointerCapture(e.pointerId);
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    if (touchState.current.hasMoved || !crosshairPos) return;
+    if (touchState.current.hasMoved) return;
     
-    // ✅ 클릭 시 현재 가이드선(회색 점선) 위치의 데이터로 확정
-    const point = { timestamp: crosshairPos.timestamp, value: crosshairPos.value };
-    const currentLabel = placingAiPointLabel || (sequentialPlacementState.isActive ? SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex] : null);
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
 
-    // EN 정밀 스냅 로직 (가이드선을 보며 클릭하는 시점에 보정 적용)
-    if (currentLabel?.toUpperCase() === 'EN' && (sensorType === 'PH' || sensorType === 'DO')) {
-        const stPoint = (aiAnalysisResult as any)?.st;
-        const stTime = stPoint ? new Date(stPoint.timestamp).getTime() : 0;
-        const targetValue = sensorType === 'PH' ? (point.value > 7 ? 9.7 : 4.3) : 1.0;
-        
-        let interpPoint = null;
-        for (let i = 0; i < getChannelData.length - 1; i++) {
-            const d1 = getChannelData[i]; 
-            const d2 = getChannelData[i+1];
-            if (d1.timestamp.getTime() <= stTime) continue;
-            
-            let crossed = false;
-            if (sensorType === 'PH') {
-                if (point.value > 7) crossed = (d1.value < 9.7 && d2.value >= 9.7); 
-                else crossed = (d1.value > 4.3 && d2.value <= 4.3); 
-            } else {
-                crossed = (d1.value > 1.0 && d2.value <= 1.0); 
-            }
-
-            if (crossed) {
-                const ratio = (targetValue - d1.value) / (d2.value - d1.value);
-                interpPoint = { timestamp: new Date(d1.timestamp.getTime() + (d2.timestamp.getTime() - d1.timestamp.getTime()) * ratio), value: targetValue };
-                break;
-            }
-        }
-        if (interpPoint) {
-            if (sequentialPlacementState.isActive) onSequentialPointPlacement(interpPoint);
-            else if (placingAiPointLabel) onManualAiPointPlacement(placingAiPointLabel, interpPoint);
-            return;
-        }
+    // ✅ 1. 상단 데이터 박스(리드아웃)를 클릭했다면 해당 데이터로 포인트 확정
+    if (isOverReadout && currentGuideData) {
+        confirmPoint(currentGuideData);
+        return;
     }
 
+    // ✅ 2. 일반 그래프 영역 클릭 처리
+    if (x >= padding.left && x <= width - padding.right) {
+        // 기준선 이동을 위한 클릭 위치의 데이터 찾기
+        const graphWidth = width - padding.left - padding.right;
+        const timeAtLine = viewportMin + ((x - padding.left) / graphWidth) * (viewportMax - viewportMin);
+        let minDistance = Infinity;
+        let closest = getChannelData[0];
+        getChannelData.forEach(d => {
+            const dist = Math.abs(d.timestamp.getTime() - timeAtLine);
+            if (dist < minDistance) { minDistance = dist; closest = d; }
+        });
+
+        // 일단 기준선은 어디를 클릭하든 이동시킴
+        setFixedGuidelineX(x);
+
+        // ✅ 3. 빈 공간 클릭 방지 로직: 데이터 곡선(파란색 선) 근처를 클릭했는지 확인
+        const currentLabel = placingAiPointLabel || (sequentialPlacementState.isActive ? SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex] : null);
+        if (currentLabel || isMaxMinMode) {
+            const py = mapY(closest.value);
+            const distY = Math.abs(y - py);
+            
+            // Y축 기준으로 데이터 선과 클릭 지점이 30px 이내로 가까울 때만 '그래프 클릭'으로 간주하여 데이터 취함
+            if (distY < 30) {
+                confirmPoint(closest);
+            }
+        }
+    }
+  };
+
+  const confirmPoint = (point: { timestamp: Date; value: number }) => {
     if (sequentialPlacementState.isActive) onSequentialPointPlacement(point);
     else if (placingAiPointLabel) onManualAiPointPlacement(placingAiPointLabel, point);
     else if (isMaxMinMode) onPointSelect(point);
@@ -399,12 +386,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
         const factor = dist / touchState.current.initialDistance;
         if (Math.abs(factor - 1) > 0.02) {
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
-            const graphWidth = width - padding.left - padding.right;
-            const midTs = viewportMin + ((midX - padding.left) / graphWidth) * (viewportMax - viewportMin);
-            onZoom(factor > 1 ? 1.05 : 0.95, midTs);
+            onZoom(factor > 1 ? 1.05 : 0.95, viewportMin + (viewportMax - viewportMin) / 2);
             touchState.current.initialDistance = dist;
         }
     }
@@ -434,42 +416,22 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       ctx.textAlign = 'right'; ctx.fillText(val.toFixed(2), padding.left - 8, y + 3);
     }
 
-    // 2. ✅ PH / DO 고정 기준선 (Target Lines) - 선명한 주황색
+    // 2. PH / DO 타겟 기준선
     const drawTargetLine = (val: number) => {
         const py = mapY(val);
         if (py >= padding.top && py <= padding.top + graphHeight) {
             ctx.save(); 
             ctx.strokeStyle = 'rgba(245, 158, 11, 0.9)'; 
-            ctx.setLineDash([8, 4]);
-            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 4]); ctx.lineWidth = 2;
             ctx.beginPath(); ctx.moveTo(padding.left, py); ctx.lineTo(padding.left + graphWidth, py); ctx.stroke();
-            ctx.fillStyle = '#f59e0b';
-            ctx.font = 'bold 11px Inter'; ctx.textAlign = 'left';
-            ctx.fillText(`TARGET ${val.toFixed(1)}`, padding.left + 5, py - 5); 
-            ctx.restore();
+            ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 11px Inter'; ctx.textAlign = 'left';
+            ctx.fillText(`TARGET ${val.toFixed(1)}`, padding.left + 5, py - 5); ctx.restore();
         }
     };
     if (sensorType === 'PH') [4.3, 9.7].forEach(drawTargetLine);
     else if (sensorType === 'DO') drawTargetLine(1.0);
 
-    // 3. AI 분석 구간 하이라이트
-    if (aiAnalysisResult) {
-        const st = (aiAnalysisResult as any)?.st;
-        const en = (aiAnalysisResult as any)?.en;
-        if (st?.timestamp && en?.timestamp) {
-            const sx = mapX(new Date(st.timestamp).getTime());
-            const ex = mapX(new Date(en.timestamp).getTime());
-            const x1 = Math.max(Math.min(sx, ex), padding.left);
-            const x2 = Math.min(Math.max(sx, ex), width - padding.right);
-            if (x2 > x1) {
-                const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + graphHeight);
-                grad.addColorStop(0, 'rgba(251, 191, 36, 0.15)'); grad.addColorStop(1, 'rgba(251, 191, 36, 0.05)');
-                ctx.fillStyle = grad; ctx.fillRect(x1, padding.top, x2 - x1, graphHeight);
-            }
-        }
-    }
-
-    // 4. 메인 데이터 라인
+    // 3. 메인 데이터 라인
     ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.5; ctx.beginPath();
     getChannelData.forEach((d, i) => {
       const px = mapX(d.timestamp.getTime()); const py = mapY(d.value);
@@ -481,62 +443,48 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     });
     ctx.stroke();
 
-    // 5. ✅ 데이터 추적 회색 점선 (Crosshair) - 마우스를 처음부터 끝까지 따라다님
-    if (crosshairPos) {
+    // 4. ✅ [핵심] 고정 가이드라인 (찐한 회색 스타일)
+    if (fixedGuidelineX >= padding.left && fixedGuidelineX <= width - padding.right) {
         ctx.save();
-        ctx.strokeStyle = 'rgba(148, 163, 184, 0.8)'; ctx.setLineDash([4, 4]);
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(crosshairPos.x, padding.top); ctx.lineTo(crosshairPos.x, padding.top + graphHeight); ctx.stroke();
+        ctx.strokeStyle = 'rgba(71, 85, 105, 0.9)'; // Slate-600 기반
+        ctx.setLineDash([5, 3]); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(fixedGuidelineX, padding.top - 10); ctx.lineTo(fixedGuidelineX, padding.top + graphHeight); ctx.stroke();
         
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.95)'; ctx.font = 'bold 12px Inter';
-        const txt = `${crosshairPos.timestamp.toLocaleTimeString()} | ${crosshairPos.value.toFixed(3)}`;
-        const tw = ctx.measureText(txt).width;
-        ctx.fillRect(crosshairPos.x - tw / 2 - 10, padding.top - 32, tw + 20, 24);
-        ctx.fillStyle = '#38bdf8'; ctx.textAlign = 'center'; ctx.fillText(txt, crosshairPos.x, padding.top - 15);
+        if (currentGuideData) {
+            ctx.setLineDash([]);
+            // 말풍선 배경 (연한 회색)
+            ctx.fillStyle = isOverReadout ? 'rgba(203, 213, 225, 1.0)' : 'rgba(226, 232, 240, 0.95)';
+            ctx.font = 'bold 12px Inter';
+            const txt = `${currentGuideData.timestamp.toLocaleTimeString()} | ${currentGuideData.value.toFixed(3)}`;
+            const tw = ctx.measureText(txt).width;
+            ctx.beginPath();
+            const rectW = tw + 20; const rectH = 24;
+            const rx = fixedGuidelineX - rectW / 2; const ry = padding.top - 35;
+            ctx.roundRect(rx, ry, rectW, rectH, 4); ctx.fill();
+            
+            // 강조 테두리 (클릭 가능함 표시)
+            ctx.strokeStyle = isOverReadout ? '#38bdf8' : 'rgba(71, 85, 105, 0.3)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            
+            // 텍스트 (찐한 회색)
+            ctx.fillStyle = '#1e293b'; // Slate-900 (찐한 회색)
+            ctx.textAlign = 'center'; ctx.fillText(txt, fixedGuidelineX, padding.top - 18);
 
-        // 데이터 곡선과의 접점 표시
-        ctx.fillStyle = '#38bdf8'; ctx.beginPath();
-        ctx.arc(crosshairPos.x, crosshairPos.y, 4, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-    }
-
-    // 6. AI 마커들
-    if (aiAnalysisResult) {
-      Object.entries(aiAnalysisResult).forEach(([key, pt]) => {
-        if (pt && typeof pt === 'object' && (pt as any).timestamp) {
-          const px = mapX(new Date((pt as any).timestamp).getTime());
-          const py = mapY((pt as any).value); 
-          const label = key.toUpperCase();
-          if (px < padding.left || px > width - padding.right) return;
-          ctx.save();
-          ctx.fillStyle = (label === 'ST' ? '#fbbf24' : label === 'EN' ? '#ef4444' : '#38bdf8');
-          ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-          ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 9px Inter'; ctx.textAlign = 'center';
-          ctx.fillText(label, px, py - 12); ctx.restore();
+            // 데이터 곡선과의 접점 (회색 포인트)
+            ctx.fillStyle = '#475569'; // Slate-600
+            ctx.beginPath(); ctx.arc(fixedGuidelineX, mapY(currentGuideData.value), 5, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
         }
-      });
-    }
-
-    if (isMaxMinMode) {
-        ctx.save(); ctx.fillStyle = 'rgba(245, 158, 11, 0.9)'; ctx.font = 'bold 12px Inter'; ctx.textAlign = 'center';
-        ctx.fillText(selection?.start ? "원하는 지점에 선을 맞추고 클릭하여 완료하세요" : "최대/최소: 분석 지점에 선을 맞추고 클릭하세요", width / 2, padding.top / 2 + 5);
         ctx.restore();
     }
-  }, [getChannelData, width, height, getYBounds, mapX, mapY, aiAnalysisResult, crosshairPos, sensorType, isMaxMinMode, selection, viewportMin, viewportMax]);
+  }, [getChannelData, width, height, getYBounds, mapX, mapY, fixedGuidelineX, currentGuideData, sensorType, isMaxMinMode, placingAiPointLabel, sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout]);
 
   return (
-    <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', cursor: 'crosshair' }} 
+    <canvas ref={canvasRef} 
+      style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', cursor: isOverReadout ? 'pointer' : 'crosshair' }} 
       onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}
-      onWheel={(e) => {
-          e.preventDefault();
-          const rect = canvasRef.current?.getBoundingClientRect();
-          if (!rect) return;
-          const x = e.clientX - rect.left;
-          const graphWidth = width - padding.left - padding.right;
-          const ts = viewportMin + ((x - padding.left) / graphWidth) * (viewportMax - viewportMin);
-          onZoom(e.deltaY > 0 ? 0.9 : 1.1, ts);
-      }}
+      onWheel={(e) => { e.preventDefault(); onZoom(e.deltaY > 0 ? 0.9 : 1.1, viewportMin + (viewportMax - viewportMin) / 2); }}
       onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}
       onClick={handleClick}
     />
@@ -562,8 +510,6 @@ interface GraphProps {
     onPointSelect: (point: { timestamp: Date; value: number }) => void;
     selection: RangeSelection | null;
     analysisResults: AnalysisResult[];
-    aiAnalysisResult: AiAnalysisResult | null;
-    onAiPointChange: (label: string, newPoint: AiAnalysisPoint) => void;
     placingAiPointLabel: string | null;
     onManualAiPointPlacement: (label: string, point: { timestamp: Date; value: number; }) => void;
     setPlacingAiPointLabel: (label: string | null) => void;
@@ -608,10 +554,6 @@ interface CsvDisplayProps {
     handleCancelSelection: (channelId: string) => void;
     handlePointSelect: (channelId: string, point: { timestamp: Date; value: number; }) => void;
     handlePhaseTimeChange: (index: number, field: 'startTime' | 'endTime', newTime: Date) => void;
-    handleAiPointChange: (pointLabel: string, newPoint: AiAnalysisPoint) => void;
-    handleAutoRangeAnalysis: () => void;
-    handleAiPhaseAnalysis: () => Promise<void>;
-    handleAiAnalysis: () => Promise<void>;
     placingAiPointLabel: string | null;
     setPlacingAiPointLabel: (label: string | null) => void;
     handleManualAiPointPlacement: (label: string, point: { timestamp: Date; value: number; }) => void;
@@ -621,11 +563,10 @@ interface CsvDisplayProps {
     handleReapplyAnalysis: () => Promise<void>;
     isFullScreenGraph: boolean;
     setIsFullScreenGraph: (isFull: boolean) => void;
-    aiPointHistory: AiAnalysisResult[];
-    handleUndoAiPointChange: () => void;
     sequentialPlacementState: { isActive: boolean; currentIndex: number; };
     handleToggleSequentialPlacement: () => void;
     handleSequentialPointPlacement: (point: { timestamp: Date; value: number; }) => void;
+    sensorType: SensorType;
     SEQUENTIAL_POINT_ORDER: string[];
 }
 
@@ -635,9 +576,9 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         selectedChannel, selectedChannelIndex,
         updateActiveJob, handleTimeRangeChange, handleFinePan, handlePan, handleZoom, handleNavigate, 
         toggleAnalysisMode, toggleMaxMinMode, handleDeleteManualResult, handleResetAnalysis, handlePointSelect,
-        handleAiPointChange, placingAiPointLabel, setPlacingAiPointLabel, handleManualAiPointPlacement,
+        placingAiPointLabel, setPlacingAiPointLabel, handleManualAiPointPlacement,
         isFullScreenGraph, setIsFullScreenGraph,
-        aiPointHistory, handleUndoAiPointChange, sequentialPlacementState, handleToggleSequentialPlacement,
+        sequentialPlacementState, handleToggleSequentialPlacement,
         handleSequentialPointPlacement, SEQUENTIAL_POINT_ORDER
     } = props;
 
@@ -645,30 +586,13 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
 
     useEffect(() => {
         const results: any[] = [];
-        if (activeJob.aiAnalysisResult) {
-            const st = (activeJob.aiAnalysisResult as any)?.st;
-            const en = (activeJob.aiAnalysisResult as any)?.en;
-            if (st && en) {
-                const diffSec = (new Date(en.timestamp).getTime() - new Date(st.timestamp).getTime()) / 1000;
-                results.push({ id: `pt-response-time`, type: '응답', name: 'ST → EN', startTime: new Date(st.timestamp), endTime: new Date(en.timestamp), diff: diffSec });
-            }
-            Object.entries(activeJob.aiAnalysisResult).forEach(([key, point]) => {
-                if (point && typeof point === 'object' && (point as any).timestamp) {
-                    if (key.toLowerCase() === 'st' || key.toLowerCase() === 'en') return;
-                    results.push({ id: `pt-${key}`, type: '포인트', name: key.toUpperCase(), startTime: new Date((point as any).timestamp), value: (point as any).value });
-                }
-            });
-        }
         if (selectedChannel) {
             (activeJob.channelAnalysis[selectedChannel.id]?.results || []).forEach((res, idx) => {
                  results.push({ id: res.id, type: '수동 분석', channelId: selectedChannel.id, name: `구간 ${idx + 1}`, startTime: res.startTime, endTime: res.endTime, max: res.max, min: res.min, diff: res.diff });
             });
         }
-        setUnifiedResults(results.sort((a,b) => {
-            if (a.type === '응답') return -1; if (b.type === '응답') return 1;
-            return a.startTime.getTime() - b.startTime.getTime();
-        }));
-    }, [activeJob.channelAnalysis, activeJob.aiAnalysisResult, selectedChannel]);
+        setUnifiedResults(results.sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
+    }, [activeJob.channelAnalysis, selectedChannel]);
 
     const getSensorPoints = (type: SensorType) => {
         switch (type) {
@@ -688,7 +612,6 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         onPointSelect: (pt: { timestamp: Date; value: number }) => selectedChannel && handlePointSelect(selectedChannel.id, pt),
         selection: selectedChannel ? activeJob.channelAnalysis[selectedChannel.id]?.selection || null : null,
         analysisResults: selectedChannel ? activeJob.channelAnalysis[selectedChannel.id]?.results || [] : [],
-        aiAnalysisResult: activeJob.aiAnalysisResult || null, onAiPointChange: handleAiPointChange,
         placingAiPointLabel: placingAiPointLabel, onManualAiPointPlacement: handleManualAiPointPlacement,
         setPlacingAiPointLabel: setPlacingAiPointLabel, isRangeSelecting: activeJob.isRangeSelecting || false,
         rangeSelection: activeJob.rangeSelection || null, onRangeSelectComplete: (sel: any) => updateActiveJob(j => ({ ...j, rangeSelection: sel })),
@@ -726,7 +649,6 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                                 <h4 className="text-sm font-semibold text-slate-200">포인트 지정 ({activeJob.sensorType})</h4>
                                 <div className="flex gap-2">
                                     <ActionButton onClick={handleToggleSequentialPlacement} fullWidth variant={sequentialPlacementState.isActive ? 'danger' : 'primary'} className="!text-[10px] py-1">{sequentialPlacementState.isActive ? '중단' : '순차 지정 시작'}</ActionButton>
-                                    <ActionButton onClick={handleUndoAiPointChange} disabled={aiPointHistory.length === 0} fullWidth variant="secondary" className="!text-[10px] py-1">되돌리기</ActionButton>
                                 </div>
                                 <div className="grid grid-cols-3 gap-1.5 max-h-[320px] overflow-y-auto pr-1">
                                     {getSensorPoints(activeJob.sensorType).map((p) => (
@@ -734,7 +656,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                                             key={p} 
                                             id={`point-btn-${p}`} 
                                             onClick={() => setPlacingAiPointLabel(p)} 
-                                            className={`text-[10px] font-bold rounded px-1 py-2 transition-colors truncate ${placingAiPointLabel === p ? 'bg-sky-500 text-white ring-2 ring-sky-300' : !!(activeJob.aiAnalysisResult as any)?.[p.toLowerCase()] ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                                            className={`text-[10px] font-bold rounded px-1 py-2 transition-colors truncate ${placingAiPointLabel === p ? 'bg-sky-500 text-white ring-2 ring-sky-300' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
                                             title={p}
                                         >
                                             {p}
@@ -785,21 +707,19 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700">
-                        {unifiedResults.map(item => (
-                            <tr key={item.id} className={`hover:bg-slate-700/30 text-slate-300 ${item.type === '응답' ? 'bg-amber-900/20' : ''}`}>
-                                <td className="px-3 py-2">
-                                    {item.type === '응답' ? <span className="px-1.5 py-0.5 bg-amber-500 text-black font-bold rounded text-[10px]">응답</span> : item.type}
-                                </td>
-                                <td className={`px-3 py-2 font-bold ${item.type === '응답' ? 'text-amber-400' : 'text-sky-400'}`}>
-                                    {item.name}
-                                </td>
+                        {unifiedResults.length === 0 ? (
+                            <tr>
+                                <td colSpan={7} className="px-3 py-4 text-center text-slate-500 italic">표시할 분석 결과가 없습니다.</td>
+                            </tr>
+                        ) : unifiedResults.map(item => (
+                            <tr key={item.id} className="hover:bg-slate-700/30 text-slate-300">
+                                <td className="px-3 py-2">{item.type}</td>
+                                <td className="px-3 py-2 font-bold text-sky-400">{item.name}</td>
                                 <td className="px-3 py-2">
                                     {item.endTime ? `${item.startTime.toLocaleTimeString()} ~ ${item.endTime.toLocaleTimeString()}` : item.startTime.toLocaleTimeString()}
                                 </td>
                                 <td className="px-3 py-2 text-right">
-                                    {item.type === '응답' ? (
-                                        <span className="font-bold text-amber-400">{item.diff?.toFixed(1)}s</span>
-                                    ) : item.type === '수동 분석' ? (
+                                    {item.type === '수동 분석' ? (
                                         <span className="text-amber-400">{item.diff?.toFixed(3)}</span>
                                     ) : (
                                         item.value?.toFixed(3) || '-'
