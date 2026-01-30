@@ -214,6 +214,10 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const [draggingPoint, setDraggingPoint] = useState<{ label: string } | null>(null);
   const [crosshairPos, setCrosshairPos] = useState<{ x: number; y: number; timestamp: Date; value: number } | null>(null);
   
+  // ✅ 롱프레스 이동 상태 관리
+  const [isLongPressPanning, setIsLongPressPanning] = useState(false);
+  const longPressTimerRef = useRef<number | null>(null);
+  
   const touchState = useRef({ isPanning: false, lastX: 0, initialDistance: 0, isZooming: false, hasMoved: false });
   const padding = { top: 40, right: 60, bottom: 40, left: 60 };
 
@@ -256,6 +260,15 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const y = e.clientY - rect.top;
 
       touchState.current.hasMoved = false;
+      touchState.current.lastX = e.clientX;
+
+      // ✅ 1초 롱프레스 타이머 시작
+      if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = window.setTimeout(() => {
+          setIsLongPressPanning(true);
+          touchState.current.hasMoved = true; // 이동 모드 활성화 시 클릭 방지
+          if ('vibrate' in navigator) navigator.vibrate(50); // 가벼운 진동 피드백
+      }, 1000);
 
       let markerHit = null;
       if (aiAnalysisResult) {
@@ -269,14 +282,16 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
 
       if (markerHit) {
+          window.clearTimeout(longPressTimerRef.current!);
           setDraggingPoint(markerHit);
           (e.target as Element).setPointerCapture(e.pointerId);
           return;
       }
 
+      // 포인트 지정 모드가 아닐 때는 즉시 팬 가능
       if (!placingAiPointLabel && !sequentialPlacementState.isActive && !isMaxMinMode) {
+          window.clearTimeout(longPressTimerRef.current!);
           touchState.current.isPanning = true;
-          touchState.current.lastX = e.clientX;
           (e.target as Element).setPointerCapture(e.pointerId);
       }
   };
@@ -287,9 +302,16 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    if (touchState.current.isPanning) {
-        const dx = e.clientX - touchState.current.lastX;
-        if (Math.abs(dx) > 5) touchState.current.hasMoved = true;
+    const dx = e.clientX - touchState.current.lastX;
+
+    // 롱프레스 대기 중 많이 움직이면 취소
+    if (!isLongPressPanning && Math.abs(dx) > 10) {
+        if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    }
+
+    // ✅ 일반 팬 모드 또는 롱프레스 활성화 팬 모드
+    if (touchState.current.isPanning || isLongPressPanning) {
+        if (Math.abs(dx) > 2) touchState.current.hasMoved = true;
         const graphWidth = width - padding.left - padding.right;
         const timeDelta = -(dx / graphWidth) * (viewportMax - viewportMin);
         onPanByAmount(timeDelta);
@@ -327,8 +349,10 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+      if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
       setDraggingPoint(null);
       touchState.current.isPanning = false;
+      setIsLongPressPanning(false);
       (e.target as Element).releasePointerCapture(e.pointerId);
   };
 
@@ -342,11 +366,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     if (x < padding.left || x > width - padding.right) return;
 
     const timeAtMouse = viewportMin + ((x - padding.left) / graphWidth) * (viewportMax - viewportMin);
-    
-    // ✅ 현재 지정하려는 라벨 확인 (순차 지정 또는 개별 지정)
     const currentLabel = placingAiPointLabel || (sequentialPlacementState.isActive ? SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex] : null);
 
-    // ✅ EN 정밀 스냅 (9.7, 4.3, 1.0 기준)
     if (currentLabel?.toUpperCase() === 'EN' && (sensorType === 'PH' || sensorType === 'DO')) {
         const stPoint = (aiAnalysisResult as any)?.st;
         const stTime = stPoint ? new Date(stPoint.timestamp).getTime() : 0;
@@ -367,13 +388,12 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             const d2 = getChannelData[i+1];
             if (d1.timestamp.getTime() <= stTime) continue;
             
-            // 상승(9.7) 또는 하강(4.3, 1.0) 교차 판정
             let crossed = false;
             if (sensorType === 'PH') {
-                if (isHighTarget) crossed = (d1.value < 9.7 && d2.value >= 9.7); // 9.7 위로
-                else crossed = (d1.value > 4.3 && d2.value <= 4.3); // 4.3 아래로
+                if (isHighTarget) crossed = (d1.value < 9.7 && d2.value >= 9.7); 
+                else crossed = (d1.value > 4.3 && d2.value <= 4.3); 
             } else {
-                crossed = (d1.value > 1.0 && d2.value <= 1.0); // 1 아래로
+                crossed = (d1.value > 1.0 && d2.value <= 1.0); 
             }
 
             if (crossed) {
@@ -381,7 +401,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 const t2 = d2.timestamp.getTime();
                 const ratio = (targetValue - d1.value) / (d2.value - d1.value);
                 interpPoint = { timestamp: new Date(t1 + (t2 - t1) * ratio), value: targetValue };
-                // 클릭한 지점과 가장 가까운 교차점 선택을 위해 계속 탐색하지 않고 첫 발견 시 중단(보통 응답시간은 첫 도달 기준)
                 break;
             }
         }
@@ -408,6 +427,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
+        if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
         const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
         touchState.current.initialDistance = dist;
         touchState.current.isZooming = true;
@@ -550,7 +570,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   }, [getChannelData, width, height, getYBounds, mapX, mapY, aiAnalysisResult, crosshairPos, sensorType, isMaxMinMode, selection, viewportMin, viewportMax]);
 
   return (
-    <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }} 
+    <canvas ref={canvasRef} 
+      style={{ 
+        width: '100%', height: '100%', display: 'block', touchAction: 'none',
+        cursor: isLongPressPanning ? 'grabbing' : (placingAiPointLabel || sequentialPlacementState.isActive || isMaxMinMode) ? 'crosshair' : 'default'
+      }} 
       onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}
       onWheel={(e) => {
           e.preventDefault();
