@@ -546,7 +546,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
     }
 
-    // 4. 메인 데이터 라인 (단일 패스로 그려 파일 간 연결 보장)
+    // 4. 메인 데이터 라인 (단일 패스로 그려 파일 간 끊김 없이 직접 연결)
     ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.5; ctx.beginPath();
     getChannelData.forEach((d, i) => {
       const px = mapX(d.timestamp.getTime()); const py = mapY(d.value);
@@ -622,7 +622,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   );
 };
 
-// --- Graph Wrapper for Dimensions ---
+// --- Graph Wrapper ---
 interface GraphProps { 
     className?: string;
     data: DataPoint[]; 
@@ -664,8 +664,7 @@ const Graph: React.FC<GraphProps> = (props) => {
   );
 };
 
-// --- CsvDisplay Main Exported Component ---
-
+// --- CsvDisplay Main Component ---
 interface CsvDisplayProps {
     activeJob: CsvGraphJob;
     yMinMaxPerChannel: ({ yMin: number; yMax: number; } | null)[];
