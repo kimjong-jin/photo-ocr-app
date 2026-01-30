@@ -227,6 +227,9 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // ✅ 마우스가 상단 데이터 리드아웃 박스 위에 있는지 여부
   const [isOverReadout, setIsOverReadout] = useState<boolean>(false);
   
+  // ✅ 마커 드래그 상태
+  const [draggedMarkerKey, setDraggedMarkerKey] = useState<string | null>(null);
+  
   const touchState = useRef({ isPanning: false, lastX: 0, initialDistance: 0, isZooming: false, hasMoved: false });
 
   // 초기 기준선 위치를 화면 중앙으로 설정
@@ -285,9 +288,70 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   useEffect(() => { updateGuideData(); }, [updateGuideData]);
 
+  // ✅ [공통] EN 포인트 자동 Snap/보정 로직
+  const getSnappedPoint = useCallback((label: string, basePoint: { timestamp: Date; value: number }) => {
+    if (label.toUpperCase() === 'EN' && (sensorType === 'PH' || sensorType === 'DO')) {
+        const stPoint = (aiAnalysisResult as any)?.st;
+        const stTime = stPoint ? new Date(stPoint.timestamp).getTime() : 0;
+        const targetValue = sensorType === 'PH' ? (basePoint.value > 7 ? 9.7 : 4.3) : 1.0;
+        
+        let interpPoint = null;
+        let minTimeDiff = Infinity;
+
+        // 마우스(혹은 드래그) 위치 근처에서 가장 가까운 교차점을 탐색
+        for (let i = 0; i < getChannelData.length - 1; i++) {
+            const d1 = getChannelData[i]; 
+            const d2 = getChannelData[i+1];
+            
+            // ST 이후 시점만 탐색
+            if (d1.timestamp.getTime() <= stTime) continue;
+            
+            let crossed = false;
+            if (sensorType === 'PH') {
+                if (targetValue === 9.7) crossed = (d1.value < 9.7 && d2.value >= 9.7) || (d1.value >= 9.7 && d2.value < 9.7); 
+                else crossed = (d1.value > 4.3 && d2.value <= 4.3) || (d1.value <= 4.3 && d2.value > 4.3); 
+            } else {
+                crossed = (d1.value > 1.0 && d2.value <= 1.0) || (d1.value <= 1.0 && d2.value > 1.0); 
+            }
+
+            if (crossed) {
+                const ratio = (targetValue - d1.value) / (d2.value - d1.value);
+                const interpTs = d1.timestamp.getTime() + (d2.timestamp.getTime() - d1.timestamp.getTime()) * ratio;
+                const timeDiff = Math.abs(interpTs - basePoint.timestamp.getTime());
+                
+                // 현재 마우스 위치와 시간상 가장 가까운 교차점을 선택
+                if (timeDiff < minTimeDiff) {
+                    minTimeDiff = timeDiff;
+                    interpPoint = { timestamp: new Date(interpTs), value: targetValue };
+                }
+            }
+        }
+        return interpPoint || basePoint;
+    }
+    return basePoint;
+  }, [sensorType, aiAnalysisResult, getChannelData]);
+
   const handlePointerDown = (e: React.PointerEvent) => {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      // ✅ 마커 히트 테스트 (드래그 감지)
+      if (aiAnalysisResult) {
+          for (const [key, pt] of Object.entries(aiAnalysisResult)) {
+              if (pt && typeof pt === 'object' && (pt as any).timestamp) {
+                  const px = mapX(new Date((pt as any).timestamp).getTime());
+                  const py = mapY((pt as any).value);
+                  const dist = Math.hypot(x - px, y - py);
+                  if (dist < 15) { 
+                      setDraggedMarkerKey(key);
+                      (e.target as Element).setPointerCapture(e.pointerId);
+                      return;
+                  }
+              }
+          }
+      }
 
       touchState.current.hasMoved = false;
       touchState.current.lastX = e.clientX;
@@ -301,9 +365,25 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // ✅ 마커 드래그 중인 경우 위치 업데이트
+    if (draggedMarkerKey) {
+        const graphWidth = width - padding.left - padding.right;
+        const timeAtLine = viewportMin + ((x - padding.left) / graphWidth) * (viewportMax - viewportMin);
+        
+        let minDistance = Infinity;
+        let closest = getChannelData[0];
+        getChannelData.forEach(d => {
+            const dist = Math.abs(d.timestamp.getTime() - timeAtLine);
+            if (dist < minDistance) { minDistance = dist; closest = d; }
+        });
+        
+        setFixedGuidelineX(x);
+        return;
+    }
+
     // ✅ 데이터 리드아웃 박스(말풍선) 영역 감지
     if (currentGuideData) {
-        const tw = 180; // 근사치 (텍스트 길이에 따라 다름)
+        const tw = 180; 
         const rx = fixedGuidelineX - (tw + 20) / 2;
         const ry = padding.top - 35;
         const isOver = x >= rx && x <= rx + tw + 20 && y >= ry && y <= ry + 24;
@@ -322,12 +402,19 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+      // ✅ 마커 드래그 종료 시 위치 확정 (EN인 경우 Snap 보정 수행)
+      if (draggedMarkerKey && currentGuideData) {
+          const finalPoint = getSnappedPoint(draggedMarkerKey, currentGuideData);
+          onManualAiPointPlacement(draggedMarkerKey.toUpperCase(), finalPoint);
+          setDraggedMarkerKey(null);
+      }
+      
       touchState.current.isPanning = false;
       (e.target as Element).releasePointerCapture(e.pointerId);
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    if (touchState.current.hasMoved) return;
+    if (touchState.current.hasMoved || draggedMarkerKey) return;
     
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -358,7 +445,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             const py = mapY(closest.value);
             const distY = Math.abs(y - py);
             
-            // Y축 기준으로 데이터 선과 클릭 지점이 30px 이내로 가까울 때만 '그래프 클릭'으로 간주하여 데이터 취함
             if (distY < 30) {
                 confirmPoint(closest);
             }
@@ -367,9 +453,15 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   };
 
   const confirmPoint = (point: { timestamp: Date; value: number }) => {
-    if (sequentialPlacementState.isActive) onSequentialPointPlacement(point);
-    else if (placingAiPointLabel) onManualAiPointPlacement(placingAiPointLabel, point);
-    else if (isMaxMinMode) onPointSelect(point);
+    const currentLabel = placingAiPointLabel || (sequentialPlacementState.isActive ? SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex] : null);
+    if (!currentLabel) return;
+
+    // 클릭 시에도 Snap 보정 로직 적용
+    const finalPoint = getSnappedPoint(currentLabel, point);
+
+    if (sequentialPlacementState.isActive) onSequentialPointPlacement(finalPoint);
+    else if (placingAiPointLabel) onManualAiPointPlacement(placingAiPointLabel, finalPoint);
+    else if (isMaxMinMode) onPointSelect(point); // Max/Min 모드는 Snap 하지 않음
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -431,7 +523,27 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     if (sensorType === 'PH') [4.3, 9.7].forEach(drawTargetLine);
     else if (sensorType === 'DO') drawTargetLine(1.0);
 
-    // 3. 메인 데이터 라인
+    // 3. ST-EN 면적 하이라이트 (응답 구간 시각화)
+    if (aiAnalysisResult) {
+        const st = (aiAnalysisResult as any)?.st;
+        const en = (aiAnalysisResult as any)?.en;
+        if (st?.timestamp && en?.timestamp) {
+            const sx = mapX(new Date(st.timestamp).getTime());
+            const ex = mapX(new Date(en.timestamp).getTime());
+            const xStart = Math.max(Math.min(sx, ex), padding.left);
+            const xEnd = Math.min(Math.max(sx, ex), width - padding.right);
+            if (xEnd > xStart) {
+                ctx.save();
+                const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + graphHeight);
+                grad.addColorStop(0, 'rgba(251, 191, 36, 0.25)'); grad.addColorStop(1, 'rgba(251, 191, 36, 0.08)');
+                ctx.fillStyle = grad; ctx.fillRect(xStart, padding.top, xEnd - xStart, graphHeight);
+                ctx.strokeStyle = 'rgba(251, 191, 36, 0.5)'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(xStart, padding.top); ctx.lineTo(xEnd, padding.top); ctx.stroke(); ctx.restore();
+            }
+        }
+    }
+
+    // 4. 메인 데이터 라인
     ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.5; ctx.beginPath();
     getChannelData.forEach((d, i) => {
       const px = mapX(d.timestamp.getTime()); const py = mapY(d.value);
@@ -443,16 +555,15 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     });
     ctx.stroke();
 
-    // 4. ✅ [핵심] 고정 가이드라인 (찐한 회색 스타일)
+    // 5. 고정 가이드라인
     if (fixedGuidelineX >= padding.left && fixedGuidelineX <= width - padding.right) {
         ctx.save();
-        ctx.strokeStyle = 'rgba(71, 85, 105, 0.9)'; // Slate-600 기반
+        ctx.strokeStyle = 'rgba(71, 85, 105, 0.9)'; 
         ctx.setLineDash([5, 3]); ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(fixedGuidelineX, padding.top - 10); ctx.lineTo(fixedGuidelineX, padding.top + graphHeight); ctx.stroke();
         
         if (currentGuideData) {
             ctx.setLineDash([]);
-            // 말풍선 배경 (연한 회색)
             ctx.fillStyle = isOverReadout ? 'rgba(203, 213, 225, 1.0)' : 'rgba(226, 232, 240, 0.95)';
             ctx.font = 'bold 12px Inter';
             const txt = `${currentGuideData.timestamp.toLocaleTimeString()} | ${currentGuideData.value.toFixed(3)}`;
@@ -462,24 +573,21 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             const rx = fixedGuidelineX - rectW / 2; const ry = padding.top - 35;
             ctx.roundRect(rx, ry, rectW, rectH, 4); ctx.fill();
             
-            // 강조 테두리 (클릭 가능함 표시)
             ctx.strokeStyle = isOverReadout ? '#38bdf8' : 'rgba(71, 85, 105, 0.3)';
             ctx.lineWidth = 1.5;
             ctx.stroke();
             
-            // 텍스트 (찐한 회색)
-            ctx.fillStyle = '#1e293b'; // Slate-900 (찐한 회색)
+            ctx.fillStyle = '#1e293b'; 
             ctx.textAlign = 'center'; ctx.fillText(txt, fixedGuidelineX, padding.top - 18);
 
-            // 데이터 곡선과의 접점 (회색 포인트)
-            ctx.fillStyle = '#475569'; // Slate-600
+            ctx.fillStyle = '#475569'; 
             ctx.beginPath(); ctx.arc(fixedGuidelineX, mapY(currentGuideData.value), 5, 0, Math.PI * 2); ctx.fill();
             ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
         }
         ctx.restore();
     }
 
-    // 5. ✅ AI 마커들 (수동 지정된 포인트 표시)
+    // 6. 마커들
     if (aiAnalysisResult) {
       Object.entries(aiAnalysisResult).forEach(([key, pt]) => {
         if (pt && typeof pt === 'object' && (pt as any).timestamp) {
@@ -489,6 +597,12 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
           if (px < padding.left || px > width - padding.right) return;
           ctx.save();
           ctx.fillStyle = (label === 'ST' ? '#fbbf24' : label === 'EN' ? '#ef4444' : '#38bdf8');
+          
+          if (draggedMarkerKey === key) {
+              ctx.shadowBlur = 10;
+              ctx.shadowColor = '#fff';
+          }
+          
           ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2;
           ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
           ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 9px Inter'; ctx.textAlign = 'center';
@@ -497,11 +611,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       });
     }
 
-  }, [getChannelData, width, height, getYBounds, mapX, mapY, aiAnalysisResult, fixedGuidelineX, currentGuideData, sensorType, isMaxMinMode, placingAiPointLabel, sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout]);
+  }, [getChannelData, width, height, getYBounds, mapX, mapY, aiAnalysisResult, fixedGuidelineX, currentGuideData, sensorType, isMaxMinMode, placingAiPointLabel, sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout, draggedMarkerKey]);
 
   return (
     <canvas ref={canvasRef} 
-      style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', cursor: isOverReadout ? 'pointer' : 'crosshair' }} 
+      style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', cursor: draggedMarkerKey ? 'grabbing' : isOverReadout ? 'pointer' : 'crosshair' }} 
       onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}
       onWheel={(e) => { e.preventDefault(); onZoom(e.deltaY > 0 ? 0.9 : 1.1, viewportMin + (viewportMax - viewportMin) / 2); }}
       onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}
@@ -607,6 +721,13 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     useEffect(() => {
         const results: any[] = [];
         if (activeJob.aiAnalysisResult) {
+            const st = (activeJob.aiAnalysisResult as any)?.st;
+            const en = (activeJob.aiAnalysisResult as any)?.en;
+            if (st && en) {
+                const diffSec = (new Date(en.timestamp).getTime() - new Date(st.timestamp).getTime()) / 1000;
+                results.push({ id: `pt-response-time`, type: '응답', name: 'ST → EN', startTime: new Date(st.timestamp), endTime: new Date(en.timestamp), diff: diffSec });
+            }
+            
             Object.entries(activeJob.aiAnalysisResult).forEach(([key, point]) => {
                 if (point && typeof point === 'object' && (point as any).timestamp) {
                     results.push({ id: `pt-${key}`, type: '지정 포인트', name: key.toUpperCase(), startTime: new Date((point as any).timestamp), value: (point as any).value });
@@ -618,7 +739,11 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                  results.push({ id: res.id, type: '수동 분석', channelId: selectedChannel.id, name: `구간 ${idx + 1}`, startTime: res.startTime, endTime: res.endTime, max: res.max, min: res.min, diff: res.diff });
             });
         }
-        setUnifiedResults(results.sort((a,b) => a.startTime.getTime() - b.startTime.getTime()));
+        setUnifiedResults(results.sort((a,b) => {
+            if (a.type === '응답') return -1;
+            if (b.type === '응답') return 1;
+            return a.startTime.getTime() - b.startTime.getTime();
+        }));
     }, [activeJob.channelAnalysis, activeJob.aiAnalysisResult, selectedChannel]);
 
     const getSensorPoints = (type: SensorType) => {
@@ -740,18 +865,22 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                                 <td colSpan={7} className="px-3 py-4 text-center text-slate-500 italic">표시할 분석 결과가 없습니다.</td>
                             </tr>
                         ) : unifiedResults.map(item => (
-                            <tr key={item.id} className="hover:bg-slate-700/30 text-slate-300">
+                            <tr key={item.id} className={`hover:bg-slate-700/30 text-slate-300 ${item.type === '응답' ? 'bg-amber-900/20' : ''}`}>
                                 <td className="px-3 py-2">
-                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${item.type === '지정 포인트' ? 'bg-sky-500/20 text-sky-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                        item.type === '응답' ? 'bg-amber-500/20 text-amber-400' : 
+                                        item.type === '지정 포인트' ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-500/20 text-slate-400'}`}>
                                         {item.type}
                                     </span>
                                 </td>
-                                <td className="px-3 py-2 font-bold text-sky-400">{item.name}</td>
+                                <td className={`px-3 py-2 font-bold ${item.type === '응답' ? 'text-amber-400' : 'text-sky-400'}`}>{item.name}</td>
                                 <td className="px-3 py-2">
                                     {item.endTime ? `${item.startTime.toLocaleTimeString()} ~ ${item.endTime.toLocaleTimeString()}` : item.startTime.toLocaleTimeString()}
                                 </td>
                                 <td className="px-3 py-2 text-right font-mono">
-                                    {item.type === '수동 분석' ? (
+                                    {item.type === '응답' ? (
+                                        <span className="font-bold text-amber-400">{item.diff?.toFixed(1)}s</span>
+                                    ) : item.type === '수동 분석' ? (
                                         <span className="text-amber-400">{item.diff?.toFixed(3)}</span>
                                     ) : (
                                         item.value?.toFixed(3) || '-'
