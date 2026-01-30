@@ -1,3 +1,4 @@
+
 // Interfaces for parsed data
 export interface ChannelInfo {
   id: string;
@@ -72,10 +73,10 @@ export interface AiAnalysisResult {
     responseError?: string;
     // For PH
     identifiedPatternNumber?: number;
-    [key: string]: any; // For dynamic PH points like 7A, 4A
+    [key: string]: any; // For dynamic labels like (A)_4_1, S_1, etc.
 }
 
-export type SensorType = '먹는물 (TU/Cl)' | '수질 (SS)' | '수질 (PH)';
+export type SensorType = 'SS' | 'PH' | 'TU' | 'Cl' | 'DO';
 
 export interface CsvGraphJob {
     id: string;
@@ -97,6 +98,7 @@ export interface CsvGraphJob {
     aiAnalysisError?: string | null;
     excludeResponseTime?: boolean;
     isRangeSelecting?: boolean;
+    isMaxMinMode?: boolean; // Added to distinguish manual point placement from range selection
     rangeSelection?: {
         start: { timestamp: Date; value: number };
         end: { timestamp: Date; value: number };
