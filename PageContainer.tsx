@@ -101,7 +101,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const draftTimerRef = useRef<number | null>(null);
 
   const [newItemKey, setNewItemKey] = useState<string>('');
-  const [newSensorType, setNewSensorType] = useState<SensorType>('먹는물 (TU/Cl)');
   const [apiMode, setApiMode] = useState<ApiMode>('gemini');
 
   const [photoLogJobs, setPhotoLogJobs] = useState<PhotoLogJob[]>([]);
@@ -782,7 +781,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         timeRangeInMs: 'all',
         viewEndTimestamp: null,
         submissionStatus: 'idle',
-        sensorType: newSensorType,
+        sensorType: 'SS', // Default to SS as consistent name
       };
       setCsvGraphJobs(prev => [...prev, newJob]);
       setActiveCsvGraphJobId(newJob.id);
@@ -793,7 +792,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       setReceiptNumberDetail(String(currentDetailNum + 1).padStart(receiptNumberDetail.length, '0'));
     }
     setNewItemKey('');
-  }, [newItemKey, receiptNumber, receiptNumberCommon, receiptNumberDetail, activePage, finalSiteLocation, newSensorType]);
+  }, [newItemKey, receiptNumber, receiptNumberCommon, receiptNumberDetail, activePage, finalSiteLocation]);
 
   const handleFetchGpsAddress = useCallback(() => {
     setIsFetchingAddress(true);
@@ -892,7 +891,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const inactiveNavButtonStyle = "bg-slate-700 hover:bg-slate-600 text-slate-300";
 
   const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
-  const isCsvPage = activePage === 'csvGraph';
   const appIdToSync = selectedApplication ? selectedApplication.id : null;
 
   const renderActivePage = () => {
@@ -1003,7 +1001,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             >
               <div className="pt-4 px-2 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-4 items-end">
-                  <div className={isCsvPage ? 'sm:col-span-4' : 'sm:col-span-3'}>
+                  <div className='sm:col-span-4'>
                     <label htmlFor="global-receipt-common" className="block text-sm font-medium text-slate-300 mb-1">
                       접수번호 (공통) <span className="text-amber-400 font-bold">*</span>
                     </label>
@@ -1017,7 +1015,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     />
                   </div>
 
-                  <div className={isCsvPage ? 'sm:col-span-2' : 'sm:col-span-1'}>
+                  <div className='sm:col-span-2'>
                     <label htmlFor="global-receipt-detail" className="block text-sm font-medium text-slate-300 mb-1">
                       (세부) <span className="text-amber-400 font-bold">*</span>
                     </label>
@@ -1031,7 +1029,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     />
                   </div>
 
-                  <div className={isCsvPage ? 'sm:col-span-6' : 'sm:col-span-8'}>
+                  <div className='sm:col-span-6'>
                     <label htmlFor="global-site-location" className="block text-sm font-medium text-slate-300 mb-1">
                       현장 위치 (공통)
                     </label>
@@ -1045,7 +1043,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     />
                   </div>
 
-                  {!isCsvPage && showTaskManagement && (
+                  {activePage !== 'csvGraph' && showTaskManagement && (
                     <div className="sm:col-span-12">
                       <label htmlFor="new-task-item" className="block text-sm font-medium text-slate-300 mb-1">항목</label>
                       <select
@@ -1079,22 +1077,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                                 {item}
                               </option>
                             ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {isCsvPage && (
-                    <div className="sm:col-span-12">
-                      <label htmlFor="new-task-sensor-type" className="block text-sm font-medium text-slate-300 mb-1">센서 타입</label>
-                      <select
-                        id="new-task-sensor-type"
-                        value={newSensorType}
-                        onChange={(e) => setNewSensorType(e.target.value as SensorType)}
-                        className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]"
-                      >
-                        <option value="먹는물 (TU/Cl)">먹는물 (TU/Cl)</option>
-                        <option value="수질 (SS)">수질 (SS)</option>
-                        <option value="수질 (PH)">수질 (PH)</option>
                       </select>
                     </div>
                   )}
@@ -1152,7 +1134,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       <MapView
                         latitude={coords.lat}
                         longitude={coords.lng}
-                        address={currentGpsAddress}
+                        address={currentGpsAddress?.trim() ?? ''}  // ✅ 수정: address 전달(빈값 안전)
                         onAddressSelect={(addr, lat, lng) => {
                           setCurrentGpsAddress(addr);
                           setCoords({ lat, lng });
