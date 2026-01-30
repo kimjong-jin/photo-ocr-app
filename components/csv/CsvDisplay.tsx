@@ -10,7 +10,7 @@ import type {
   SensorType,
 } from '../../types/csvGraph';
 
-// ===== 타입 =====
+// ===== 타입 정의 =====
 interface ChannelInfo {
   id: string;
   name: string;
@@ -29,7 +29,7 @@ interface RangeSelection {
 
 type AnalysisResult = JobAnalysisResult;
 
-// ===== 아이콘 =====
+// ===== 아이콘 컴포넌트 =====
 const EnterFullScreenIcon: React.FC = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
     <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75v4.5m0-4.5h-4.5m4.5 0L15 9m5.25 11.25v-4.5m0 4.5h-4.5m4.5 0L15 15" />
@@ -48,7 +48,7 @@ const TrashIcon: React.FC = () => (
   </svg>
 );
 
-// ===== ResizeObserver =====
+// ===== ResizeObserver Hook =====
 const useResizeObserver = () => {
   const [size, setSize] = useState({ width: 0, height: 0 });
   const resizeRef = useRef<HTMLDivElement>(null);
@@ -220,19 +220,13 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padding = { top: 40, right: 60, bottom: 40, left: 60 };
 
-  // ✅ [중요] 화면 고정 가이드라인의 X 좌표 (픽셀 단위)
   const [fixedGuidelineX, setFixedGuidelineX] = useState<number>(0);
-  const [currentGuideData, setCurrentGuideData] = useState<{ timestamp: Date; value: number } | null>(null);
-  
-  // ✅ 마우스가 상단 데이터 리드아웃 박스 위에 있는지 여부
+  const [currentGuideData, setCurrentGuideData] = useState<DataPoint | null>(null);
   const [isOverReadout, setIsOverReadout] = useState<boolean>(false);
-  
-  // ✅ 마커 드래그 상태
   const [draggedMarkerKey, setDraggedMarkerKey] = useState<string | null>(null);
   
   const touchState = useRef({ isPanning: false, lastX: 0, initialDistance: 0, isZooming: false, hasMoved: false });
 
-  // 초기 기준선 위치를 화면 중앙으로 설정
   useEffect(() => {
     if (width && fixedGuidelineX === 0) {
       setFixedGuidelineX(padding.left + (width - padding.left - padding.right) / 2);
@@ -247,8 +241,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   const getChannelData = useMemo(() => {
     return fullData
-      .map(d => ({ timestamp: d.timestamp, value: d.values[channelIndex] }))
-      .filter(d => d.value !== null && typeof d.value === 'number') as { timestamp: Date; value: number }[];
+      .map(d => ({ ...d, value: d.values[channelIndex] }))
+      .filter(d => d.value !== null && typeof d.value === 'number') as (DataPoint & { value: number })[];
   }, [fullData, channelIndex]);
 
   const getYBounds = useMemo(() => {
@@ -271,7 +265,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     return padding.top + graphHeight - ((val - getYBounds.yMin) / (getYBounds.yMax - getYBounds.yMin)) * graphHeight;
   }, [height, getYBounds, padding.top, padding.bottom]);
 
-  // ✅ 현재 고정 기준선(X)이 가리키는 시간과 값 계산
   const updateGuideData = useCallback(() => {
       if (width === 0 || getChannelData.length === 0) return;
       const graphWidth = width - padding.left - padding.right;
@@ -288,11 +281,9 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   useEffect(() => { updateGuideData(); }, [updateGuideData]);
 
-  // ✅ [공통] 포인트 자동 Snap/보정 로직
   const getSnappedPoint = useCallback((label: string, basePoint: { timestamp: Date; value: number }) => {
     const upperLabel = label.toUpperCase();
     
-    // PH/DO의 고정 타겟 보정 혹은 TU/Cl의 S1 90% 보정
     if (upperLabel === 'EN') {
         const stPoint = (aiAnalysisResult as any)?.st;
         const stTime = stPoint ? new Date(stPoint.timestamp).getTime() : 0;
@@ -337,7 +328,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     return basePoint;
   }, [sensorType, aiAnalysisResult, getChannelData]);
 
-  // ✅ 포인트 확정 로직 (수동 분석, 개별 포인트, 순차 지정 통합)
   const confirmPoint = useCallback((point: { timestamp: Date; value: number }) => {
     if (isMaxMinMode) {
       onPointSelect(point);
@@ -359,7 +349,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
-      // ✅ 마커 히트 테스트 (드래그 감지)
       if (aiAnalysisResult) {
           for (const [key, pt] of Object.entries(aiAnalysisResult)) {
               if (pt && typeof pt === 'object' && (pt as any).timestamp) {
@@ -387,7 +376,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // ✅ 마커 드래그 중인 경우 위치 업데이트
     if (draggedMarkerKey) {
         const graphWidth = width - padding.left - padding.right;
         const timeAtLine = viewportMin + ((x - padding.left) / graphWidth) * (viewportMax - viewportMin);
@@ -403,7 +391,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         return;
     }
 
-    // ✅ 데이터 리드아웃 박스(말풍선) 영역 감지
     if (currentGuideData) {
         const tw = 180; 
         const rx = fixedGuidelineX - (tw + 20) / 2;
@@ -424,9 +411,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-      // ✅ 마커 드래그 종료 시 위치 확정 (보정 수행)
       if (draggedMarkerKey && currentGuideData) {
-          const finalPoint = getSnappedPoint(draggedMarkerKey, currentGuideData);
+          const finalPoint = getSnappedPoint(draggedMarkerKey, { timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
           onManualAiPointPlacement(draggedMarkerKey.toUpperCase(), finalPoint);
           setDraggedMarkerKey(null);
       }
@@ -443,13 +429,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // ✅ 1. 상단 데이터 박스(리드아웃)를 클릭했다면 해당 데이터로 포인트 확정
     if (isOverReadout && currentGuideData) {
-        confirmPoint(currentGuideData);
+        confirmPoint({ timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
         return;
     }
 
-    // ✅ 2. 일반 그래프 영역 클릭 처리
     if (x >= padding.left && x <= width - padding.right) {
         const graphWidth = width - padding.left - padding.right;
         const timeAtLine = viewportMin + ((x - padding.left) / graphWidth) * (viewportMax - viewportMin);
@@ -468,7 +452,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             const distY = Math.abs(y - py);
             
             if (distY < 30) {
-                confirmPoint(closest);
+                confirmPoint({ timestamp: closest.timestamp, value: closest.value });
             }
         }
     }
@@ -543,7 +527,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
     }
 
-    // 3. ST-EN 면적 하이라이트 (응답 구간 시각화)
     if (aiAnalysisResult) {
         const st = (aiAnalysisResult as any)?.st;
         const en = (aiAnalysisResult as any)?.en;
@@ -563,19 +546,14 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
     }
 
-    // 4. 메인 데이터 라인
+    // 4. 메인 데이터 라인 (단일 패스로 그려 파일 간 연결 보장)
     ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.5; ctx.beginPath();
     getChannelData.forEach((d, i) => {
       const px = mapX(d.timestamp.getTime()); const py = mapY(d.value);
-      if (px < padding.left - 10 || px > width - padding.right + 10) {
-          if (i > 0) ctx.moveTo(px, py);
-          return;
-      }
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     });
     ctx.stroke();
 
-    // 5. 고정 가이드라인
     if (fixedGuidelineX >= padding.left && fixedGuidelineX <= width - padding.right) {
         ctx.save();
         ctx.strokeStyle = 'rgba(71, 85, 105, 0.9)'; 
@@ -586,7 +564,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             ctx.setLineDash([]);
             ctx.fillStyle = isOverReadout ? 'rgba(203, 213, 225, 1.0)' : 'rgba(226, 232, 240, 0.95)';
             ctx.font = 'bold 12px Inter';
-            const txt = `${currentGuideData.timestamp.toLocaleTimeString()} | ${currentGuideData.value.toFixed(3)}`;
+            const displayTime = currentGuideData.timestamp.toLocaleTimeString();
+            const txt = `${displayTime} | ${(currentGuideData as any).value.toFixed(3)}`;
             const tw = ctx.measureText(txt).width;
             ctx.beginPath();
             const rectW = tw + 20; const rectH = 24;
@@ -601,13 +580,12 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             ctx.textAlign = 'center'; ctx.fillText(txt, fixedGuidelineX, padding.top - 18);
 
             ctx.fillStyle = '#475569'; 
-            ctx.beginPath(); ctx.arc(fixedGuidelineX, mapY(currentGuideData.value), 5, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(fixedGuidelineX, mapY((currentGuideData as any).value), 5, 0, Math.PI * 2); ctx.fill();
             ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
         }
         ctx.restore();
     }
 
-    // 6. 마커들
     if (aiAnalysisResult) {
       Object.entries(aiAnalysisResult).forEach(([key, pt]) => {
         if (pt && typeof pt === 'object' && (pt as any).timestamp) {
@@ -644,6 +622,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   );
 };
 
+// --- Graph Wrapper for Dimensions ---
 interface GraphProps { 
     className?: string;
     data: DataPoint[]; 
@@ -684,6 +663,8 @@ const Graph: React.FC<GraphProps> = (props) => {
     </div>
   );
 };
+
+// --- CsvDisplay Main Exported Component ---
 
 interface CsvDisplayProps {
     activeJob: CsvGraphJob;
@@ -890,7 +871,9 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                     </div>
                     <div className="relative bg-slate-900 rounded-xl overflow-hidden border border-slate-700 h-[400px]">
                         <button onClick={() => setIsFullScreenGraph(true)} className="absolute top-2 right-2 z-20 p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-full"><EnterFullScreenIcon /></button>
-                        {selectedChannel && selectedChannelIndex !== -1 && <Graph {...commonGraphProps} className='h-full' />}
+                        <div className="w-full h-full">
+                          {selectedChannel && selectedChannelIndex !== -1 && <Graph {...commonGraphProps} className="h-full" />}
+                        </div>
                     </div>
                 </div>
             </div>
