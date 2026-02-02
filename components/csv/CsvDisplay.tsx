@@ -235,6 +235,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // ✅ 스크럽(기준선 이동)은 readout/포인트/마커 잡았을 때만
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
   const POINT_GRAB_R = 10;
+  const CLICK_THRESHOLD = 15; // 모바일 클릭 허용 오차 (픽셀)
 
   // 터치 상태 관리 (이동 여부 판정용)
   const touchState = useRef({ isPanning: false, startX: 0, startY: 0, lastX: 0, initialDistance: 0, isZooming: false, hasMoved: false });
@@ -386,10 +387,20 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     }
 
+    // 터치 시점에 네모 박스 위에 있는지 즉시 판정
+    let isCurrentlyOverReadout = false;
+    if (currentGuideData) {
+      const tw = 180;
+      const rx = fixedGuidelineX - (tw + 40) / 2;
+      const ry = padding.top - 50;
+      isCurrentlyOverReadout = x >= rx && x <= rx + tw + 40 && y >= ry && y <= ry + 40;
+      setIsOverReadout(isCurrentlyOverReadout);
+    }
+
     // 2) 기준선 스크럽 시작 조건: readout 박스 OR 가이드 포인트 원만
     let shouldScrub = false;
 
-    if (isOverReadout && currentGuideData) {
+    if (isCurrentlyOverReadout && currentGuideData) {
       shouldScrub = true;
     } else if (currentGuideData) {
       const px = fixedGuidelineX;
@@ -419,6 +430,10 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    const totalDx = e.clientX - touchState.current.startX;
+    const totalDy = e.clientY - touchState.current.startY;
+    const movedDistance = Math.hypot(totalDx, totalDy);
+
     // Readout Hover 판정
     if (currentGuideData) {
       const tw = 180;
@@ -431,23 +446,22 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     // 1) 마커 드래그 중이면 기준선 이동
     if (draggedMarkerKey) {
       setFixedGuidelineX(clampGuidelineX(x));
+      if (movedDistance > CLICK_THRESHOLD) touchState.current.hasMoved = true;
       return;
     }
 
     // 2) 스크럽이면 기준선만 이동 (그래프는 안 움직임)
     if (isScrubbing && !touchState.current.isZooming) {
       setFixedGuidelineX(clampGuidelineX(x));
-      touchState.current.hasMoved = true;
+      if (movedDistance > CLICK_THRESHOLD) touchState.current.hasMoved = true;
       return;
     }
 
     // 3) 패닝
     if (touchState.current.isPanning) {
       const dx = e.clientX - touchState.current.lastX;
-      const totalDx = e.clientX - touchState.current.startX;
-      const totalDy = e.clientY - touchState.current.startY;
-
-      if (Math.hypot(totalDx, totalDy) > 10) touchState.current.hasMoved = true;
+      
+      if (movedDistance > CLICK_THRESHOLD) touchState.current.hasMoved = true;
 
       const graphWidth = width - padding.left - padding.right;
       const timeDelta = -(dx / graphWidth) * (viewportMax - viewportMin);
@@ -467,7 +481,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       return;
     }
 
-    // 클릭 판정 (이동이 없었을 때)
+    // 클릭 판정 (이동이 CLICK_THRESHOLD 이하였을 때)
     if (!touchState.current.hasMoved && !draggedMarkerKey) {
       if (isOverReadout && currentGuideData) {
         confirmPoint({ timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
@@ -488,7 +502,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     }
 
-    if (draggedMarkerKey && currentGuideData) {
+    if (draggedMarkerKey && currentGuideData && touchState.current.hasMoved) {
       const finalPoint = getSnappedPoint(draggedMarkerKey, { timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
       onManualAiPointPlacement(draggedMarkerKey.toUpperCase(), finalPoint);
     }
