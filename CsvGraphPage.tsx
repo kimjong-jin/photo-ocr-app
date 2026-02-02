@@ -287,7 +287,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
               ...job,
               channelAnalysis: {
                   ...job.channelAnalysis,
-                  [channelId]: { ...current, results: current.results.filter(r => r.id !== resultId) }
+                  [job.selectedChannelId!]: { ...current, results: current.results.filter(r => r.id !== resultId) }
               }
           };
       });
@@ -363,6 +363,23 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         setPlacingAiPointLabel(null);
         setSequentialPlacementState(prev => ({ isActive: !prev.isActive, currentIndex: 0 }));
     }, []);
+
+    const handleUndoSequentialPlacement = useCallback(() => {
+        if (!sequentialPlacementState.isActive || sequentialPlacementState.currentIndex === 0) return;
+
+        const prevIndex = sequentialPlacementState.currentIndex - 1;
+        const prevLabel = SEQUENTIAL_POINT_ORDER[prevIndex];
+
+        if (prevLabel) {
+            updateActiveJob(job => {
+                const newAiResult = { ...(job.aiAnalysisResult || {}) };
+                delete (newAiResult as any)[prevLabel.toLowerCase()];
+                return { ...job, aiAnalysisResult: newAiResult };
+            });
+        }
+
+        setSequentialPlacementState(prev => ({ ...prev, currentIndex: prevIndex }));
+    }, [sequentialPlacementState, SEQUENTIAL_POINT_ORDER, updateActiveJob]);
     
     const handleSetIndividualPointMode = useCallback((label: string | null) => {
         setSequentialPlacementState({ isActive: false, currentIndex: 0 });
@@ -462,6 +479,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
           setIsFullScreenGraph={setIsFullScreenGraph}
           sequentialPlacementState={sequentialPlacementState}
           handleToggleSequentialPlacement={handleToggleSequentialPlacement}
+          handleUndoSequentialPlacement={handleUndoSequentialPlacement}
           handleSequentialPointPlacement={handleSequentialPointPlacement}
           sensorType={activeJob.sensorType}
           SEQUENTIAL_POINT_ORDER={SEQUENTIAL_POINT_ORDER}
