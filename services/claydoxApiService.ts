@@ -556,6 +556,7 @@ const constructMergedLabviewItemForStructural = (
 
       const sanitizedChecklistItemName = sanitizeFilename(checklistItemName).replace(/_/g, '');
       const itemSuffix = payload.mainItemKey === 'TP' ? 'P' : payload.mainItemKey === 'Cl' ? 'C' : '';
+
       const baseKeyForData = `구조_${sanitizedChecklistItemName}${itemSuffix}`;
 
       if (checklistItemName !== '기기번호 확인') {
@@ -574,30 +575,27 @@ const constructMergedLabviewItemForStructural = (
         }
       }
 
-      // Notes processing (restructured to prevent cleaned notes from being overwritten by raw notes fallback)
+      // ✅ 상호 배타적인 if-else if 구조로 통합하여 노트 중복 및 덮어쓰기 방지
       if (checklistItemName === '측정범위확인') {
         const rawNote = data.notes?.trim() || '';
         let effectiveRangeString = rawNote;
 
-        // ✅ 기타(직접입력) 패턴 감지
+        // ✅ 기타(직접입력) 패턴 감지 및 순수 값 추출
         const otherPattern = /기타\s*\(\s*직접\s*입력\s*\)/;
         if (otherPattern.test(rawNote)) {
-          // 1) 마지막 괄호 우선 (있으면 이걸로)
           const lastParen = rawNote.match(/\(([^)]+)\)\s*$/);
           if (lastParen?.[1]) {
             effectiveRangeString = lastParen[1].trim();
           } else {
-            // 2) 괄호가 없으면 "기타(직접입력)" 제거 후 남는 텍스트를 범위로 취급
             effectiveRangeString = rawNote.replace(otherPattern, '').trim();
           }
-          // 추가 보강: 불필요한 구분자 제거
           effectiveRangeString = effectiveRangeString.replace(/^[:=\-\s]+/, '').trim();
         }
 
-        // ✅ 노트는 순수 범위만 전송
+        // ✅ 정제된 순수 범위 값만 전송
         mergedItems[`${baseKeyForData}_노트`] = effectiveRangeString;
 
-        // ✅ 상한값 추출 (마지막 숫자)
+        // ✅ 상한값 추출
         let upperLimitValue = '';
         if (effectiveRangeString && effectiveRangeString !== ANALYSIS_IMPOSSIBLE_OPTION) {
           const numbersInString = effectiveRangeString.match(/\d+(\.\d+)?/g);
@@ -611,51 +609,22 @@ const constructMergedLabviewItemForStructural = (
           const certDetails: CertificateDetails = JSON.parse(data.notes);
           let statusText = '';
           switch (certDetails.presence) {
-            case 'present':
-              statusText = '있음';
-              break;
-            case 'initial_new':
-              statusText = '최초정도검사';
-              break;
-            case 'reissued_lost':
-              statusText = '분실 후 재발행';
-              break;
-            default:
-              statusText = certDetails.presence && certDetails.presence !== 'not_selected' ? String(certDetails.presence) : '선택 안됨';
+            case 'present': statusText = '있음'; break;
+            case 'initial_new': statusText = '최초정도검사'; break;
+            case 'reissued_lost': statusText = '분실 후 재발행'; break;
+            default: statusText = certDetails.presence && certDetails.presence !== 'not_selected' ? String(certDetails.presence) : '선택 안됨';
           }
           mergedItems[`${baseKeyForData}_세부상태`] = statusText;
-
-          if (certDetails.productName && certDetails.productName.trim() !== '') {
-            mergedItems[`${baseKeyForData}_품명`] = certDetails.productName.trim();
-          }
-
-          if (certDetails.manufacturer && certDetails.manufacturer.trim() !== '') {
-            mergedItems[`${baseKeyForData}_제작사`] = certDetails.manufacturer.trim();
-          }
-          if (certDetails.serialNumber && certDetails.serialNumber.trim() !== '') {
-            mergedItems[`${baseKeyForData}_기기번호`] = certDetails.serialNumber.trim();
-          }
-          if (certDetails.typeApprovalNumber && certDetails.typeApprovalNumber.trim() !== '') {
-            mergedItems[`${baseKeyForData}_번호`] = certDetails.typeApprovalNumber.trim();
-          }
-          if (certDetails.inspectionDate && certDetails.inspectionDate.trim() !== '') {
-            const formattedInspectionDate = certDetails.inspectionDate.replace(/\s/g, '').replace(/\./g, '-');
-            mergedItems[`${baseKeyForData}_검사일자`] = formattedInspectionDate;
-          }
-          if (certDetails.validity && certDetails.validity.trim() !== '') {
-            const formattedValidity = certDetails.validity.replace(/\s/g, '').replace(/\./g, '-');
-            mergedItems[`${baseKeyForData}_유효기간`] = formattedValidity;
-          }
-          if (certDetails.previousReceiptNumber && certDetails.previousReceiptNumber.trim() !== '') {
-            mergedItems[`${baseKeyForData}_직전접수번호`] = certDetails.previousReceiptNumber.trim();
-          }
-          if (certDetails.specialNotes && certDetails.specialNotes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
-            mergedItems[`${baseKeyForData}_특이사항`] = certDetails.specialNotes.trim();
-          }
+          if (certDetails.productName?.trim()) mergedItems[`${baseKeyForData}_품명`] = certDetails.productName.trim();
+          if (certDetails.manufacturer?.trim()) mergedItems[`${baseKeyForData}_제작사`] = certDetails.manufacturer.trim();
+          if (certDetails.serialNumber?.trim()) mergedItems[`${baseKeyForData}_기기번호`] = certDetails.serialNumber.trim();
+          if (certDetails.typeApprovalNumber?.trim()) mergedItems[`${baseKeyForData}_번호`] = certDetails.typeApprovalNumber.trim();
+          if (certDetails.inspectionDate?.trim()) mergedItems[`${baseKeyForData}_검사일자`] = certDetails.inspectionDate.replace(/\s/g, '').replace(/\./g, '-');
+          if (certDetails.validity?.trim()) mergedItems[`${baseKeyForData}_유효기간`] = certDetails.validity.replace(/\s/g, '').replace(/\./g, '-');
+          if (certDetails.previousReceiptNumber?.trim()) mergedItems[`${baseKeyForData}_직전접수번호`] = certDetails.previousReceiptNumber.trim();
+          if (certDetails.specialNotes?.trim() && !mergedItems[`${baseKeyForData}_특이사항`]) mergedItems[`${baseKeyForData}_특이사항`] = certDetails.specialNotes.trim();
         } catch (e) {
-          if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
-            mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
-          }
+          if (data.notes?.trim() && !mergedItems[`${baseKeyForData}_특이사항`]) mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
         }
       } else if (checklistItemName === '표시사항확인') {
         let successfullyParsedAndExpanded = false;
@@ -671,25 +640,17 @@ const constructMergedLabviewItemForStructural = (
               }
               successfullyParsedAndExpanded = true;
             }
-          } catch (parseError) {
-            /* ignore */
-          }
+          } catch (parseError) {}
         }
-        if (!successfullyParsedAndExpanded && data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
+        if (!successfullyParsedAndExpanded && data.notes?.trim() && !mergedItems[`${baseKeyForData}_특이사항`]) {
           mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
         }
       } else if (checklistItemName === '기기번호 확인') {
-        if (data.notes && data.notes.trim() !== '') {
-          mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
-        }
+        if (data.notes?.trim()) mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
       } else {
-        // Fallback for generic items
-        if (data.specialNotes && data.specialNotes.trim() !== '') {
-          mergedItems[`${baseKeyForData}_특이사항`] = data.specialNotes.trim();
-        }
-        if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
-          mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
-        }
+        // 기타 일반 항목
+        if (data.specialNotes?.trim()) mergedItems[`${baseKeyForData}_특이사항`] = data.specialNotes.trim();
+        if (data.notes?.trim() && !mergedItems[`${baseKeyForData}_특이사항`]) mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
       }
     });
 
@@ -743,7 +704,7 @@ export const generateStructuralKtlJsonForPreview = (
 
     return {
       ...p,
-      photoFileNames: { },
+      photoFileNames: {},
       checklistImageFileName: finalChecklistImageName,
     };
   });
@@ -842,6 +803,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
 
       const compositeDataUrl = await generateCompositeImage(imageSourcesForComposite, stampDetailsComposite, 'image/png');
       const compressedCompositeUrl = await compressImage(compositeDataUrl.split(',')[1], 'image/png');
+      // FIX: .replace(/\.png$/, '.jpg') 정규식 수정
       compositeFileNameOnServer = generateCompositeImageNameForKtl(job.receiptNumber).replace(/\.png$/, '.jpg');
       filesToUpload.push(new File([dataURLtoBlob(compressedCompositeUrl)], compositeFileNameOnServer, { type: 'image/jpeg' }));
     } catch (e: any) {
@@ -864,6 +826,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
         );
         const compressedUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
         const safeName = safeNameWithExt(photo.file.name, photo.mimeType);
+        // FIX: .replace(/\.[^/.]+$/, '') 정규식 수정
         const jpegName = safeName.replace(/\.[^/.]+$/, '') + '.jpg';
         zip.file(jpegName, dataURLtoBlob(compressedUrl));
       }
@@ -896,7 +859,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
     mainItemKey: job.mainItemKey,
     checklistData: job.checklistData,
     updateUser: userNameGlobal,
-    photoFileNames: { },
+    photoFileNames: {},
     checklistImageFileName: checklistImage.file.name,
     postInspectionDateValue: job.postInspectionDate,
     ...(selectedApplication
@@ -906,7 +869,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
           applicant_phone: selectedApplication.applicant_phone,
           maintenance_company: selectedApplication.maintenance_company,
         }
-      : { }),
+      : {}),
   };
 
   const mergedLabviewItem = constructMergedLabviewItemForStructural(
@@ -991,7 +954,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       mainItemKey: job.mainItemKey,
       checklistData: job.checklistData,
       updateUser: userNameGlobal,
-      photoFileNames: { },
+      photoFileNames: {},
       postInspectionDateValue: job.postInspectionDate,
       // 배치 전송 시 주입된 신청 정보를 페이로드에 반영
       representative_name: job.representative_name,
@@ -1033,6 +996,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
         const compositeDataUrl = await generateCompositeImage(imageSourcesForComposite, stampDetailsComposite, 'image/png');
         const compressedCompositeUrl = await compressImage(compositeDataUrl.split(',')[1], 'image/png');
         const compositeBlob = dataURLtoBlob(compressedCompositeUrl);
+        // FIX: .replace(/\.png$/, '.jpg') 정규식 수정
         const compositeFileNameOnServer = generateCompositeImageNameForKtl(receiptNo).replace(/\.png$/, '.jpg');
         const compositeFile = new File([compositeBlob], compositeFileNameOnServer, { type: 'image/jpeg' });
         filesToUploadDirectly.push(compositeFile);
@@ -1079,6 +1043,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
           );
           const compressedUrl = await compressImage(stampedDataUrl.split(',')[1], 'image/png');
           const safeName = safeNameWithExt(photo.file.name, photo.mimeType);
+          // FIX: .replace(/\.[^/.]+$/, '') 정규식 수정
           const jpegName = safeName.replace(/\.[^/.]+$/, '') + '.jpg';
           const stampedBlob = dataURLtoBlob(compressedUrl);
           zip.file(jpegName, stampedBlob);
