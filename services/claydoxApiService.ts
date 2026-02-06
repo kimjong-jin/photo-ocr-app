@@ -556,7 +556,6 @@ const constructMergedLabviewItemForStructural = (
 
       const sanitizedChecklistItemName = sanitizeFilename(checklistItemName).replace(/_/g, '');
       const itemSuffix = payload.mainItemKey === 'TP' ? 'P' : payload.mainItemKey === 'Cl' ? 'C' : '';
-
       const baseKeyForData = `구조_${sanitizedChecklistItemName}${itemSuffix}`;
 
       if (checklistItemName !== '기기번호 확인') {
@@ -575,6 +574,7 @@ const constructMergedLabviewItemForStructural = (
         }
       }
 
+      // Notes processing (restructured to prevent cleaned notes from being overwritten by raw notes fallback)
       if (checklistItemName === '측정범위확인') {
         const rawNote = data.notes?.trim() || '';
         let effectiveRangeString = rawNote;
@@ -606,11 +606,7 @@ const constructMergedLabviewItemForStructural = (
           }
         }
         mergedItems[`${baseKeyForData}_상한값`] = upperLimitValue;
-      } else if (data.specialNotes && data.specialNotes.trim() !== '') {
-        mergedItems[`${baseKeyForData}_특이사항`] = data.specialNotes.trim();
-      }
-
-      if (checklistItemName === '정도검사 증명서' && data.notes) {
+      } else if (checklistItemName === '정도검사 증명서' && data.notes) {
         try {
           const certDetails: CertificateDetails = JSON.parse(data.notes);
           let statusText = '';
@@ -682,7 +678,15 @@ const constructMergedLabviewItemForStructural = (
         if (!successfullyParsedAndExpanded && data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
           mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
         }
+      } else if (checklistItemName === '기기번호 확인') {
+        if (data.notes && data.notes.trim() !== '') {
+          mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
+        }
       } else {
+        // Fallback for generic items
+        if (data.specialNotes && data.specialNotes.trim() !== '') {
+          mergedItems[`${baseKeyForData}_특이사항`] = data.specialNotes.trim();
+        }
         if (data.notes && data.notes.trim() !== '' && !mergedItems[`${baseKeyForData}_특이사항`]) {
           mergedItems[`${baseKeyForData}_노트`] = data.notes.trim();
         }
@@ -739,7 +743,7 @@ export const generateStructuralKtlJsonForPreview = (
 
     return {
       ...p,
-      photoFileNames: {},
+      photoFileNames: { },
       checklistImageFileName: finalChecklistImageName,
     };
   });
@@ -892,7 +896,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
     mainItemKey: job.mainItemKey,
     checklistData: job.checklistData,
     updateUser: userNameGlobal,
-    photoFileNames: {},
+    photoFileNames: { },
     checklistImageFileName: checklistImage.file.name,
     postInspectionDateValue: job.postInspectionDate,
     ...(selectedApplication
@@ -902,7 +906,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
           applicant_phone: selectedApplication.applicant_phone,
           maintenance_company: selectedApplication.maintenance_company,
         }
-      : {}),
+      : { }),
   };
 
   const mergedLabviewItem = constructMergedLabviewItemForStructural(
@@ -987,7 +991,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       mainItemKey: job.mainItemKey,
       checklistData: job.checklistData,
       updateUser: userNameGlobal,
-      photoFileNames: {},
+      photoFileNames: { },
       postInspectionDateValue: job.postInspectionDate,
       // 배치 전송 시 주입된 신청 정보를 페이로드에 반영
       representative_name: job.representative_name,
