@@ -579,30 +579,29 @@ const constructMergedLabviewItemForStructural = (
         const rawNote = data.notes?.trim() || '';
         let effectiveRangeString = rawNote;
 
-        // ✅ 기타(직접입력) 판정: 공백 무시하고 매칭
-        const rawNoSpace = rawNote.replace(/\s+/g, '');
-        const otherNoSpace = (OTHER_DIRECT_INPUT_OPTION || '').replace(/\s+/g, '');
-
-        if (otherNoSpace && rawNoSpace.startsWith(otherNoSpace)) {
-          // ✅ 마지막 괄호 안(예: 0-75 mg/L)만 추출
-          const lastMatch = rawNote.match(/.*\(([^)]+)\)\s*$/);
-          if (lastMatch?.[1]) {
-            effectiveRangeString = lastMatch[1].trim();
+        // ✅ 기타(직접입력) 패턴 감지
+        const otherPattern = /기타\s*\(\s*직접\s*입력\s*\)/;
+        if (otherPattern.test(rawNote)) {
+          // 1) 마지막 괄호 우선 (있으면 이걸로)
+          const lastParen = rawNote.match(/\(([^)]+)\)\s*$/);
+          if (lastParen?.[1]) {
+            effectiveRangeString = lastParen[1].trim();
           } else {
-            // "기타(직접입력)"만 있고 범위가 없으면 빈값
-            effectiveRangeString = '';
+            // 2) 괄호가 없으면 "기타(직접입력)" 제거 후 남는 텍스트를 범위로 취급
+            effectiveRangeString = rawNote.replace(otherPattern, '').trim();
           }
+          // 추가 보강: 불필요한 구분자 제거
+          effectiveRangeString = effectiveRangeString.replace(/^[:=\-\s]+/, '').trim();
         }
 
-        // ✅ (핵심) 노트는 접두사 제거된 "0-75 mg/L" 형태로 전송
+        // ✅ 노트는 순수 범위만 전송
         mergedItems[`${baseKeyForData}_노트`] = effectiveRangeString;
 
+        // ✅ 상한값 추출 (마지막 숫자)
         let upperLimitValue = '';
-        // 판별불가가 아닐 때만 숫자 추출
         if (effectiveRangeString && effectiveRangeString !== ANALYSIS_IMPOSSIBLE_OPTION) {
           const numbersInString = effectiveRangeString.match(/\d+(\.\d+)?/g);
           if (numbersInString?.length) {
-            // 마지막 발견 숫자를 상한값으로 채택 (예: 75)
             upperLimitValue = numbersInString[numbersInString.length - 1];
           }
         }
