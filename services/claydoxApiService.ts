@@ -579,12 +579,17 @@ const constructMergedLabviewItemForStructural = (
         const rawNote = data.notes?.trim() || '';
         let effectiveRangeString = rawNote;
 
-        // ✅ 기타(직접입력)일 때: 마지막 괄호 안의 내용(예: 0-75 mg/L)만 남김
-        if (rawNote.startsWith(OTHER_DIRECT_INPUT_OPTION)) {
-          const lastMatch = rawNote.match(/.*\(([^)]+)\)/);
-          if (lastMatch && lastMatch[1]) {
+        // ✅ 기타(직접입력) 판정: 공백 무시하고 매칭
+        const rawNoSpace = rawNote.replace(/\s+/g, '');
+        const otherNoSpace = (OTHER_DIRECT_INPUT_OPTION || '').replace(/\s+/g, '');
+
+        if (otherNoSpace && rawNoSpace.startsWith(otherNoSpace)) {
+          // ✅ 마지막 괄호 안(예: 0-75 mg/L)만 추출
+          const lastMatch = rawNote.match(/.*\(([^)]+)\)\s*$/);
+          if (lastMatch?.[1]) {
             effectiveRangeString = lastMatch[1].trim();
-          } else if (rawNote === OTHER_DIRECT_INPUT_OPTION) {
+          } else {
+            // "기타(직접입력)"만 있고 범위가 없으면 빈값
             effectiveRangeString = '';
           }
         }
@@ -596,7 +601,7 @@ const constructMergedLabviewItemForStructural = (
         // 판별불가가 아닐 때만 숫자 추출
         if (effectiveRangeString && effectiveRangeString !== ANALYSIS_IMPOSSIBLE_OPTION) {
           const numbersInString = effectiveRangeString.match(/\d+(\.\d+)?/g);
-          if (numbersInString && numbersInString.length > 0) {
+          if (numbersInString?.length) {
             // 마지막 발견 숫자를 상한값으로 채택 (예: 75)
             upperLimitValue = numbersInString[numbersInString.length - 1];
           }
