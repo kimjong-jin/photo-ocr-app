@@ -592,6 +592,9 @@ const constructMergedLabviewItemForStructural = (
           effectiveRangeString = effectiveRangeString.replace(/^[:=\-\s]+/, '').trim();
         }
 
+        // ✅ 단위 띄어쓰기 보정 (숫자와 단위 사이 공백 삽입)
+        effectiveRangeString = effectiveRangeString.replace(/(\d+(?:\.\d+)?)\s*(mg\/L|NTU|ppm|%|pH|L|mg)/gi, '$1 $2').trim();
+
         // ✅ 정제된 순수 범위 값만 전송
         mergedItems[`${baseKeyForData}_노트`] = effectiveRangeString;
 
