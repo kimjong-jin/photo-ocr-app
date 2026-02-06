@@ -579,16 +579,17 @@ const constructMergedLabviewItemForStructural = (
         const rawNote = data.notes?.trim() || '';
         let effectiveRangeString = rawNote;
 
+        // ✅ 기타(직접입력)일 때: 마지막 괄호 안의 내용(예: 0-75 mg/L)만 남김
         if (rawNote.startsWith(OTHER_DIRECT_INPUT_OPTION)) {
-          const matchInParentheses = rawNote.match(/\(([^)]+)\)/);
-          if (matchInParentheses && matchInParentheses[1]) {
-            effectiveRangeString = matchInParentheses[1].trim();
+          const lastMatch = rawNote.match(/.*\(([^)]+)\)/);
+          if (lastMatch && lastMatch[1]) {
+            effectiveRangeString = lastMatch[1].trim();
           } else if (rawNote === OTHER_DIRECT_INPUT_OPTION) {
             effectiveRangeString = '';
           }
         }
 
-        // ✅ (수정) 기타 접두사가 제거된 순수 텍스트를 노트에 저장
+        // ✅ (핵심) 노트는 접두사 제거된 "0-75 mg/L" 형태로 전송
         mergedItems[`${baseKeyForData}_노트`] = effectiveRangeString;
 
         let upperLimitValue = '';
@@ -596,7 +597,7 @@ const constructMergedLabviewItemForStructural = (
         if (effectiveRangeString && effectiveRangeString !== ANALYSIS_IMPOSSIBLE_OPTION) {
           const numbersInString = effectiveRangeString.match(/\d+(\.\d+)?/g);
           if (numbersInString && numbersInString.length > 0) {
-            // 마지막 발견 숫자를 상한값으로 채택
+            // 마지막 발견 숫자를 상한값으로 채택 (예: 75)
             upperLimitValue = numbersInString[numbersInString.length - 1];
           }
         }
