@@ -347,11 +347,11 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   else if (payload.pageType === 'DrinkingWater' || drinkingWaterItems.includes(payload.item)) gubnPrefix = '먹는물';
 
   const labviewDescComment = `${gubnPrefix} (항목: ${payload.item}, 현장: ${payload.siteNameOnly})`;
-  const dynamicLabviewGubn = `${gubnPrefix}_${payload.item.replace('/', '_')}`;
+  const labviewDescObject = { comment: labviewDescComment };
 
   return {
-    LABVIEW_GUBN: dynamicLabviewGubn,
-    LABVIEW_DESC: JSON.stringify({ comment: labviewDescComment }),
+    LABVIEW_GUBN: `${gubnPrefix}_${payload.item.replace('/', '_')}`,
+    LABVIEW_DESC: JSON.stringify(labviewDescObject),
     LABVIEW_RECEIPTNO: payload.receiptNumber,
     UPDATE_USER: payload.updateUser,
     LABVIEW_ITEM: JSON.stringify(labviewItemObject),
@@ -576,24 +576,28 @@ const constructMergedLabviewItemForStructural = (
       }
 
       if (checklistItemName === '측정범위확인') {
-        mergedItems[`${baseKeyForData}_노트`] = data.notes || '';
-        let upperLimitValue = '';
-        const notesTrimmed = data.notes?.trim();
-        if (notesTrimmed && notesTrimmed !== ANALYSIS_IMPOSSIBLE_OPTION) {
-          let effectiveRangeString = notesTrimmed;
-          if (notesTrimmed.startsWith(OTHER_DIRECT_INPUT_OPTION)) {
-            const matchInParentheses = notesTrimmed.match(/\(([^)]+)\)/);
-            if (matchInParentheses && matchInParentheses[1]) {
-              effectiveRangeString = matchInParentheses[1].trim();
-            } else {
-              effectiveRangeString = '';
-            }
+        const rawNote = data.notes?.trim() || '';
+        let effectiveRangeString = rawNote;
+
+        if (rawNote.startsWith(OTHER_DIRECT_INPUT_OPTION)) {
+          const matchInParentheses = rawNote.match(/\(([^)]+)\)/);
+          if (matchInParentheses && matchInParentheses[1]) {
+            effectiveRangeString = matchInParentheses[1].trim();
+          } else if (rawNote === OTHER_DIRECT_INPUT_OPTION) {
+            effectiveRangeString = '';
           }
-          if (effectiveRangeString) {
-            const numbersInString = effectiveRangeString.match(/\d+(\.\d+)?/g);
-            if (numbersInString && numbersInString.length > 0) {
-              upperLimitValue = numbersInString[numbersInString.length - 1];
-            }
+        }
+
+        // ✅ (수정) 기타 접두사가 제거된 순수 텍스트를 노트에 저장
+        mergedItems[`${baseKeyForData}_노트`] = effectiveRangeString;
+
+        let upperLimitValue = '';
+        // 판별불가가 아닐 때만 숫자 추출
+        if (effectiveRangeString && effectiveRangeString !== ANALYSIS_IMPOSSIBLE_OPTION) {
+          const numbersInString = effectiveRangeString.match(/\d+(\.\d+)?/g);
+          if (numbersInString && numbersInString.length > 0) {
+            // 마지막 발견 숫자를 상한값으로 채택
+            upperLimitValue = numbersInString[numbersInString.length - 1];
           }
         }
         mergedItems[`${baseKeyForData}_상한값`] = upperLimitValue;
@@ -620,7 +624,6 @@ const constructMergedLabviewItemForStructural = (
           }
           mergedItems[`${baseKeyForData}_세부상태`] = statusText;
 
-          // ✅✅✅ [핵심 수정] baseFileKey(미선언) → baseKeyForData
           if (certDetails.productName && certDetails.productName.trim() !== '') {
             mergedItems[`${baseKeyForData}_품명`] = certDetails.productName.trim();
           }
@@ -856,7 +859,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
         zip.file(jpegName, dataURLtoBlob(compressedUrl));
       }
       zipFileNameOnServer = generateZipFileNameForKtl(job.receiptNumber);
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipBlob = await zip.generateAsync({ type: "blob" });
       filesToUpload.push(new File([zipBlob], zipFileNameOnServer, { type: 'application/zip' }));
     } catch (e: any) {
       throw new Error(`참고사진 ZIP 파일 생성 실패: ${e.message}`);
@@ -1076,7 +1079,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       }
       if (Object.keys(zip.files).length > 0) {
         try {
-          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          const zipBlob = await zip.generateAsync({ type: "blob" });
           const zipFileNameOnServer = generateZipFileNameForKtl(receiptNo);
           const zipFile = new File([zipBlob], zipFileNameOnServer, { type: 'application/zip' });
           filesToUploadDirectly.push(zipFile);
@@ -1151,7 +1154,6 @@ export const sendBatchStructuralChecksToKtlApi = async (
         await retryKtlApiCall<KtlApiResponseData>(
           () =>
             axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, fd, {
-              // 브라우저에서는 Content-Type을 명시하지 않으면 경계(boundary)가 자동 설정됩니다.
               timeout: Math.max(KTL_API_TIMEOUT, 120000),
               maxBodyLength: Infinity,
               maxContentLength: Infinity,
@@ -1289,9 +1291,6 @@ export const sendBatchStructuralChecksToKtlApi = async (
 };
 
 // --- START: Page 5 (KakaoTalk) Functionality ---
-// 보안상: 카카오톡 중계 APIKEY는 프론트에 두지 않고 서버(/api/kakao)에서만 사용합니다.
-// 프론트는 키 없이 /api/kakao 엔드포인트만 호출합니다.
-
 interface KakaoTalkRequestBody {
   message: string;
   phoneNumbers: string;
@@ -1357,5 +1356,3 @@ export const sendKakaoTalkMessage = async (
     throw new Error(errorMsg);
   }
 };
-
-// --- END: Page 5 (KakaoTalk) Functionality ---
