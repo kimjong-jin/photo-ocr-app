@@ -898,6 +898,9 @@ export const sendSingleStructuralCheckToKtlApi = async (
 
   const mainItemName = MAIN_STRUCTURAL_ITEMS.find((it) => it.key === job.mainItemKey)?.name || job.mainItemKey;
   const labviewDescComment = `구조 (항목: ${mainItemName}, 현장: ${siteNameGlobal})`;
+  const labviewDescObject = { comment: labviewDescComment };
+
+  // ✅ P1 항목 식별자 생성
   const dynamicLabviewGubn = `구조_${job.mainItemKey}`;
 
   const finalKtlJsonObject = {
@@ -1388,13 +1391,15 @@ export const sendCsvGraphToKtlApi = async (
 
     // ✅ Cl 항목 접미사 'C' 처리
     const suffix = job.sensorType === 'Cl' ? 'C' : '';
+    // ✅ pH 항목 테이블 키 처리
+    const tableKey = job.sensorType === 'PH' ? 'pH_PHOTO_데이터테이블' : 'PHOTO_데이터테이블';
 
     // 2. JSON 구성
     const labviewItemObject: any = {
       '시험자': userName,
       '현장': finalSite,
       'PHOTO_그래프': graphImage.name,
-      'PHOTO_데이터테이블': tableImage.name,
+      [tableKey]: tableImage.name,
     };
 
     if (archiveName) {
@@ -1429,7 +1434,7 @@ export const sendCsvGraphToKtlApi = async (
     // 3. JSON 전송
     console.log(`${logIdentifier} Sending JSON data:`, finalKtlJsonObject);
     const jsonResponse = await retryKtlApiCall(() =>
-      axios.post(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, {
+      axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         timeout: KTL_API_TIMEOUT,
       }),
