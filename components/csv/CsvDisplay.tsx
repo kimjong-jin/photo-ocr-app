@@ -746,7 +746,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     if (isCapturing) {
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
-      link.download = `graph_${receiptNumber}_${channelInfo.name}_${new Date().getTime()}.png`;
+      link.download = `${receiptNumber}_graph.png`;
       link.href = dataUrl;
       link.click();
       setIsCapturing(false);
@@ -934,7 +934,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       });
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
-      link.download = `table_${activeJob.receiptNumber}_${selectedChannel?.name || 'result'}_${new Date().getTime()}.png`;
+      link.download = `${activeJob.receiptNumber}_table.png`;
       link.href = dataUrl;
       link.click();
     } catch (err) {
