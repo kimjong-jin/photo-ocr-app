@@ -76,25 +76,22 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     setError(null);
     
     try {
-        // Fix: Explicitly cast Array.from(files) to File[] to avoid 'unknown' type errors on file.text() and file.name
         const fileArray = Array.from(files) as File[];
         const parsedResults: ParsedCsvData[] = [];
+        let combinedRawContent = "";
 
         for (const file of fileArray) {
-            // Fix: Explicitly using 'file' as File to ensure .text() exists (resolving property 'text' does not exist on type 'unknown')
             const content = await file.text();
-            // Fix: Explicitly using 'file' as File to ensure .name exists (resolving property 'name' does not exist on type 'unknown')
+            combinedRawContent += (combinedRawContent ? "\n" : "") + content;
             const parsed = parseGraphtecCsv(content, file.name);
             parsedResults.push(parsed);
         }
 
-        // 1. 단순 데이터 병합: 어떠한 시간 계산이나 보정도 하지 않음
         let combinedData: DataPoint[] = [];
         parsedResults.forEach(p => {
             combinedData.push(...p.data);
         });
 
-        // 2. 시간 순서대로 정렬만 수행하여 무결성 유지
         combinedData.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
         const firstParsed = parsedResults[0];
@@ -103,6 +100,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         updateActiveJob(job => ({
             ...job,
             fileName: fileNames,
+            csvRawContent: combinedRawContent, // 원본 내용 저장
             parsedData: {
                 channels: firstParsed.channels,
                 data: combinedData,
@@ -132,6 +130,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     updateActiveJob(job => ({
         ...job,
         fileName: null,
+        csvRawContent: undefined,
         parsedData: null,
         details: '',
         channelAnalysis: {},
@@ -418,8 +417,8 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     const handleSendToKtl = async (graphBlob: Blob, tableBlob: Blob, results: any[]) => {
       if (!activeJob) return;
       
-      const graphFile = new File([graphBlob], `graph_${activeJob.receiptNumber}_${new Date().getTime()}.png`, { type: 'image/png' });
-      const tableFile = new File([tableBlob], `table_${activeJob.receiptNumber}_${new Date().getTime()}.png`, { type: 'image/png' });
+      const graphFile = new File([graphBlob], `${activeJob.receiptNumber}_graph.png`, { type: 'image/png' });
+      const tableFile = new File([tableBlob], `${activeJob.receiptNumber}_table.png`, { type: 'image/png' });
 
       try {
         updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: 'KTL API로 전송 중...' }));
@@ -430,6 +429,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
           results,
           userName,
           siteLocation,
+          activeJob.csvRawContent, // 원본 내용 전달
           'p6_check'
         );
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
