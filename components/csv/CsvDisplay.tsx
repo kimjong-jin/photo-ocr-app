@@ -253,8 +253,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // 스크럽(기준선 이동) 관리
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
   const [isScrubbingFromReadout, setIsScrubbingFromReadout] = useState<boolean>(false);
-  const POINT_GRAB_R = 10;
-  const CLICK_THRESHOLD = 15; // 모바일 클릭 허용 오차 (픽셀)
+  const POINT_GRAB_R = 12;
+  const CLICK_THRESHOLD = 8; // 드래그 판정 임계값
+  
+  // ✅ 포인트 지정 민감도 해결: 쿨다운을 위한 Ref 추가
+  const lastConfirmTimeRef = useRef<number>(0);
 
   const touchState = useRef({ isPanning: false, startX: 0, startY: 0, lastX: 0, initialDistance: 0, isZooming: false, hasMoved: false });
 
@@ -300,7 +303,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     return Math.max(padding.left, Math.min(x, width - padding.right));
   }, [padding.left, padding.right, width]);
 
-  // ✅ [성능 최적화] 이진 탐색(Binary Search) 도입하여 기준선 탐색 부하 제거
+  // ✅ [성능 최적화] 이진 탐색(Binary Search) 도입하여 기준선 탐색 부하 제거 (버벅임 해결)
   const updateGuideData = useCallback(() => {
     if (width === 0 || getChannelData.length === 0) return;
     const graphWidth = width - padding.left - padding.right;
@@ -367,7 +370,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
           }
 
           if (crossed) {
-            // "보간법(Interpolation)"을 사용하여 시각적으로 정확한 도달 지점 마킹
             const ratio = (targetValue - d1.value) / (d2.value - d1.value);
             const interpTs = d1.timestamp.getTime() + ratio * (d2.timestamp.getTime() - d1.timestamp.getTime());
             const timeDiff = Math.abs(interpTs - basePoint.timestamp.getTime());
@@ -384,6 +386,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   }, [sensorType, aiAnalysisResult, getChannelData]);
 
   const confirmPoint = useCallback((point: { timestamp: Date; value: number }) => {
+    // ✅ [민감도 해결] 500ms 쿨다운 적용하여 중복 클릭 방지
+    const now = Date.now();
+    if (now - lastConfirmTimeRef.current < 500) return;
+    lastConfirmTimeRef.current = now;
+
     if (isMaxMinMode) {
       onPointSelect(point);
     } else if (placingAiPointLabel) {
@@ -451,7 +458,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     setIsScrubbing(shouldScrub);
     setIsScrubbingFromReadout(scrubbingFromReadout);
 
-    // 3) 드래그 상태 초기화
     touchState.current.hasMoved = false;
     touchState.current.startX = e.clientX;
     touchState.current.startY = e.clientY;
@@ -473,6 +479,9 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const totalDy = e.clientY - touchState.current.startY;
     const movedDistance = Math.hypot(totalDx, totalDy);
 
+    // ✅ 이동 판정 임계값 설정 (민감도 제어)
+    if (movedDistance > CLICK_THRESHOLD) touchState.current.hasMoved = true;
+
     // Readout Hover 판정
     if (currentGuideData) {
       const tw = 180;
@@ -485,32 +494,25 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     // 1) 마커 드래그 중이면 기준선 이동
     if (draggedMarkerKey) {
       setFixedGuidelineX(clampGuidelineX(x));
-      if (movedDistance > CLICK_THRESHOLD) touchState.current.hasMoved = true;
       return;
     }
 
     // 2) 스크럽이면 기준선만 이동
     if (isScrubbing && !touchState.current.isZooming) {
-      // ✅ [개선] Readout 박스 위에서 클릭 중일 때 기준선이 멋대로 움직이지 않도록 고정 로직 강화
+      // ✅ 박스 클릭 시 미세한 손떨림으로 인한 기준선 튕김 현상 억제
       if (isScrubbingFromReadout && movedDistance < CLICK_THRESHOLD) {
           return;
       }
-      
       setFixedGuidelineX(clampGuidelineX(x));
-      if (movedDistance > CLICK_THRESHOLD) touchState.current.hasMoved = true;
       return;
     }
 
     // 3) 패닝
     if (touchState.current.isPanning) {
       const dx = e.clientX - touchState.current.lastX;
-      
-      if (movedDistance > CLICK_THRESHOLD) touchState.current.hasMoved = true;
-
       const graphWidth = width - padding.left - padding.right;
       const timeDelta = -(dx / graphWidth) * (viewportMax - viewportMin);
       onPanByAmount(timeDelta);
-
       touchState.current.lastX = e.clientX;
       return;
     }
@@ -526,8 +528,10 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       return;
     }
 
-    // 클릭 판정 (이동이 CLICK_THRESHOLD 이하였을 때)
-    if (!touchState.current.hasMoved && !draggedMarkerKey) {
+    // ✅ [민감도 해결] 드래그가 발생했거나 스크러빙 중이었다면 클릭으로 간주하지 않음
+    const hasMovedSignificantly = touchState.current.hasMoved;
+
+    if (!hasMovedSignificantly && !draggedMarkerKey) {
       // Readout 박스 영역 내 클릭 시 고정된 기준선 위치의 데이터를 확정
       if (isOverReadout && currentGuideData) {
         confirmPoint({ timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
@@ -548,7 +552,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     }
 
-    if (draggedMarkerKey && currentGuideData && touchState.current.hasMoved) {
+    if (draggedMarkerKey && currentGuideData && hasMovedSignificantly) {
       const finalPoint = getSnappedPoint(draggedMarkerKey, { timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
       onManualAiPointPlacement(draggedMarkerKey.toUpperCase(), finalPoint);
     }
@@ -1104,7 +1108,6 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
           <div className="space-y-3">
             <h3 className="text-lg font-semibold text-slate-100">분석 제어</h3>
             
-            {/* TU/Cl 일 때 상세 현장 입력 UI 추가 */}
             {(activeJob.sensorType === 'TU' || activeJob.sensorType === 'Cl') && (
               <div className="pb-2 border-b border-slate-700">
                 <label htmlFor="csv-job-details" className="block text-xs font-medium text-slate-300 mb-1">
