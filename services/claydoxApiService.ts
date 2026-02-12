@@ -968,9 +968,18 @@ export const sendBatchStructuralChecksToKtlApi = async (
     });
   }
 
+  // ✅ Fix: Move jobsByReceiptNumber declaration and population here to resolve usage before declaration error.
+  const jobsByReceiptNumber: Record<string, StructuralCheckPayloadForKtl[]> = {};
+  payloadsForKtlService.forEach((payload) => {
+    if (!jobsByReceiptNumber[payload.receiptNumber]) {
+      jobsByReceiptNumber[payload.receiptNumber] = [];
+    }
+    jobsByReceiptNumber[payload.receiptNumber].push(payload);
+  });
+
   const uniqueReceiptNumbersInBatch = Array.from(new Set(jobs.map((job) => job.receiptNumber)));
 
-  for (const receiptNo in uniqueReceiptNumbersInBatch) {
+  for (const receiptNo in jobsByReceiptNumber) {
     const photosForThisReceipt = allJobPhotosForService.filter((p) => p.jobReceipt === receiptNo);
 
     if (photosForThisReceipt.length > 0) {
@@ -1164,14 +1173,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
     }
   }
 
-  const jobsByReceiptNumber: Record<string, StructuralCheckPayloadForKtl[]> = {};
-  payloadsForKtlService.forEach((payload) => {
-    if (!jobsByReceiptNumber[payload.receiptNumber]) {
-      jobsByReceiptNumber[payload.receiptNumber] = [];
-    }
-    jobsByReceiptNumber[payload.receiptNumber].push(payload);
-  });
-
+  // ✅ Redundant declaration removed (already handled above)
   for (const receiptNo in jobsByReceiptNumber) {
     const currentGroupOfJobs = jobsByReceiptNumber[receiptNo];
     const compositeFileNameForThisReceipt = receiptToCompositeFileNameMap.get(receiptNo);
@@ -1345,17 +1347,32 @@ export const sendCsvGraphToKtlApi = async (
   unifiedResults: any[],
   userName: string,
   siteLocation: string,
+  csvRawContent?: string, // 추가: 원본 CSV 내용
   p_key?: string
 ): Promise<{ success: boolean; message: string }> => {
+  const logIdentifier = `[ClaydoxAPI - P6 CSV 그래프]`;
   const formData = new FormData();
+  
   formData.append('files', graphImage, graphImage.name);
   formData.append('files', tableImage, tableImage.name);
 
-  const logIdentifier = `[ClaydoxAPI - P6 CSV 그래프]`;
+  // ✅ 원본 CSV 압축 추가 요청
+  let archiveName: string | undefined;
+  if (csvRawContent) {
+    try {
+      const zip = new JSZip();
+      zip.file(`${job.receiptNumber}_original_data.csv`, csvRawContent);
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      archiveName = `${job.receiptNumber}_CSV.zip`;
+      formData.append('files', zipBlob, archiveName);
+    } catch (zipErr: any) {
+      console.error(`${logIdentifier} CSV Compression failed:`, zipErr.message);
+    }
+  }
 
   try {
     // 1. 파일 업로드
-    console.log(`${logIdentifier} Uploading files:`, [graphImage.name, tableImage.name]);
+    console.log(`${logIdentifier} Uploading files:`, [graphImage.name, tableImage.name, archiveName].filter(Boolean));
     await retryKtlApiCall(() =>
       axios.post(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -1379,6 +1396,10 @@ export const sendCsvGraphToKtlApi = async (
       'PHOTO_그래프': graphImage.name,
       'PHOTO_데이터테이블': tableImage.name,
     };
+
+    if (archiveName) {
+      labviewItemObject['PHOTO_압축'] = archiveName;
+    }
 
     // 지정 포인트 수치 데이터 추가 (Cl인 경우 접미사 C 붙임)
     if (job.aiAnalysisResult) {
