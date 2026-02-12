@@ -229,6 +229,7 @@ interface GraphCanvasProps {
   SEQUENTIAL_POINT_ORDER: string[];
   receiptNumber: string;
   graphRef?: React.RefObject<HTMLDivElement>;
+  hideGuidelines?: boolean;
 }
 
 const GraphCanvas: React.FC<GraphCanvasProps> = ({
@@ -237,7 +238,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   isAnalyzing, isMaxMinMode, onPointSelect, selection, analysisResults, aiAnalysisResult,
   placingAiPointLabel, onManualAiPointPlacement,
   setPlacingAiPointLabel, isRangeSelecting, rangeSelection, onRangeSelectComplete,
-  sequentialPlacementState, onSequentialPointPlacement, sensorType, SEQUENTIAL_POINT_ORDER, receiptNumber, graphRef
+  sequentialPlacementState, onSequentialPointPlacement, sensorType, SEQUENTIAL_POINT_ORDER, receiptNumber, graphRef,
+  hideGuidelines = false
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padding = { top: 40, right: 60, bottom: 40, left: 60 };
@@ -248,12 +250,12 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const [draggedMarkerKey, setDraggedMarkerKey] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState<boolean>(false);
 
-  // ✅ 스크럽(기준선 이동)은 readout/포인트/마커 잡았을 때만
+  // 스크럽(기준선 이동) 관리
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
+  const [isScrubbingFromReadout, setIsScrubbingFromReadout] = useState<boolean>(false);
   const POINT_GRAB_R = 10;
   const CLICK_THRESHOLD = 15; // 모바일 클릭 허용 오차 (픽셀)
 
-  // 터치 상태 관리 (이동 여부 판정용)
   const touchState = useRef({ isPanning: false, startX: 0, startY: 0, lastX: 0, initialDistance: 0, isZooming: false, hasMoved: false });
 
   useEffect(() => {
@@ -298,6 +300,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     return Math.max(padding.left, Math.min(x, width - padding.right));
   }, [padding.left, padding.right, width]);
 
+  // ✅ [성능 최적화] 이진 탐색(Binary Search) 도입하여 기준선 탐색 부하 제거
   const updateGuideData = useCallback(() => {
     if (width === 0 || getChannelData.length === 0) return;
     const graphWidth = width - padding.left - padding.right;
@@ -305,13 +308,29 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
     const timeAtLine = viewportMin + ((fixedGuidelineX - padding.left) / graphWidth) * (viewportMax - viewportMin);
 
-    let minDistance = Infinity;
-    let closest = getChannelData[0];
-    getChannelData.forEach(d => {
-      const dist = Math.abs(d.timestamp.getTime() - timeAtLine);
-      if (dist < minDistance) { minDistance = dist; closest = d; }
-    });
-    setCurrentGuideData(closest);
+    // 이진 탐색으로 가장 가까운 점 찾기 (O(log N))
+    let low = 0;
+    let high = getChannelData.length - 1;
+    let closestIndex = 0;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (Math.abs(getChannelData[mid].timestamp.getTime() - timeAtLine) < 
+          Math.abs(getChannelData[closestIndex].timestamp.getTime() - timeAtLine)) {
+        closestIndex = mid;
+      }
+
+      if (getChannelData[mid].timestamp.getTime() < timeAtLine) {
+        low = mid + 1;
+      } else if (getChannelData[mid].timestamp.getTime() > timeAtLine) {
+        high = mid - 1;
+      } else {
+        closestIndex = mid;
+        break;
+      }
+    }
+    
+    setCurrentGuideData(getChannelData[closestIndex]);
   }, [fixedGuidelineX, width, viewportMin, viewportMax, getChannelData, padding.left, padding.right]);
 
   useEffect(() => { updateGuideData(); }, [updateGuideData]);
@@ -348,13 +367,13 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
           }
 
           if (crossed) {
-            // ✅ "쌓이는게 10초단위" 조건 충족을 위해 보간(Interpolation) 제거.
-            // threshold를 넘은 실제 샘플링 지점(d2)의 타임스탬프를 그대로 사용함.
-            const snapTs = d2.timestamp.getTime();
-            const timeDiff = Math.abs(snapTs - basePoint.timestamp.getTime());
+            // "보간법(Interpolation)"을 사용하여 시각적으로 정확한 도달 지점 마킹
+            const ratio = (targetValue - d1.value) / (d2.value - d1.value);
+            const interpTs = d1.timestamp.getTime() + ratio * (d2.timestamp.getTime() - d1.timestamp.getTime());
+            const timeDiff = Math.abs(interpTs - basePoint.timestamp.getTime());
             if (timeDiff < minTimeDiff) {
               minTimeDiff = timeDiff;
-              interpPoint = { timestamp: d2.timestamp, value: d2.value };
+              interpPoint = { timestamp: new Date(interpTs), value: targetValue };
             }
           }
         }
@@ -385,7 +404,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // 1) AI 마커 드래그 감지(기존)
+    // 1) AI 마커 드래그 감지
     if (aiAnalysisResult) {
       for (const [key, pt] of Object.entries(aiAnalysisResult)) {
         if (pt && typeof pt === 'object' && (pt as any).timestamp) {
@@ -404,7 +423,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     }
 
-    // 터치 시점에 네모 박스 위에 있는지 즉시 판정
+    // 터치 시점에 네모 박스 위에 있는지 판정
     let isCurrentlyOverReadout = false;
     if (currentGuideData) {
       const tw = 180;
@@ -414,11 +433,13 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       setIsOverReadout(isCurrentlyOverReadout);
     }
 
-    // 2) 기준선 스크럽 시작 조건: readout 박스 OR 가이드 포인트 원만
+    // 2) 기준선 스크럽 시작 조건
     let shouldScrub = false;
+    let scrubbingFromReadout = false;
 
     if (isCurrentlyOverReadout && currentGuideData) {
       shouldScrub = true;
+      scrubbingFromReadout = true;
     } else if (currentGuideData) {
       const px = fixedGuidelineX;
       const py = mapY((currentGuideData as any).value);
@@ -428,6 +449,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     }
 
     setIsScrubbing(shouldScrub);
+    setIsScrubbingFromReadout(scrubbingFromReadout);
 
     // 3) 드래그 상태 초기화
     touchState.current.hasMoved = false;
@@ -435,7 +457,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     touchState.current.startY = e.clientY;
     touchState.current.lastX = e.clientX;
 
-    // ✅ 핵심: 스크럽이 아니면 무조건 패닝
+    // 핵심: 스크럽이 아니면 무조건 패닝
     touchState.current.isPanning = !shouldScrub;
 
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -467,8 +489,13 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       return;
     }
 
-    // 2) 스크럽이면 기준선만 이동 (그래프는 안 움직임)
+    // 2) 스크럽이면 기준선만 이동
     if (isScrubbing && !touchState.current.isZooming) {
+      // ✅ [개선] Readout 박스 위에서 클릭 중일 때 기준선이 멋대로 움직이지 않도록 고정 로직 강화
+      if (isScrubbingFromReadout && movedDistance < CLICK_THRESHOLD) {
+          return;
+      }
+      
       setFixedGuidelineX(clampGuidelineX(x));
       if (movedDistance > CLICK_THRESHOLD) touchState.current.hasMoved = true;
       return;
@@ -494,12 +521,14 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     if (!rect) {
       setDraggedMarkerKey(null);
       setIsScrubbing(false);
+      setIsScrubbingFromReadout(false);
       touchState.current.isPanning = false;
       return;
     }
 
     // 클릭 판정 (이동이 CLICK_THRESHOLD 이하였을 때)
     if (!touchState.current.hasMoved && !draggedMarkerKey) {
+      // Readout 박스 영역 내 클릭 시 고정된 기준선 위치의 데이터를 확정
       if (isOverReadout && currentGuideData) {
         confirmPoint({ timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
       } else {
@@ -526,6 +555,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
     setDraggedMarkerKey(null);
     setIsScrubbing(false);
+    setIsScrubbingFromReadout(false);
     touchState.current.isPanning = false;
 
     try { (e.target as Element).releasePointerCapture(e.pointerId); } catch {}
@@ -575,10 +605,10 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const graphHeight = height - padding.top - padding.bottom;
     if (graphWidth <= 0 || graphHeight <= 0) return;
 
-    // 0. 접수번호 표시 (상단 좌측 - 작고 눈에 띄게 조절)
+    // 0. 접수번호 표시
     ctx.save();
-    ctx.fillStyle = 'rgba(203, 213, 225, 0.9)'; // slate-300
-    ctx.font = '11px Inter'; // 작지만 가독성 있는 크기
+    ctx.fillStyle = 'rgba(203, 213, 225, 0.9)'; 
+    ctx.font = '11px Inter'; 
     ctx.textAlign = 'left';
     ctx.fillText(receiptNumber, padding.left + 6, padding.top + 14);
     ctx.restore();
@@ -587,7 +617,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     ctx.strokeStyle = '#334155'; ctx.fillStyle = '#94a3b8'; ctx.font = '10px Inter';
     for (let i = 0; i <= 5; i++) {
       const y = padding.top + (i / 5) * graphHeight;
-      const val = getYBounds.yMax - (i / 5) * (getYBounds.yMax - getYBounds.yMin); // ✅ getYBounds.yMin 유지
+      const val = getYBounds.yMax - (i / 5) * (getYBounds.yMax - getYBounds.yMin); 
       ctx.beginPath(); ctx.moveTo(padding.left, y); ctx.lineTo(padding.left + graphWidth, y); ctx.stroke();
       ctx.textAlign = 'right'; ctx.fillText(val.toFixed(2), padding.left - 8, y + 3);
     }
@@ -667,10 +697,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     ctx.stroke();
 
     // 5. 가이드라인 및 범위 지정 프리뷰
-    if (!isCapturing && fixedGuidelineX >= padding.left && fixedGuidelineX <= width - padding.right) {
+    const isActuallyCapturing = isCapturing || hideGuidelines; // KTL 전송 시 숨김
+    if (!isActuallyCapturing && fixedGuidelineX >= padding.left && fixedGuidelineX <= width - padding.right) {
       ctx.save();
       
-      // ✅ 최대/최소 범위 지정 중일 때의 프리뷰
+      // 최대/최소 범위 지정 중일 때의 프리뷰
       if (isMaxMinMode && selection?.start) {
         const sx = mapX(selection.start.timestamp.getTime());
         if (sx >= padding.left && sx <= width - padding.right) {
@@ -756,7 +787,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   }, [
     getChannelData, width, height, getYBounds, mapX, mapY, aiAnalysisResult, selection, analysisResults,
     fixedGuidelineX, currentGuideData, sensorType, isMaxMinMode, placingAiPointLabel,
-    sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout, draggedMarkerKey, receiptNumber, isCapturing, channelInfo.name
+    sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout, draggedMarkerKey, receiptNumber, isCapturing, hideGuidelines, channelInfo.name
   ]);
 
   return (
@@ -825,6 +856,7 @@ interface GraphProps {
   SEQUENTIAL_POINT_ORDER: string[];
   receiptNumber: string;
   graphRef?: React.RefObject<HTMLDivElement>;
+  hideGuidelines?: boolean;
 }
 
 const Graph: React.FC<GraphProps> = (props) => {
@@ -893,6 +925,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
   const [unifiedResults, setUnifiedResults] = useState<any[]>([]);
   const tableRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<HTMLDivElement>(null);
+  const [isKtlCapturing, setIsKtlCapturing] = useState(false); // KTL 캡처 중 상태
 
   useEffect(() => {
     const results: any[] = [];
@@ -900,13 +933,14 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       const st = (activeJob.aiAnalysisResult as any)?.st;
       const en = (activeJob.aiAnalysisResult as any)?.en;
       if (st && en) {
-        // ✅ 10초 단위 정수 무결성을 위해 Math.round 적용
-        const diffSec = Math.round((new Date(en.timestamp).getTime() - new Date(st.timestamp).getTime()) / 1000);
+        // ✅ 응답시간 결과값을 10초 단위로 정확히 반올림 처리 (10, 20, 30... 단위 보장)
+        const diffSecRaw = (new Date(en.timestamp).getTime() - new Date(st.timestamp).getTime()) / 1000;
+        const diffSec = Math.round(diffSecRaw / 10) * 10;
         results.push({ id: `pt-response-time`, type: '응답', name: 'ST → EN', startTime: new Date(st.timestamp), endTime: new Date(en.timestamp), diff: diffSec });
       }
 
       Object.entries(activeJob.aiAnalysisResult).forEach(([key, point]) => {
-        if (key === 'isReagent') return;
+        if (key === 'isReagent' || key === 'st' || key === 'en') return;
         if (point && typeof point === 'object' && (point as any).timestamp) {
           results.push({ id: `pt-${key}`, type: '지정 포인트', name: key.toUpperCase(), startTime: new Date((point as any).timestamp), value: (point as any).value });
         }
@@ -950,6 +984,11 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     try {
       updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '그래프/테이블 캡처 중...' }));
       
+      // ✅ 캡처용 상태 활성화 (가이드라인 숨김)
+      setIsKtlCapturing(true);
+      // 리페인트를 위해 짧은 지연
+      await new Promise(resolve => setTimeout(resolve, 150));
+
       const graphCanvas = await html2canvas(graphRef.current, {
         backgroundColor: '#0f172a',
         scale: 1.5,
@@ -969,10 +1008,14 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       const graphBlob = await new Promise<Blob>((resolve) => graphCanvas.toBlob(b => resolve(b!), 'image/png'));
       const tableBlob = await new Promise<Blob>((resolve) => tableCanvas.toBlob(b => resolve(b!), 'image/png'));
 
+      // ✅ 캡처 완료 후 상태 복구
+      setIsKtlCapturing(false);
+
       await onSendToKtl(graphBlob, tableBlob, unifiedResults);
       
     } catch (err: any) {
       console.error('KTL transfer capture failed:', err);
+      setIsKtlCapturing(false);
       updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `캡처 실패: ${err.message}` }));
     }
   };
@@ -1026,7 +1069,8 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     sensorType: activeJob.sensorType,
     SEQUENTIAL_POINT_ORDER,
     receiptNumber: activeJob.receiptNumber,
-    graphRef
+    graphRef,
+    hideGuidelines: isKtlCapturing // Prop 전달
   };
 
   const handleToggleReagent = () => {
