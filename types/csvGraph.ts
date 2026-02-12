@@ -83,6 +83,7 @@ export interface CsvGraphJob {
     id: string;
     receiptNumber: string;
     fileName: string | null;
+    csvRawContent?: string; // 원본 CSV 파일 내용 보존용
     details?: string; // 상세 위치 정보 추가
     parsedData: ParsedCsvData | null; // This is not saved, it's transient
     channelAnalysis: Record<string, ChannelAnalysisState>;
