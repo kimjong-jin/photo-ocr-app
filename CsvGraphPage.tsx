@@ -1,9 +1,9 @@
-
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
 import { CsvDisplay } from './components/csv/CsvDisplay';
 import { parseGraphtecCsv } from './utils/parseGraphtecCsv';
+import { sendCsvGraphToKtlApi } from './services/claydoxApiService';
 import type { 
     CsvGraphJob, 
     SensorType,
@@ -76,11 +76,14 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     setError(null);
     
     try {
-        const fileArray = Array.from(files);
+        // Fix: Explicitly cast Array.from(files) to File[] to avoid 'unknown' type errors on file.text() and file.name
+        const fileArray = Array.from(files) as File[];
         const parsedResults: ParsedCsvData[] = [];
 
         for (const file of fileArray) {
+            // Fix: Explicitly using 'file' as File to ensure .text() exists (resolving property 'text' does not exist on type 'unknown')
             const content = await file.text();
+            // Fix: Explicitly using 'file' as File to ensure .name exists (resolving property 'name' does not exist on type 'unknown')
             const parsed = parseGraphtecCsv(content, file.name);
             parsedResults.push(parsed);
         }
@@ -95,7 +98,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         combinedData.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
         const firstParsed = parsedResults[0];
-        const fileNames = fileArray.map(f => f.name).join(', ');
+        const fileNames = fileArray.map(f => (f as File).name).join(', ');
 
         updateActiveJob(job => ({
             ...job,
@@ -130,6 +133,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         ...job,
         fileName: null,
         parsedData: null,
+        details: '',
         channelAnalysis: {},
         autoMinMaxResults: null,
         selectedChannelId: null,
@@ -411,6 +415,29 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         }
     }, [sequentialPlacementState, SEQUENTIAL_POINT_ORDER, updateActiveJob]);
 
+    const handleSendToKtl = async (graphBlob: Blob, tableBlob: Blob, results: any[]) => {
+      if (!activeJob) return;
+      
+      const graphFile = new File([graphBlob], `graph_${activeJob.receiptNumber}_${new Date().getTime()}.png`, { type: 'image/png' });
+      const tableFile = new File([tableBlob], `table_${activeJob.receiptNumber}_${new Date().getTime()}.png`, { type: 'image/png' });
+
+      try {
+        updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: 'KTL API로 전송 중...' }));
+        const response = await sendCsvGraphToKtlApi(
+          activeJob,
+          graphFile,
+          tableFile,
+          results,
+          userName,
+          siteLocation,
+          'p6_check'
+        );
+        updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
+      } catch (err: any) {
+        updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${err.message}` }));
+      }
+    };
+
   return (
     <div className={`w-full max-w-7xl bg-slate-800 shadow-2xl space-y-6 ${isFullScreenGraph ? '' : 'sm:rounded-xl sm:p-6 lg:p-8'}`}>
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">CSV 그래프 (P6)</h2>
@@ -483,6 +510,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
           handleSequentialPointPlacement={handleSequentialPointPlacement}
           sensorType={activeJob.sensorType}
           SEQUENTIAL_POINT_ORDER={SEQUENTIAL_POINT_ORDER}
+          onSendToKtl={handleSendToKtl}
         />
       )}
     </div>
