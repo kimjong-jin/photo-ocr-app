@@ -348,12 +348,13 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
           }
 
           if (crossed) {
-            const ratio = (targetValue - d1.value) / (d2.value - d1.value);
-            const interpTs = d1.timestamp.getTime() + (d2.timestamp.getTime() - d1.timestamp.getTime()) * ratio;
-            const timeDiff = Math.abs(interpTs - basePoint.timestamp.getTime());
+            // ✅ "쌓이는게 10초단위" 조건 충족을 위해 보간(Interpolation) 제거.
+            // threshold를 넘은 실제 샘플링 지점(d2)의 타임스탬프를 그대로 사용함.
+            const snapTs = d2.timestamp.getTime();
+            const timeDiff = Math.abs(snapTs - basePoint.timestamp.getTime());
             if (timeDiff < minTimeDiff) {
               minTimeDiff = timeDiff;
-              interpPoint = { timestamp: new Date(interpTs), value: targetValue };
+              interpPoint = { timestamp: d2.timestamp, value: d2.value };
             }
           }
         }
@@ -899,7 +900,8 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       const st = (activeJob.aiAnalysisResult as any)?.st;
       const en = (activeJob.aiAnalysisResult as any)?.en;
       if (st && en) {
-        const diffSec = (new Date(en.timestamp).getTime() - new Date(st.timestamp).getTime()) / 1000;
+        // ✅ 10초 단위 정수 무결성을 위해 Math.round 적용
+        const diffSec = Math.round((new Date(en.timestamp).getTime() - new Date(st.timestamp).getTime()) / 1000);
         results.push({ id: `pt-response-time`, type: '응답', name: 'ST → EN', startTime: new Date(st.timestamp), endTime: new Date(en.timestamp), diff: diffSec });
       }
 
@@ -1298,7 +1300,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                 <td className="px-3 py-2">{item.startTime.toLocaleDateString()}</td>
                 <td className="px-3 py-2 text-right font-mono">
                   {item.type === '응답' ? (
-                    <span className="font-bold text-amber-400">{Math.round(item.diff)}s</span>
+                    <span className="font-bold text-amber-400">{item.diff}s</span>
                   ) : item.type === '수동 분석' ? (
                     <span className="text-amber-400">{item.diff?.toFixed(3)}</span>
                   ) : (
