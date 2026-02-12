@@ -32,6 +32,7 @@ import {
 import JSZip from 'jszip';
 import type { StructuralJob } from '../shared/types';
 import { supabase } from './supabaseClient';
+import type { CsvGraphJob } from '../types/csvGraph';
 
 // --- Global Constants & Helpers ---
 const KTL_API_BASE_URL = 'https://mobile.ktl.re.kr/labview/api';
@@ -969,7 +970,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
 
   const uniqueReceiptNumbersInBatch = Array.from(new Set(jobs.map((job) => job.receiptNumber)));
 
-  for (const receiptNo of uniqueReceiptNumbersInBatch) {
+  for (const receiptNo in uniqueReceiptNumbersInBatch) {
     const photosForThisReceipt = allJobPhotosForService.filter((p) => p.jobReceipt === receiptNo);
 
     if (photosForThisReceipt.length > 0) {
@@ -1331,5 +1332,103 @@ export const sendKakaoTalkMessage = async (
 
     console.error('[KtlApiService] KakaoTalk send failed:', errorMsg);
     throw new Error(errorMsg);
+  }
+};
+
+/**
+ * P6 CSV 그래프 데이터를 KTL API로 전송합니다.
+ */
+export const sendCsvGraphToKtlApi = async (
+  job: CsvGraphJob,
+  graphImage: File,
+  tableImage: File,
+  unifiedResults: any[],
+  userName: string,
+  siteLocation: string,
+  p_key?: string
+): Promise<{ success: boolean; message: string }> => {
+  const formData = new FormData();
+  formData.append('files', graphImage, graphImage.name);
+  formData.append('files', tableImage, tableImage.name);
+
+  const logIdentifier = `[ClaydoxAPI - P6 CSV 그래프]`;
+
+  try {
+    // 1. 파일 업로드
+    console.log(`${logIdentifier} Uploading files:`, [graphImage.name, tableImage.name]);
+    await retryKtlApiCall(() =>
+      axios.post(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: KTL_API_TIMEOUT,
+      }),
+      2, 2000, "CSV File Upload"
+    );
+
+    // ✅ TU/Cl 항목 상세 현장 주소 결합 처리
+    const finalSite = (job.sensorType === 'TU' || job.sensorType === 'Cl') && job.details 
+      ? `${siteLocation}_(${job.details})` 
+      : siteLocation;
+
+    // ✅ Cl 항목 접미사 'C' 처리
+    const suffix = job.sensorType === 'Cl' ? 'C' : '';
+
+    // 2. JSON 구성
+    const labviewItemObject: any = {
+      '시험자': userName,
+      '현장': finalSite,
+      'PHOTO_그래프': graphImage.name,
+      'PHOTO_데이터테이블': tableImage.name,
+    };
+
+    // 지정 포인트 수치 데이터 추가 (Cl인 경우 접미사 C 붙임)
+    if (job.aiAnalysisResult) {
+      Object.entries(job.aiAnalysisResult).forEach(([key, pt]) => {
+        if (key === 'st' || key === 'en' || key === 'isReagent') return;
+        if (pt && typeof pt === 'object' && (pt as any).value !== undefined) {
+          labviewItemObject[key.toUpperCase() + suffix] = String((pt as any).value);
+        }
+      });
+    }
+
+    // 응답 시간 수치 추가 (ST -> EN) (Cl인 경우 응답시간C)
+    const responseResult = unifiedResults.find(r => r.name === 'ST → EN');
+    if (responseResult && responseResult.diff !== undefined) {
+      labviewItemObject['응답시간' + suffix] = String(Math.round(responseResult.diff));
+    }
+
+    const labviewDescComment = `CSV 그래프 (항목: ${job.sensorType}, 현장: ${finalSite})`;
+    const finalKtlJsonObject = {
+      LABVIEW_GUBN: `CSV_${job.sensorType}`,
+      LABVIEW_DESC: JSON.stringify({ comment: labviewDescComment }),
+      LABVIEW_RECEIPTNO: job.receiptNumber,
+      UPDATE_USER: userName,
+      LABVIEW_ITEM: JSON.stringify(labviewItemObject),
+    };
+
+    // 3. JSON 전송
+    console.log(`${logIdentifier} Sending JSON data:`, finalKtlJsonObject);
+    const jsonResponse = await retryKtlApiCall(() =>
+      axios.post(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, {
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        timeout: KTL_API_TIMEOUT,
+      }),
+      2, 2000, "CSV JSON Data Send"
+    );
+
+    // 4. Supabase 체크리스트 업데이트
+    if (supabase && p_key && job.receiptNumber) {
+      const { error: updateError } = await supabase
+        .from('applications')
+        .update({ [p_key]: true })
+        .eq('receipt_no', job.receiptNumber);
+      if (updateError) console.warn(`${logIdentifier} Supabase update failed:`, updateError.message);
+      else window.dispatchEvent(new CustomEvent('applicationsUpdated'));
+    }
+
+    return { success: true, message: jsonResponse.data?.message || "KTL 전송 완료" };
+
+  } catch (error: any) {
+    console.error(`${logIdentifier} Error:`, error.message);
+    throw error;
   }
 };
