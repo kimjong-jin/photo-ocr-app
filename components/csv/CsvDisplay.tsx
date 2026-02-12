@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import html2canvas from 'html2canvas';
 import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
 import type {
@@ -578,7 +579,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     ctx.strokeStyle = '#334155'; ctx.fillStyle = '#94a3b8'; ctx.font = '10px Inter';
     for (let i = 0; i <= 5; i++) {
       const y = padding.top + (i / 5) * graphHeight;
-      const val = getYBounds.yMax - (i / 5) * (getYBounds.yMax - getYBounds.yMin); // ✅ getYBounds.min -> getYBounds.yMin 수정
+      const val = getYBounds.yMax - (i / 5) * (getYBounds.yMax - getYBounds.yMin); // ✅ getYBounds.yMin 유지
       ctx.beginPath(); ctx.moveTo(padding.left, y); ctx.lineTo(padding.left + graphWidth, y); ctx.stroke();
       ctx.textAlign = 'right'; ctx.fillText(val.toFixed(2), padding.left - 8, y + 3);
     }
@@ -628,6 +629,27 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     }
 
+    // 3.5 기존 수동 분석 결과 구간 표시
+    analysisResults.forEach((res, idx) => {
+      const sx = mapX(res.startTime.getTime());
+      const ex = mapX(res.endTime.getTime());
+      const xStart = Math.max(Math.min(sx, ex), padding.left);
+      const xEnd = Math.min(Math.max(sx, ex), width - padding.right);
+      if (xEnd > xStart) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.15)'; 
+        ctx.fillRect(xStart, padding.top, xEnd - xStart, graphHeight);
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(xStart, padding.top, xEnd - xStart, graphHeight);
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = '10px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText(`구간 ${idx + 1}`, (xStart + xEnd) / 2, padding.top - 5);
+        ctx.restore();
+      }
+    });
+
     // 4. 메인 데이터 라인 (단일 패스 연결)
     ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.5; ctx.beginPath();
     getChannelData.forEach((d, i) => {
@@ -636,9 +658,27 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     });
     ctx.stroke();
 
-    // 5. 가이드라인 (캡처 시 제외)
+    // 5. 가이드라인 및 범위 지정 프리뷰
     if (!isCapturing && fixedGuidelineX >= padding.left && fixedGuidelineX <= width - padding.right) {
       ctx.save();
+      
+      // ✅ 최대/최소 범위 지정 중일 때의 프리뷰
+      if (isMaxMinMode && selection?.start) {
+        const sx = mapX(selection.start.timestamp.getTime());
+        if (sx >= padding.left && sx <= width - padding.right) {
+          const xStart = Math.min(sx, fixedGuidelineX);
+          const xEnd = Math.max(sx, fixedGuidelineX);
+          ctx.fillStyle = 'rgba(245, 158, 11, 0.25)';
+          ctx.fillRect(xStart, padding.top, xEnd - xStart, graphHeight);
+          ctx.strokeStyle = '#f59e0b';
+          ctx.setLineDash([2, 2]);
+          ctx.beginPath(); ctx.moveTo(sx, padding.top); ctx.lineTo(sx, padding.top + graphHeight); ctx.stroke();
+          // 시작점 표시
+          ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(sx, mapY(selection.start.value), 6, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+      }
+
       ctx.strokeStyle = 'rgba(226, 232, 240, 0.8)';
       ctx.setLineDash([5, 3]); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(fixedGuidelineX, padding.top - 10); ctx.lineTo(fixedGuidelineX, padding.top + graphHeight); ctx.stroke();
@@ -672,7 +712,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       ctx.restore();
     }
 
-    // 6. 마커 렌더링
+    // 6. AI 마커 렌더링
     if (aiAnalysisResult) {
       Object.entries(aiAnalysisResult).forEach(([key, pt]) => {
         if (pt && typeof pt === 'object' && (pt as any).timestamp) {
@@ -695,7 +735,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       });
     }
 
-    // ✅ 캡처 처리
+    // ✅ 캡처 처리 유지
     if (isCapturing) {
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
@@ -706,7 +746,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     }
 
   }, [
-    getChannelData, width, height, getYBounds, mapX, mapY, aiAnalysisResult,
+    getChannelData, width, height, getYBounds, mapX, mapY, aiAnalysisResult, selection, analysisResults,
     fixedGuidelineX, currentGuideData, sensorType, isMaxMinMode, placingAiPointLabel,
     sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout, draggedMarkerKey, receiptNumber, isCapturing, channelInfo.name
   ]);
@@ -841,6 +881,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
   } = props;
 
   const [unifiedResults, setUnifiedResults] = useState<any[]>([]);
+  const tableRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const results: any[] = [];
@@ -870,6 +911,25 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       return a.startTime.getTime() - b.startTime.getTime();
     }));
   }, [activeJob.channelAnalysis, activeJob.aiAnalysisResult, selectedChannel]);
+
+  const handleTableCapture = async () => {
+    if (!tableRef.current) return;
+    try {
+      const canvas = await html2canvas(tableRef.current, {
+        backgroundColor: '#0f172a',
+        scale: 2,
+        logging: false,
+        useCORS: true
+      });
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = `table_${activeJob.receiptNumber}_${selectedChannel?.name || 'result'}_${new Date().getTime()}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Table capture failed:', err);
+    }
+  };
 
   const getSensorPoints = (type: SensorType) => {
     const isReagent = !!(activeJob.aiAnalysisResult as any)?.isReagent;
@@ -1114,7 +1174,18 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         </div>
       </div>
 
-      <div className="mt-4 bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+      <div className="mt-8 mb-2 flex justify-between items-center px-1">
+        <h3 className="text-lg font-semibold text-slate-100">분석 결과 테이블</h3>
+        <button 
+          onClick={handleTableCapture}
+          className="p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-full transition-colors shadow-lg"
+          title="테이블 캡처"
+        >
+          <CameraIcon />
+        </button>
+      </div>
+
+      <div ref={tableRef} className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
         <table className="min-w-full text-xs">
           <thead className="bg-slate-700/50 text-slate-400 uppercase">
             <tr>
@@ -1125,7 +1196,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
               <th className="px-3 py-2 text-right w-24">값</th>
               <th className="px-3 py-2 text-right w-24">최대</th>
               <th className="px-3 py-2 text-right w-24">최소</th>
-              <th className="px-3 py-2 text-center w-12">관리</th>
+              <th className="px-3 py-2 text-center w-12" data-html2canvas-ignore>관리</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700">
@@ -1152,7 +1223,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                 <td className="px-3 py-2">{item.startTime.toLocaleDateString()}</td>
                 <td className="px-3 py-2 text-right font-mono">
                   {item.type === '응답' ? (
-                    <span className="font-bold text-amber-400">{item.diff?.toFixed(1)}s</span>
+                    <span className="font-bold text-amber-400">{Math.round(item.diff)}s</span>
                   ) : item.type === '수동 분석' ? (
                     <span className="text-amber-400">{item.diff?.toFixed(3)}</span>
                   ) : (
@@ -1161,7 +1232,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                 </td>
                 <td className="px-3 py-2 text-right text-slate-400 font-mono">{item.max?.toFixed(3) || '-'}</td>
                 <td className="px-3 py-2 text-right text-slate-400 font-mono">{item.min?.toFixed(3) || '-'}</td>
-                <td className="px-3 py-2 text-center">
+                <td className="px-3 py-2 text-center" data-html2canvas-ignore>
                   {item.type === '수동 분석' && (
                     <button
                       onClick={() => handleDeleteManualResult(item.channelId, item.id)}
