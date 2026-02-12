@@ -50,8 +50,14 @@ const TrashIcon: React.FC = () => (
 
 const CameraIcon: React.FC = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316z" />
     <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+  </svg>
+);
+
+const SendIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
   </svg>
 );
 
@@ -222,6 +228,7 @@ interface GraphCanvasProps {
   sensorType: SensorType;
   SEQUENTIAL_POINT_ORDER: string[];
   receiptNumber: string;
+  graphRef?: React.RefObject<HTMLDivElement>;
 }
 
 const GraphCanvas: React.FC<GraphCanvasProps> = ({
@@ -230,7 +237,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   isAnalyzing, isMaxMinMode, onPointSelect, selection, analysisResults, aiAnalysisResult,
   placingAiPointLabel, onManualAiPointPlacement,
   setPlacingAiPointLabel, isRangeSelecting, rangeSelection, onRangeSelectComplete,
-  sequentialPlacementState, onSequentialPointPlacement, sensorType, SEQUENTIAL_POINT_ORDER, receiptNumber
+  sequentialPlacementState, onSequentialPointPlacement, sensorType, SEQUENTIAL_POINT_ORDER, receiptNumber, graphRef
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padding = { top: 40, right: 60, bottom: 40, left: 60 };
@@ -712,7 +719,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       ctx.restore();
     }
 
-    // 6. AI 마커 렌더링
+    // 6. 마커 렌더링
     if (aiAnalysisResult) {
       Object.entries(aiAnalysisResult).forEach(([key, pt]) => {
         if (pt && typeof pt === 'object' && (pt as any).timestamp) {
@@ -752,8 +759,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   ]);
 
   return (
-    <div className="w-full h-full relative">
-      <div className="absolute top-2 right-12 z-20 flex gap-2">
+    <div ref={graphRef} className="w-full h-full relative">
+      <div className="absolute top-2 right-12 z-20 flex gap-2 no-capture">
          <button 
           onClick={() => setIsCapturing(true)} 
           className="p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-full transition-colors shadow-lg"
@@ -816,6 +823,7 @@ interface GraphProps {
   sensorType: SensorType;
   SEQUENTIAL_POINT_ORDER: string[];
   receiptNumber: string;
+  graphRef?: React.RefObject<HTMLDivElement>;
 }
 
 const Graph: React.FC<GraphProps> = (props) => {
@@ -866,6 +874,7 @@ interface CsvDisplayProps {
   handleSequentialPointPlacement: (point: { timestamp: Date; value: number; }) => void;
   sensorType: SensorType;
   SEQUENTIAL_POINT_ORDER: string[];
+  onSendToKtl?: (graphBlob: Blob, tableBlob: Blob, results: any[]) => Promise<void>;
 }
 
 export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
@@ -877,11 +886,12 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     placingAiPointLabel, setPlacingAiPointLabel, handleManualAiPointPlacement,
     isFullScreenGraph, setIsFullScreenGraph,
     sequentialPlacementState, handleToggleSequentialPlacement, handleUndoSequentialPlacement,
-    handleSequentialPointPlacement, SEQUENTIAL_POINT_ORDER
+    handleSequentialPointPlacement, SEQUENTIAL_POINT_ORDER, onSendToKtl
   } = props;
 
   const [unifiedResults, setUnifiedResults] = useState<any[]>([]);
   const tableRef = useRef<HTMLDivElement>(null);
+  const graphRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const results: any[] = [];
@@ -919,7 +929,8 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         backgroundColor: '#0f172a',
         scale: 2,
         logging: false,
-        useCORS: true
+        useCORS: true,
+        ignoreElements: (el) => el.classList.contains('no-capture')
       });
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
@@ -931,6 +942,39 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     }
   };
 
+  const handleKtlTransfer = async () => {
+    if (!onSendToKtl || !tableRef.current || !graphRef.current) return;
+    
+    try {
+      updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '그래프/테이블 캡처 중...' }));
+      
+      const graphCanvas = await html2canvas(graphRef.current, {
+        backgroundColor: '#0f172a',
+        scale: 1.5,
+        logging: false,
+        useCORS: true,
+        ignoreElements: (el) => el.classList.contains('no-capture')
+      });
+      
+      const tableCanvas = await html2canvas(tableRef.current, {
+        backgroundColor: '#0f172a',
+        scale: 1.5,
+        logging: false,
+        useCORS: true,
+        ignoreElements: (el) => el.classList.contains('no-capture')
+      });
+
+      const graphBlob = await new Promise<Blob>((resolve) => graphCanvas.toBlob(b => resolve(b!), 'image/png'));
+      const tableBlob = await new Promise<Blob>((resolve) => tableCanvas.toBlob(b => resolve(b!), 'image/png'));
+
+      await onSendToKtl(graphBlob, tableBlob, unifiedResults);
+      
+    } catch (err: any) {
+      console.error('KTL transfer capture failed:', err);
+      updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `캡처 실패: ${err.message}` }));
+    }
+  };
+
   const getSensorPoints = (type: SensorType) => {
     const isReagent = !!(activeJob.aiAnalysisResult as any)?.isReagent;
     switch (type) {
@@ -938,7 +982,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       case 'PH': return ['(A)_4_1', '(A)_4_2', '(A)_4_3', '(A)_7_1', '(A)_7_2', '(A)_7_3', '(A)_10_1', '(A)_10_2', '(A)_10_3', '(B)_7_1', '(B)_4_1', '(B)_7_2', '(B)_4_2', '(B)_7_3', '(B)_4_3', '(C)_4_1', '(C)_4_2', '(C)_4_3', '(C)_7_1', '(C)_7_2', '(C)_7_3', '(C)_4_4', '(C)_4_5', '(C)_4_6', '(C)_7_4', '(C)_7_5', '(C)_7_6', '4_10', '4_15', '4_20', '4_25', '4_30', 'ST', 'EN', '현장1', '현장2'];
       case 'DO': return ['(A)_S1', '(A)_S2', '(A)_S3', 'S_1', 'S_2', 'S_3', 'Z_1', 'Z_2', 'Z_3', 'Z_4', 'Z_5', 'Z_6', 'S_4', 'S_5', 'S_6', '20_S_1', '20_S_2', '20_S_3', '30_S_1', '30_S_2', '30_S_3', 'ST', 'EN'];
       case 'Cl': {
-        const baseCl = ['Z1', 'Z2', 'S1', 'S2', 'Z3', 'Z4', 'S3', 'S4', 'Z5', 'S5', 'M1'];
+        const baseCl = ['Z1', 'Z2', 'S1', 'S2', 'Z3', 'Z4', 'S1', 'S2', 'S3', 'S4', 'Z5', 'S5', 'M1'];
         return isReagent ? baseCl : [...baseCl, 'ST', 'EN'];
       }
       case 'TU':
@@ -979,7 +1023,8 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     onSequentialPointPlacement: handleSequentialPointPlacement,
     sensorType: activeJob.sensorType,
     SEQUENTIAL_POINT_ORDER,
-    receiptNumber: activeJob.receiptNumber
+    receiptNumber: activeJob.receiptNumber,
+    graphRef
   };
 
   const handleToggleReagent = () => {
@@ -1012,6 +1057,23 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700 space-y-4 lg:w-1/3">
           <div className="space-y-3">
             <h3 className="text-lg font-semibold text-slate-100">분석 제어</h3>
+            
+            {/* TU/Cl 일 때 상세 현장 입력 UI 추가 */}
+            {(activeJob.sensorType === 'TU' || activeJob.sensorType === 'Cl') && (
+              <div className="pb-2 border-b border-slate-700">
+                <label htmlFor="csv-job-details" className="block text-xs font-medium text-slate-300 mb-1">
+                  현장_상세 (편집 가능)
+                </label>
+                <input
+                  id="csv-job-details"
+                  value={activeJob.details || ''}
+                  onChange={(e) => updateActiveJob(j => ({ ...j, details: e.target.value }))}
+                  className="block w-full p-2 bg-slate-700 border border-slate-600 rounded-md text-sm text-slate-100 placeholder-slate-500 focus:ring-sky-500 focus:border-sky-500"
+                  placeholder="현장_상세 (예: 강남배수지)"
+                />
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => selectedChannel && toggleAnalysisMode(selectedChannel.id)}
@@ -1164,7 +1226,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
           </div>
 
           <div className="relative bg-slate-900 rounded-xl overflow-hidden border border-slate-700 h-[400px]">
-            <button onClick={() => setIsFullScreenGraph(true)} className="absolute top-2 right-2 z-20 p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-full">
+            <button onClick={() => setIsFullScreenGraph(true)} className="absolute top-2 right-2 z-20 p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-full no-capture">
               <EnterFullScreenIcon />
             </button>
             <div className="w-full h-full">
@@ -1176,16 +1238,29 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
 
       <div className="mt-8 mb-2 flex justify-between items-center px-1">
         <h3 className="text-lg font-semibold text-slate-100">분석 결과 테이블</h3>
-        <button 
-          onClick={handleTableCapture}
-          className="p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-full transition-colors shadow-lg"
-          title="테이블 캡처"
-        >
-          <CameraIcon />
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={handleTableCapture}
+            className="p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-full transition-colors shadow-lg"
+            title="테이블 캡처"
+          >
+            <CameraIcon />
+          </button>
+          {onSendToKtl && (
+            <button 
+              onClick={handleKtlTransfer}
+              disabled={activeJob.submissionStatus === 'sending'}
+              className="px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-slate-700 text-white text-xs font-bold rounded-full transition-all flex items-center gap-2 shadow-lg"
+              title="KTL API로 분석 결과 및 사진 전송"
+            >
+              {activeJob.submissionStatus === 'sending' ? <Spinner size="sm" /> : <SendIcon />}
+              <span>KTL 전송</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      <div ref={tableRef} className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+      <div ref={tableRef} className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden relative">
         <table className="min-w-full text-xs">
           <thead className="bg-slate-700/50 text-slate-400 uppercase">
             <tr>
@@ -1196,7 +1271,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
               <th className="px-3 py-2 text-right w-24">값</th>
               <th className="px-3 py-2 text-right w-24">최대</th>
               <th className="px-3 py-2 text-right w-24">최소</th>
-              <th className="px-3 py-2 text-center w-12" data-html2canvas-ignore>관리</th>
+              <th className="px-3 py-2 text-center w-12 no-capture" data-html2canvas-ignore>관리</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700">
@@ -1232,7 +1307,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                 </td>
                 <td className="px-3 py-2 text-right text-slate-400 font-mono">{item.max?.toFixed(3) || '-'}</td>
                 <td className="px-3 py-2 text-right text-slate-400 font-mono">{item.min?.toFixed(3) || '-'}</td>
-                <td className="px-3 py-2 text-center" data-html2canvas-ignore>
+                <td className="px-3 py-2 text-center no-capture" data-html2canvas-ignore>
                   {item.type === '수동 분석' && (
                     <button
                       onClick={() => handleDeleteManualResult(item.channelId, item.id)}
@@ -1250,6 +1325,14 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
             ))}
           </tbody>
         </table>
+        
+        {activeJob.submissionStatus !== 'idle' && activeJob.submissionMessage && (
+          <div className="p-2 bg-slate-900/90 text-center border-t border-slate-700 no-capture">
+             <span className={`text-sm ${activeJob.submissionStatus === 'success' ? 'text-green-400' : activeJob.submissionStatus === 'error' ? 'text-red-400' : 'text-sky-400'}`}>
+                {activeJob.submissionStatus === 'success' ? '✅' : activeJob.submissionStatus === 'error' ? '❌' : '⏳'} {activeJob.submissionMessage}
+             </span>
+          </div>
+        )}
       </div>
     </div>
   );
