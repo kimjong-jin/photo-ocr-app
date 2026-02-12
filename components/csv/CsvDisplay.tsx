@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { ActionButton } from '../ActionButton';
 import { Spinner } from '../Spinner';
@@ -45,6 +44,13 @@ const ExitFullScreenIcon: React.FC = () => (
 const TrashIcon: React.FC = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
     <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
+  </svg>
+);
+
+const CameraIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
   </svg>
 );
 
@@ -214,6 +220,7 @@ interface GraphCanvasProps {
   onSequentialPointPlacement: (point: { timestamp: Date; value: number; }) => void;
   sensorType: SensorType;
   SEQUENTIAL_POINT_ORDER: string[];
+  receiptNumber: string;
 }
 
 const GraphCanvas: React.FC<GraphCanvasProps> = ({
@@ -222,7 +229,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   isAnalyzing, isMaxMinMode, onPointSelect, selection, analysisResults, aiAnalysisResult,
   placingAiPointLabel, onManualAiPointPlacement,
   setPlacingAiPointLabel, isRangeSelecting, rangeSelection, onRangeSelectComplete,
-  sequentialPlacementState, onSequentialPointPlacement, sensorType, SEQUENTIAL_POINT_ORDER
+  sequentialPlacementState, onSequentialPointPlacement, sensorType, SEQUENTIAL_POINT_ORDER, receiptNumber
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padding = { top: 40, right: 60, bottom: 40, left: 60 };
@@ -231,6 +238,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const [currentGuideData, setCurrentGuideData] = useState<DataPoint | null>(null);
   const [isOverReadout, setIsOverReadout] = useState<boolean>(false);
   const [draggedMarkerKey, setDraggedMarkerKey] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState<boolean>(false);
 
   // ✅ 스크럽(기준선 이동)은 readout/포인트/마커 잡았을 때만
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
@@ -558,11 +566,19 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const graphHeight = height - padding.top - padding.bottom;
     if (graphWidth <= 0 || graphHeight <= 0) return;
 
+    // 0. 접수번호 표시 (상단 좌측 - 작고 눈에 띄게 조절)
+    ctx.save();
+    ctx.fillStyle = 'rgba(203, 213, 225, 0.9)'; // slate-300
+    ctx.font = '11px Inter'; // 작지만 가독성 있는 크기
+    ctx.textAlign = 'left';
+    ctx.fillText(receiptNumber, padding.left + 6, padding.top + 14);
+    ctx.restore();
+
     // 1. 그리드 및 Y축 라벨
     ctx.strokeStyle = '#334155'; ctx.fillStyle = '#94a3b8'; ctx.font = '10px Inter';
     for (let i = 0; i <= 5; i++) {
       const y = padding.top + (i / 5) * graphHeight;
-      const val = getYBounds.yMax - (i / 5) * (getYBounds.yMax - getYBounds.yMin);
+      const val = getYBounds.yMax - (i / 5) * (getYBounds.yMax - getYBounds.yMin); // ✅ getYBounds.min -> getYBounds.yMin 수정
       ctx.beginPath(); ctx.moveTo(padding.left, y); ctx.lineTo(padding.left + graphWidth, y); ctx.stroke();
       ctx.textAlign = 'right'; ctx.fillText(val.toFixed(2), padding.left - 8, y + 3);
     }
@@ -620,8 +636,8 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     });
     ctx.stroke();
 
-    // 5. 가이드라인
-    if (fixedGuidelineX >= padding.left && fixedGuidelineX <= width - padding.right) {
+    // 5. 가이드라인 (캡처 시 제외)
+    if (!isCapturing && fixedGuidelineX >= padding.left && fixedGuidelineX <= width - padding.right) {
       ctx.save();
       ctx.strokeStyle = 'rgba(226, 232, 240, 0.8)';
       ctx.setLineDash([5, 3]); ctx.lineWidth = 1.5;
@@ -679,31 +695,52 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       });
     }
 
+    // ✅ 캡처 처리
+    if (isCapturing) {
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = `graph_${receiptNumber}_${channelInfo.name}_${new Date().getTime()}.png`;
+      link.href = dataUrl;
+      link.click();
+      setIsCapturing(false);
+    }
+
   }, [
     getChannelData, width, height, getYBounds, mapX, mapY, aiAnalysisResult,
     fixedGuidelineX, currentGuideData, sensorType, isMaxMinMode, placingAiPointLabel,
-    sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout, draggedMarkerKey
+    sequentialPlacementState.isActive, viewportMin, viewportMax, isOverReadout, draggedMarkerKey, receiptNumber, isCapturing, channelInfo.name
   ]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'block',
-        touchAction: 'none',
-        cursor: draggedMarkerKey ? 'grabbing' : (isScrubbing ? 'ew-resize' : 'grab'),
-      }}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onWheel={(e) => { e.preventDefault(); onZoom(e.deltaY > 0 ? 0.9 : 1.1, viewportMin + (viewportMax - viewportMin) / 2); }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onClick={handleClick}
-    />
+    <div className="w-full h-full relative">
+      <div className="absolute top-2 right-12 z-20 flex gap-2">
+         <button 
+          onClick={() => setIsCapturing(true)} 
+          className="p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-full transition-colors shadow-lg"
+          title="그래프 캡처 (기준선 제외)"
+        >
+          <CameraIcon />
+        </button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'block',
+          touchAction: 'none',
+          cursor: draggedMarkerKey ? 'grabbing' : (isScrubbing ? 'ew-resize' : 'grab'),
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onWheel={(e) => { e.preventDefault(); onZoom(e.deltaY > 0 ? 0.9 : 1.1, viewportMin + (viewportMax - viewportMin) / 2); }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClick={handleClick}
+      />
+    </div>
   );
 };
 
@@ -738,6 +775,7 @@ interface GraphProps {
   onSequentialPointPlacement: (point: { timestamp: Date; value: number; }) => void;
   sensorType: SensorType;
   SEQUENTIAL_POINT_ORDER: string[];
+  receiptNumber: string;
 }
 
 const Graph: React.FC<GraphProps> = (props) => {
@@ -880,7 +918,8 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     sequentialPlacementState: sequentialPlacementState,
     onSequentialPointPlacement: handleSequentialPointPlacement,
     sensorType: activeJob.sensorType,
-    SEQUENTIAL_POINT_ORDER
+    SEQUENTIAL_POINT_ORDER,
+    receiptNumber: activeJob.receiptNumber
   };
 
   const handleToggleReagent = () => {
@@ -959,6 +998,29 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                 )}
 
                 <h4 className="text-sm font-semibold text-slate-200">포인트 지정 ({activeJob.sensorType})</h4>
+                
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    onClick={() => {
+                      if (!selectedChannel) return;
+                      updateActiveJob(job => ({
+                        ...job,
+                        aiAnalysisResult: null,
+                        channelAnalysis: {
+                          ...job.channelAnalysis,
+                          [selectedChannel.id]: {
+                            ...job.channelAnalysis[selectedChannel.id],
+                            results: []
+                          }
+                        }
+                      }));
+                    }}
+                    className="w-full py-2 bg-rose-600 hover:bg-rose-700 rounded-md text-white text-xs font-bold transition-colors shadow-sm"
+                  >
+                    수동 분석 리셋 (포인트/구간)
+                  </button>
+                </div>
+
                 <div className="flex gap-2">
                   <ActionButton
                     onClick={handleToggleSequentialPlacement}
@@ -1059,6 +1121,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
               <th className="px-3 py-2 text-left w-16">유형</th>
               <th className="px-3 py-2 text-left">항목</th>
               <th className="px-3 py-2 text-left">시간/구간</th>
+              <th className="px-3 py-2 text-left w-24">날짜</th>
               <th className="px-3 py-2 text-right w-24">값</th>
               <th className="px-3 py-2 text-right w-24">최대</th>
               <th className="px-3 py-2 text-right w-24">최소</th>
@@ -1068,7 +1131,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
           <tbody className="divide-y divide-slate-700">
             {unifiedResults.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-4 text-center text-slate-500 italic">표시할 분석 결과가 없습니다.</td>
+                <td colSpan={8} className="px-3 py-4 text-center text-slate-500 italic">표시할 분석 결과가 없습니다.</td>
               </tr>
             ) : unifiedResults.map(item => (
               <tr key={item.id} className={`hover:bg-slate-700/30 text-slate-300 ${item.type === '응답' ? 'bg-amber-900/20' : ''}`}>
@@ -1086,6 +1149,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                 <td className="px-3 py-2">
                   {item.endTime ? `${item.startTime.toLocaleTimeString()} ~ ${item.endTime.toLocaleTimeString()}` : item.startTime.toLocaleTimeString()}
                 </td>
+                <td className="px-3 py-2">{item.startTime.toLocaleDateString()}</td>
                 <td className="px-3 py-2 text-right font-mono">
                   {item.type === '응답' ? (
                     <span className="font-bold text-amber-400">{item.diff?.toFixed(1)}s</span>
