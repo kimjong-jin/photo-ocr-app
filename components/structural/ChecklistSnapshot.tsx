@@ -1,6 +1,7 @@
 import React from 'react';
 import { CHECKLIST_DEFINITIONS, MAIN_STRUCTURAL_ITEMS, CertificateDetails, EMISSION_STANDARD_ITEM_NAME, RESPONSE_TIME_ITEM_NAME } from '../../shared/StructuralChecklists';
-import type { StructuralJob } from '../../StructuralCheckPage';
+// FIX: Import StructuralJob from shared types instead of StructuralCheckPage.
+import type { StructuralJob } from '../../shared/types';
 
 interface ChecklistSnapshotProps {
   job: StructuralJob;
