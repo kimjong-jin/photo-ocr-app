@@ -1,7 +1,6 @@
 // api/kakao.ts
-import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
     return res.status(405).json({ message: "Method Not Allowed" });
   }
@@ -44,11 +43,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
 
   try {
-    const upstream = await fetch(`${KTL_API_BASE_URL}${KTL_KAKAO_API_ENDPOINT}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payloadForJsonRequest),
-    });
+    const upstream = await fetch(
+      `${KTL_API_BASE_URL}${KTL_KAKAO_API_ENDPOINT}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadForJsonRequest),
+      }
+    );
 
     const text = await upstream.text();
 
