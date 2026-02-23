@@ -1,5 +1,4 @@
 // api/send-photos.ts
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const MAX_ATTACHMENTS = 15;
@@ -45,7 +44,7 @@ function isAllowedAttachment(buf: Buffer) {
   return false;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
   // CORS (원한다면 특정 도메인으로 잠그세요)
   res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN ?? '*');
   res.setHeader('Access-Control-Allow-Headers', 'content-type, api-key');
