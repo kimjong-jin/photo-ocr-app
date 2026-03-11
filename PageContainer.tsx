@@ -926,7 +926,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const showTaskManagement = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck', 'csvGraph'].includes(activePage);
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-4 sm:px-8 py-4 sm:py-8 font-[Inter]">
+    <div className="w-full min-h-screen min-h-[100dvh] bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-4 sm:px-8 py-4 sm:py-8 font-[Inter] overflow-x-hidden">
       <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} />
 
       <div className="w-full max-w-3xl mb-4 flex flex-col sm:flex-row justify-between items-center bg-slate-800/50 p-3 rounded-lg shadow">
