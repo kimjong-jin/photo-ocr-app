@@ -973,13 +973,25 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
   const handleTableCapture = async () => {
     if (!tableRef.current) return;
     try {
-      const canvas = await html2canvas(tableRef.current, {
+      const tableContainer = tableRef.current;
+      const originalStyle = tableContainer.getAttribute('style') || '';
+      
+      // 데스크탑 너비 강제
+      tableContainer.style.width = '1200px';
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const canvas = await html2canvas(tableContainer, {
         backgroundColor: '#0f172a',
         scale: 2,
         logging: false,
         useCORS: true,
+        allowTaint: true,
         ignoreElements: (el) => el.classList.contains('no-capture')
       });
+
+      // 스타일 복구
+      tableContainer.setAttribute('style', originalStyle);
+
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
       link.download = `${activeJob.receiptNumber}_table.png`;
@@ -993,29 +1005,54 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
   const handleKtlTransfer = async () => {
     if (!onSendToKtl || !tableRef.current || !graphRef.current) return;
     
+    // 1. 현재 상태 저장 (복구용)
+    const originalTimeRange = activeJob.timeRangeInMs;
+    const originalViewEnd = activeJob.viewEndTimestamp;
+
     try {
-      updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '그래프/테이블 캡처 중...' }));
+      updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '전체 그래프 캡처 중...' }));
       
+      // 2. 전송 시에는 자동으로 "전체" 범위로 변경 (사용자 요청)
+      if (originalTimeRange !== 'all') {
+        handleTimeRangeChange('all');
+        // 상태 변경 및 리렌더링 대기
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+
       // ✅ 캡처용 상태 활성화 (가이드라인 숨김)
       setIsKtlCapturing(true);
-      // 리페인트를 위해 짧은 지연
-      await new Promise(resolve => setTimeout(resolve, 150));
-
-      const graphCanvas = await html2canvas(graphRef.current, {
-        backgroundColor: '#0f172a',
-        scale: 1.5,
-        logging: false,
-        useCORS: true,
-        ignoreElements: (el) => el.classList.contains('no-capture')
-      });
       
-      const tableCanvas = await html2canvas(tableRef.current, {
+      // 3. 모바일에서도 크게 보이도록 고정 너비 및 스케일 적용 (사용자 요청)
+      const graphContainer = graphRef.current;
+      const tableContainer = tableRef.current;
+      
+      // 캡처용 스타일 임시 적용
+      const originalGraphStyle = graphContainer.getAttribute('style') || '';
+      const originalTableStyle = tableContainer.getAttribute('style') || '';
+      
+      // 데스크탑 수준의 너비 강제 (모바일에서 작게 나오는 문제 해결)
+      graphContainer.style.width = '1200px';
+      graphContainer.style.height = '600px';
+      tableContainer.style.width = '1200px';
+      
+      // 레이아웃 재계산 대기
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      const captureOptions = {
         backgroundColor: '#0f172a',
-        scale: 1.5,
+        scale: 2, // 고해상도 캡처
         logging: false,
         useCORS: true,
-        ignoreElements: (el) => el.classList.contains('no-capture')
-      });
+        allowTaint: true,
+        ignoreElements: (el: Element) => el.classList.contains('no-capture')
+      };
+
+      const graphCanvas = await html2canvas(graphContainer, captureOptions);
+      const tableCanvas = await html2canvas(tableContainer, captureOptions);
+
+      // 스타일 복구
+      graphContainer.setAttribute('style', originalGraphStyle);
+      tableContainer.setAttribute('style', originalTableStyle);
 
       const graphBlob = await new Promise<Blob>((resolve) => graphCanvas.toBlob(b => resolve(b!), 'image/png'));
       const tableBlob = await new Promise<Blob>((resolve) => tableCanvas.toBlob(b => resolve(b!), 'image/png'));
@@ -1023,11 +1060,20 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       // ✅ 캡처 완료 후 상태 복구
       setIsKtlCapturing(false);
 
+      // 4. 원래 보던 범위로 복구
+      if (originalTimeRange !== 'all') {
+        updateActiveJob(j => ({ ...j, timeRangeInMs: originalTimeRange, viewEndTimestamp: originalViewEnd }));
+      }
+
       await onSendToKtl(graphBlob, tableBlob, unifiedResults);
       
     } catch (err: any) {
       console.error('KTL transfer capture failed:', err);
       setIsKtlCapturing(false);
+      // 오류 시에도 상태 복구 시도
+      if (originalTimeRange !== 'all') {
+        updateActiveJob(j => ({ ...j, timeRangeInMs: originalTimeRange, viewEndTimestamp: originalViewEnd }));
+      }
       updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `캡처 실패: ${err.message}` }));
     }
   };
