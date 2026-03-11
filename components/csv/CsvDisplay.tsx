@@ -19,12 +19,13 @@ interface ChannelInfo {
 
 interface DataPoint {
   timestamp: Date;
+  realTimestamp?: Date;
   values: (number | null)[];
 }
 
 interface RangeSelection {
-  start: { timestamp: Date; value: number } | null;
-  end: { timestamp: Date; value: number } | null;
+  start: { timestamp: Date; realTimestamp?: Date; value: number } | null;
+  end: { timestamp: Date; realTimestamp?: Date; value: number } | null;
 }
 
 type AnalysisResult = JobAnalysisResult;
@@ -213,18 +214,18 @@ interface GraphCanvasProps {
   yMinMaxOverall: { yMin: number; yMax: number } | null;
   isAnalyzing: boolean;
   isMaxMinMode: boolean;
-  onPointSelect: (point: { timestamp: Date; value: number }) => void;
+  onPointSelect: (point: { timestamp: Date; realTimestamp?: Date; value: number }) => void;
   selection: RangeSelection | null;
   analysisResults: AnalysisResult[];
   aiAnalysisResult: AiAnalysisResult | null;
   placingAiPointLabel: string | null;
-  onManualAiPointPlacement: (label: string, point: { timestamp: Date; value: number; }) => void;
+  onManualAiPointPlacement: (label: string, point: { timestamp: Date; realTimestamp?: Date; value: number; }) => void;
   setPlacingAiPointLabel: (label: string | null) => void;
   isRangeSelecting: boolean;
-  rangeSelection: { start: { timestamp: Date; value: number }; end: { timestamp: Date; value: number }; } | null;
-  onRangeSelectComplete: (selection: { start: { timestamp: Date; value: number }; end: { timestamp: Date; value: number }; }) => void;
+  rangeSelection: { start: { timestamp: Date; realTimestamp?: Date; value: number }; end: { timestamp: Date; realTimestamp?: Date; value: number }; } | null;
+  onRangeSelectComplete: (selection: { start: { timestamp: Date; realTimestamp?: Date; value: number }; end: { timestamp: Date; realTimestamp?: Date; value: number }; }) => void;
   sequentialPlacementState: { isActive: boolean; currentIndex: number; };
-  onSequentialPointPlacement: (point: { timestamp: Date; value: number; }) => void;
+  onSequentialPointPlacement: (point: { timestamp: Date; realTimestamp?: Date; value: number; }) => void;
   sensorType: SensorType;
   SEQUENTIAL_POINT_ORDER: string[];
   receiptNumber: string;
@@ -338,7 +339,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   useEffect(() => { updateGuideData(); }, [updateGuideData]);
 
-  const getSnappedPoint = useCallback((label: string, basePoint: { timestamp: Date; value: number }) => {
+  const getSnappedPoint = useCallback((label: string, basePoint: { timestamp: Date; realTimestamp?: Date; value: number }) => {
     const upperLabel = label.toUpperCase();
 
     if (upperLabel === 'EN') {
@@ -375,7 +376,11 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             const timeDiff = Math.abs(interpTs - basePoint.timestamp.getTime());
             if (timeDiff < minTimeDiff) {
               minTimeDiff = timeDiff;
-              interpPoint = { timestamp: new Date(interpTs), value: targetValue };
+              // Interpolated point might not have a realTimestamp, but we can approximate it
+              const realTs1 = d1.realTimestamp?.getTime() || d1.timestamp.getTime();
+              const realTs2 = d2.realTimestamp?.getTime() || d2.timestamp.getTime();
+              const interpRealTs = realTs1 + ratio * (realTs2 - realTs1);
+              interpPoint = { timestamp: new Date(interpTs), realTimestamp: new Date(interpRealTs), value: targetValue };
             }
           }
         }
@@ -385,7 +390,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     return basePoint;
   }, [sensorType, aiAnalysisResult, getChannelData]);
 
-  const confirmPoint = useCallback((point: { timestamp: Date; value: number }) => {
+  const confirmPoint = useCallback((point: { timestamp: Date; realTimestamp?: Date; value: number }) => {
     // ✅ [민감도 해결] 500ms 쿨다운 적용하여 중복 클릭 방지
     const now = Date.now();
     if (now - lastConfirmTimeRef.current < 500) return;
@@ -534,7 +539,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     if (!hasMovedSignificantly && !draggedMarkerKey) {
       // Readout 박스 영역 내 클릭 시 고정된 기준선 위치의 데이터를 확정
       if (isOverReadout && currentGuideData) {
-        confirmPoint({ timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
+        confirmPoint({ timestamp: currentGuideData.timestamp, realTimestamp: currentGuideData.realTimestamp, value: (currentGuideData as any).value });
       } else {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
@@ -545,7 +550,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
             const py = mapY((currentGuideData as any).value);
             const distY = Math.abs(y - py);
             if (distY < 40) {
-              confirmPoint({ timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
+              confirmPoint({ timestamp: currentGuideData.timestamp, realTimestamp: currentGuideData.realTimestamp, value: (currentGuideData as any).value });
             }
           }
         }
@@ -553,7 +558,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     }
 
     if (draggedMarkerKey && currentGuideData && hasMovedSignificantly) {
-      const finalPoint = getSnappedPoint(draggedMarkerKey, { timestamp: currentGuideData.timestamp, value: (currentGuideData as any).value });
+      const finalPoint = getSnappedPoint(draggedMarkerKey, { timestamp: currentGuideData.timestamp, realTimestamp: currentGuideData.realTimestamp, value: (currentGuideData as any).value });
       onManualAiPointPlacement(draggedMarkerKey.toUpperCase(), finalPoint);
     }
 
@@ -730,7 +735,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
         ctx.setLineDash([]);
         ctx.fillStyle = isOverReadout ? 'rgba(203, 213, 225, 1.0)' : 'rgba(226, 232, 240, 0.95)';
         ctx.font = 'bold 12px Inter';
-        const displayTime = currentGuideData.timestamp.toLocaleTimeString();
+        const displayTime = (currentGuideData.realTimestamp || currentGuideData.timestamp).toLocaleTimeString();
         const txt = `${displayTime} | ${(currentGuideData as any).value.toFixed(3)}`;
         const tw = ctx.measureText(txt).width;
         const rectW = tw + 20; const rectH = 24;
@@ -844,18 +849,18 @@ interface GraphProps {
   yMinMaxOverall: { yMin: number; yMax: number } | null;
   isAnalyzing: boolean;
   isMaxMinMode: boolean;
-  onPointSelect: (point: { timestamp: Date; value: number }) => void;
+  onPointSelect: (point: { timestamp: Date; realTimestamp?: Date; value: number }) => void;
   selection: RangeSelection | null;
   analysisResults: AnalysisResult[];
   aiAnalysisResult: AiAnalysisResult | null;
   placingAiPointLabel: string | null;
-  onManualAiPointPlacement: (label: string, point: { timestamp: Date; value: number; }) => void;
+  onManualAiPointPlacement: (label: string, point: { timestamp: Date; realTimestamp?: Date; value: number; }) => void;
   setPlacingAiPointLabel: (label: string | null) => void;
   isRangeSelecting: boolean;
-  rangeSelection: { start: { timestamp: Date; value: number }; end: { timestamp: Date; value: number }; } | null;
-  onRangeSelectComplete: (selection: { start: { timestamp: Date; value: number }; end: { timestamp: Date; value: number }; }) => void;
+  rangeSelection: { start: { timestamp: Date; realTimestamp?: Date; value: number }; end: { timestamp: Date; realTimestamp?: Date; value: number }; } | null;
+  onRangeSelectComplete: (selection: { start: { timestamp: Date; realTimestamp?: Date; value: number }; end: { timestamp: Date; realTimestamp?: Date; value: number }; }) => void;
   sequentialPlacementState: { isActive: boolean; currentIndex: number; };
-  onSequentialPointPlacement: (point: { timestamp: Date; value: number; }) => void;
+  onSequentialPointPlacement: (point: { timestamp: Date; realTimestamp?: Date; value: number; }) => void;
   sensorType: SensorType;
   SEQUENTIAL_POINT_ORDER: string[];
   receiptNumber: string;
@@ -894,11 +899,11 @@ interface CsvDisplayProps {
   handleDeleteManualResult: (channelId: string, resultId: string) => void;
   handleResetAnalysis: () => void;
   handleCancelSelection: (channelId: string) => void;
-  handlePointSelect: (channelId: string, point: { timestamp: Date; value: number; }) => void;
+  handlePointSelect: (channelId: string, point: { timestamp: Date; realTimestamp?: Date; value: number; }) => void;
   handlePhaseTimeChange: (index: number, field: 'startTime' | 'endTime', newTime: Date) => void;
   placingAiPointLabel: string | null;
   setPlacingAiPointLabel: (label: string | null) => void;
-  handleManualAiPointPlacement: (label: string, point: { timestamp: Date; value: number; }) => void;
+  handleManualAiPointPlacement: (label: string, point: { timestamp: Date; realTimestamp?: Date; value: number; }) => void;
   handleAutoMinMaxResultChange: () => void;
   handleManualAnalysisResultChange: () => void;
   isPhaseAnalysisModified: boolean;
@@ -908,7 +913,7 @@ interface CsvDisplayProps {
   sequentialPlacementState: { isActive: boolean; currentIndex: number; };
   handleToggleSequentialPlacement: () => void;
   handleUndoSequentialPlacement: () => void;
-  handleSequentialPointPlacement: (point: { timestamp: Date; value: number; }) => void;
+  handleSequentialPointPlacement: (point: { timestamp: Date; realTimestamp?: Date; value: number; }) => void;
   sensorType: SensorType;
   SEQUENTIAL_POINT_ORDER: string[];
   onSendToKtl?: (graphBlob: Blob, tableBlob: Blob, results: any[]) => Promise<void>;
@@ -938,21 +943,24 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       const en = (activeJob.aiAnalysisResult as any)?.en;
       if (st && en) {
         // ✅ 응답시간 결과값을 10초 단위로 정확히 반올림 처리 (10, 20, 30... 단위 보장)
-        const diffSecRaw = (new Date(en.timestamp).getTime() - new Date(st.timestamp).getTime()) / 1000;
+        const stTs = st.realTimestamp ? new Date(st.realTimestamp) : new Date(st.timestamp);
+        const enTs = en.realTimestamp ? new Date(en.realTimestamp) : new Date(en.timestamp);
+        const diffSecRaw = (enTs.getTime() - stTs.getTime()) / 1000;
         const diffSec = Math.round(diffSecRaw / 10) * 10;
-        results.push({ id: `pt-response-time`, type: '응답', name: 'ST → EN', startTime: new Date(st.timestamp), endTime: new Date(en.timestamp), diff: diffSec });
+        results.push({ id: `pt-response-time`, type: '응답', name: 'ST → EN', startTime: stTs, endTime: enTs, diff: diffSec });
       }
 
       Object.entries(activeJob.aiAnalysisResult).forEach(([key, point]) => {
         if (key === 'isReagent' || key === 'st' || key === 'en') return;
         if (point && typeof point === 'object' && (point as any).timestamp) {
-          results.push({ id: `pt-${key}`, type: '지정 포인트', name: key.toUpperCase(), startTime: new Date((point as any).timestamp), value: (point as any).value });
+          const ptTs = (point as any).realTimestamp ? new Date((point as any).realTimestamp) : new Date((point as any).timestamp);
+          results.push({ id: `pt-${key}`, type: '지정 포인트', name: key.toUpperCase(), startTime: ptTs, value: (point as any).value });
         }
       });
     }
     if (selectedChannel) {
       (activeJob.channelAnalysis[selectedChannel.id]?.results || []).forEach((res, idx) => {
-        results.push({ id: res.id, type: '수동 분석', channelId: selectedChannel.id, name: `구간 ${idx + 1}`, startTime: res.startTime, endTime: res.endTime, max: res.max, min: res.min, diff: res.diff });
+        results.push({ id: res.id, type: '수동 분석', channelId: selectedChannel.id, name: `구간 ${idx + 1}`, startTime: res.realStartTime || res.startTime, endTime: res.realEndTime || res.endTime, max: res.max, min: res.min, diff: res.diff });
       });
     }
     setUnifiedResults(results.sort((a, b) => {
@@ -1058,7 +1066,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     yMinMaxOverall: yMinMaxPerChannel[selectedChannelIndex],
     isAnalyzing: isManualActive,
     isMaxMinMode: activeJob.isMaxMinMode || false,
-    onPointSelect: (pt: { timestamp: Date; value: number }) => selectedChannel && handlePointSelect(selectedChannel.id, pt),
+    onPointSelect: (pt: { timestamp: Date; realTimestamp?: Date; value: number }) => selectedChannel && handlePointSelect(selectedChannel.id, pt),
     selection: selectedChannel ? activeJob.channelAnalysis[selectedChannel.id]?.selection || null : null,
     analysisResults: selectedChannel ? activeJob.channelAnalysis[selectedChannel.id]?.results || [] : [],
     aiAnalysisResult: activeJob.aiAnalysisResult || null,
