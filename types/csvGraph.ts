@@ -8,6 +8,7 @@ export interface ChannelInfo {
 
 export interface DataPoint {
   timestamp: Date;
+  realTimestamp?: Date; // Original timestamp for display
   values: (number | null)[];
 }
 
@@ -20,8 +21,8 @@ export interface ParsedCsvData {
 
 // Interfaces for Range Analysis
 export interface RangeSelection {
-  start: { timestamp: Date; value: number } | null;
-  end: { timestamp: Date; value: number } | null;
+  start: { timestamp: Date; realTimestamp?: Date; value: number } | null;
+  end: { timestamp: Date; realTimestamp?: Date; value: number } | null;
 }
 
 export interface AnalysisResult {
@@ -32,6 +33,8 @@ export interface AnalysisResult {
   diff: number;
   startTime: Date;
   endTime: Date;
+  realStartTime?: Date;
+  realEndTime?: Date;
 }
 
 export interface ChannelAnalysisState {
@@ -43,6 +46,7 @@ export interface ChannelAnalysisState {
 // AI Analysis interfaces
 export interface AiAnalysisPoint {
     timestamp: string;
+    realTimestamp?: string; // Original time string
     value: number;
 }
 export interface AiPhase {
