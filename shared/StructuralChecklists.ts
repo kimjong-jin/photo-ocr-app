@@ -200,6 +200,7 @@ export const MEASUREMENT_RANGE_OPTIONS: Partial<Record<MainStructuralItemKey, st
     OTHER_DIRECT_INPUT_OPTION
   ]),
   TN: sortRanges([
+    "0-30 mg/L",
     "0-40 mg/L",
     "0-50 mg/L", 
     "0-60 mg/L",
@@ -208,6 +209,7 @@ export const MEASUREMENT_RANGE_OPTIONS: Partial<Record<MainStructuralItemKey, st
     OTHER_DIRECT_INPUT_OPTION
   ]),
   TP: sortRanges([
+    "0-0.25 mg/L",
     "0-0.6 mg/L",
     "0-1 mg/L",
     "0-1.5 mg/L",
