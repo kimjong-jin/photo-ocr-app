@@ -4,6 +4,7 @@ import { Spinner } from './components/Spinner';
 import { CsvDisplay } from './components/csv/CsvDisplay';
 import { parseGraphtecCsv } from './utils/parseGraphtecCsv';
 import { sendCsvGraphToKtlApi } from './services/claydoxApiService';
+import * as XLSX from 'xlsx';
 import type { 
     CsvGraphJob, 
     SensorType,
@@ -81,18 +82,74 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         let combinedRawContent = "";
 
         for (const file of fileArray) {
-            const content = await file.text();
+            let content = "";
+            let parsed: ParsedCsvData;
+            
+            if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
+                const data = await file.arrayBuffer();
+                const workbook = XLSX.read(data);
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                content = XLSX.utils.sheet_to_csv(worksheet);
+                parsed = parseGraphtecCsv(content, file.name);
+            } else {
+                content = await file.text();
+                parsed = parseGraphtecCsv(content, file.name);
+            }
             combinedRawContent += (combinedRawContent ? "\n" : "") + content;
-            const parsed = parseGraphtecCsv(content, file.name);
             parsedResults.push(parsed);
         }
 
         let combinedData: DataPoint[] = [];
-        parsedResults.forEach(p => {
-            combinedData.push(...p.data);
+        let lastContinuousTs = 0;
+        let medianInterval = 1000; // 기본 1초
+
+        // 파일들을 첫 데이터의 시간 순으로 정렬
+        parsedResults.sort((a, b) => {
+            const aTs = a.data[0]?.timestamp.getTime() || 0;
+            const bTs = b.data[0]?.timestamp.getTime() || 0;
+            return aTs - bTs;
         });
 
-        combinedData.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+        parsedResults.forEach((p, pIdx) => {
+            if (p.data.length === 0) return;
+            
+            const firstTs = p.data[0].timestamp.getTime();
+            
+            if (pIdx === 0) {
+                lastContinuousTs = firstTs;
+            } else {
+                // 이전 파일의 마지막 지점 바로 뒤에 붙임 (사용자 요청: 절단된 데이터 연계)
+                lastContinuousTs += medianInterval; 
+            }
+
+            p.data.forEach((d, dIdx) => {
+                const actualGap = dIdx === 0 ? 0 : d.timestamp.getTime() - p.data[dIdx-1].timestamp.getTime();
+                
+                // 파일 내부의 큰 공백도 메움 (사용자 요청: "절단된 11:00+13:00 바로 붙어야한다")
+                const effectiveGap = (actualGap > medianInterval * 5) ? medianInterval : actualGap;
+                
+                if (dIdx > 0) {
+                    lastContinuousTs += effectiveGap;
+                }
+                
+                combinedData.push({
+                    ...d,
+                    realTimestamp: d.timestamp,
+                    timestamp: new Date(lastContinuousTs)
+                });
+            });
+            
+            // 다음 파일을 위해 현재 파일의 중간 간격 계산
+            if (p.data.length > 1) {
+                const intervals = [];
+                for(let i=1; i<p.data.length; i++) {
+                    intervals.push(p.data[i].timestamp.getTime() - p.data[i-1].timestamp.getTime());
+                }
+                intervals.sort((a,b) => a-b);
+                medianInterval = intervals[Math.floor(intervals.length / 2)] || 1000;
+            }
+        });
 
         const firstParsed = parsedResults[0];
         const fileNames = fileArray.map(f => (f as File).name).join(', ');
@@ -296,7 +353,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
       });
   }, [updateActiveJob]);
 
-  const handlePointSelect = useCallback((channelId: string, point: { timestamp: Date; value: number }) => {
+  const handlePointSelect = useCallback((channelId: string, point: { timestamp: Date; value: number; realTimestamp?: Date }) => {
     if (!activeJob?.parsedData) return;
     const channelIndex = activeJob.parsedData.channels.findIndex(c => c.id === channelId);
     if (channelIndex === -1) return;
@@ -308,6 +365,8 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
               return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...state, selection: { start: point, end: null } } }};
           }
           const [startTime, endTime] = [state.selection.start.timestamp, point.timestamp].sort((a, b) => a.getTime() - b.getTime());
+          const [realStartTime, realEndTime] = [state.selection.start.realTimestamp, point.realTimestamp].sort((a, b) => (a?.getTime() || 0) - (b?.getTime() || 0));
+          
           const valuesInRange = (job.parsedData?.data || []).filter(d => d.timestamp >= startTime && d.timestamp <= endTime).map(d => d.values[channelIndex]).filter(v => v !== null) as number[];
           
           if (valuesInRange.length < 1) {
@@ -323,7 +382,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
                   [channelId]: { 
                       ...state, 
                       selection: { start: null, end: null }, 
-                      results: [...state.results, { id: self.crypto.randomUUID(), min, max, diff: max - min, startTime, endTime }] 
+                      results: [...state.results, { id: self.crypto.randomUUID(), min, max, diff: max - min, startTime, endTime, realStartTime, realEndTime }] 
                   }
               }
           };
@@ -332,12 +391,16 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     });
   }, [activeJob?.parsedData, updateActiveJob]);
 
-    const handleManualAiPointPlacement = useCallback((label: string, point: { timestamp: Date; value: number }) => {
+    const handleManualAiPointPlacement = useCallback((label: string, point: { timestamp: Date; value: number; realTimestamp?: Date }) => {
         updateActiveJob(job => ({
             ...job,
             aiAnalysisResult: {
                 ...(job.aiAnalysisResult || {}),
-                [label.toLowerCase()]: { timestamp: point.timestamp.toISOString(), value: point.value }
+                [label.toLowerCase()]: { 
+                    timestamp: point.timestamp.toISOString(), 
+                    realTimestamp: point.realTimestamp?.toISOString(),
+                    value: point.value 
+                }
             }
         }));
         setPlacingAiPointLabel(null);
@@ -389,7 +452,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         setPlacingAiPointLabel(label);
     }, []);
 
-    const handleSequentialPointPlacement = useCallback((point: { timestamp: Date; value: number }) => {
+    const handleSequentialPointPlacement = useCallback((point: { timestamp: Date; value: number; realTimestamp?: Date }) => {
         if (!sequentialPlacementState.isActive) return;
         const pointLabel = SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex];
         if (!pointLabel) {
@@ -401,7 +464,11 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
             ...job,
             aiAnalysisResult: {
                 ...(job.aiAnalysisResult || {}),
-                [pointLabel.toLowerCase()]: { timestamp: point.timestamp.toISOString(), value: point.value }
+                [pointLabel.toLowerCase()]: { 
+                    timestamp: point.timestamp.toISOString(), 
+                    realTimestamp: point.realTimestamp?.toISOString(),
+                    value: point.value 
+                }
             }
         }));
 
@@ -461,7 +528,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
       {activeJob && !activeJob.parsedData && (
           <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 flex flex-col sm:flex-row gap-4 items-center">
               <div className="flex-grow text-center sm:text-left">
-                  <input ref={fileInputRef} id="csv-upload-prompt" type="file" accept=".csv,.txt" multiple onChange={handleFileChange} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600" disabled={isLoading} />
+                  <input ref={fileInputRef} id="csv-upload-prompt" type="file" multiple onChange={handleFileChange} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600" disabled={isLoading} />
                   <p className="mt-2 text-xs text-slate-400">※ 끊긴 파일이 있다면 여러 장을 동시에 선택하여 업로드하세요. 자동으로 연결됩니다.</p>
               </div>
               <ActionButton onClick={handleClear} variant="secondary" disabled={isLoading}>초기화</ActionButton>
