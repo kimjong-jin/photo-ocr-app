@@ -926,10 +926,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const showTaskManagement = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck', 'csvGraph'].includes(activePage);
 
   return (
-    <div className="w-full min-h-screen min-h-[100dvh] bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-4 sm:px-8 py-4 sm:py-8 font-[Inter] overflow-x-hidden">
-      <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} />
+    <div className="w-full min-h-screen min-h-[100dvh] bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-0 sm:px-8 py-0 sm:py-8 font-[Inter] overflow-x-hidden selection:bg-sky-500/30 touch-manipulation">
+      <div className="w-full max-w-5xl flex flex-col items-center bg-slate-900/40 min-h-screen sm:min-h-0 sm:rounded-2xl border-x border-slate-800/50 shadow-2xl px-2 sm:px-6 py-4 sm:py-8">
+        <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} />
 
-      <div className="w-full max-w-3xl mb-4 flex flex-col sm:flex-row justify-between items-center bg-slate-800/50 p-3 rounded-lg shadow">
+        <div className="w-full max-w-3xl mb-4 flex flex-col sm:flex-row justify-between items-center bg-slate-800/50 p-3 rounded-lg shadow border border-slate-700/50">
         <div className="text-sm text-sky-300 mb-2 sm:mb-0">
           환영합니다, <span className="font-semibold">{userName}</span>님!
         </div>
@@ -1198,8 +1199,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         </div>
       )}
 
-      {/* 네비게이션 */}
-      <nav className="w-full max-w-5xl mb-6 flex justify-center space-x-1 sm:space-x-2 p-2 bg-slate-800 rounded-lg shadow-md">
+      {/* 네비게이션 - 모바일에서 상단 고정 (Sticky) */}
+      <nav className="sticky top-2 z-40 w-full max-w-5xl mb-6 flex justify-center space-x-1 sm:space-x-2 p-1.5 sm:p-2 bg-slate-800/95 backdrop-blur-md rounded-lg shadow-xl border border-slate-700/50">
         <button
           onClick={() => setActivePage('structuralCheck')}
           className={`${navButtonBaseStyle} ${activePage === 'structuralCheck' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
@@ -1249,6 +1250,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       {userRole === 'admin' && <AdminPanel adminUserName={userName} />}
 
       <Footer />
+      </div>
     </div>
   );
 };
