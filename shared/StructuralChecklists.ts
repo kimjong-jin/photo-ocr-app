@@ -92,13 +92,17 @@ const doSpecific = [
 ];
 
 const codSpecificBase = [
-    "시료 전처리부 확인",
-    "시약 주입부 확인",
-    "가열분해부 확인",
-    "측정부/검출부 확인",
+    "계량부 확인",
+    "반응부 확인",
+    "가열부 확인",
+    "적정부 확인",
+    "교반부 확인",
+    "검출부 확인",
+    "변환부 확인",
+    "시약저장부 확인",
     "제어부 확인",
-    "운용프로그램 확인",
-    "지시외부출력부 확인",
+    "운용프로그램확인",
+    "지시외부출력부확인",
 ];
 
 const tuSpecific = [
@@ -186,7 +190,9 @@ export const MEASUREMENT_RANGE_OPTIONS: Partial<Record<MainStructuralItemKey, st
     "0-10 mg/L", 
     "0-25 mg/L",
     "0-40 mg/L",
+    "0-45 mg/L",
     "0-50 mg/L", 
+    "0-75 mg/L",
     "0-100 mg/L",
     "0-150 mg/L",
     "0-200 mg/L", 
@@ -202,16 +208,20 @@ export const MEASUREMENT_RANGE_OPTIONS: Partial<Record<MainStructuralItemKey, st
     OTHER_DIRECT_INPUT_OPTION
   ]),
   TP: sortRanges([
+    "0-0.6 mg/L",
     "0-1 mg/L",
     "0-1.5 mg/L",
     "0-2 mg/L",
+    "0-2.5 mg/L",
     "0-5 mg/L", 
     "0-10 mg/L",
     "0-20 mg/L", 
     OTHER_DIRECT_INPUT_OPTION
   ]),
   SS: sortRanges([
+    "0-30 mg/L",
     "0-100 mg/L",
+    "0-150 mg/L",
     "0-200 mg/L", 
     "0-300 mg/L",
     "0-500 mg/L",
