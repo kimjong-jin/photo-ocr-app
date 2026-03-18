@@ -1,4 +1,3 @@
-
 // src/PageContainer.tsx
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import MapView from './components/MapView';
@@ -9,7 +8,7 @@ import FieldCountPage from './FieldCountPage';
 import StructuralCheckPage from './StructuralCheckPage';
 import { KakaoTalkPage } from './KakaoTalkPage';
 import CsvGraphPage from './CsvGraphPage';
-import type { CsvGraphJob, SensorType } from './types/csvGraph';
+import type { CsvGraphJob } from './types/csvGraph';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { ActionButton } from './components/ActionButton';
@@ -40,6 +39,17 @@ interface PageContainerProps {
   userContact: string;
   onLogout: () => void;
 }
+
+const NAV_ITEMS: { key: Page; label: string }[] = [
+  { key: 'structuralCheck', label: '구조 확인 (P1)' },
+  { key: 'photoLog', label: '수질 분석 (P2)' },
+  { key: 'fieldCount', label: '현장 계수 (P3)' },
+  { key: 'drinkingWater', label: '먹는물 분석 (P4)' },
+  { key: 'kakaoTalk', label: '카톡 전송 (P5)' },
+  { key: 'csvGraph', label: 'CSV 그래프 (P6)' },
+];
+
+const TASK_PAGES: Page[] = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck', 'csvGraph'];
 
 const LogoutIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props} className="w-5 h-5">
@@ -118,7 +128,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [csvGraphJobs, setCsvGraphJobs] = useState<CsvGraphJob[]>([]);
   const [activeCsvGraphJobId, setActiveCsvGraphJobId] = useState<string | null>(null);
-  
+
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoadingApplications, setIsLoadingApplications] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
@@ -130,7 +140,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [openSections, setOpenSections] = useState<string[]>([]);
 
-  // 메시지 자동 제거 타이머 정리
   useEffect(() => {
     if (!draftMessage) return;
     if (draftTimerRef.current) {
@@ -183,7 +192,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   }, [userName]);
 
-  useEffect(() => { loadApplications(); }, [loadApplications]);
+  useEffect(() => {
+    loadApplications();
+  }, [loadApplications]);
 
   useEffect(() => {
     const savedMode = localStorage.getItem('apiMode') as ApiMode;
@@ -192,11 +203,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   }, []);
 
-  const handleApiModeChange = (mode: ApiMode) => {
+  const handleApiModeChange = useCallback((mode: ApiMode) => {
     setApiMode(mode);
     localStorage.setItem('apiMode', mode);
-  };
-  
+  }, []);
+
   const handleApplicationSelect = useCallback((app: Application) => {
     const receiptNo = app.receipt_no || '';
     const parts = receiptNo.split('-');
@@ -225,12 +236,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     return site;
   }, [siteName, currentGpsAddress]);
 
-  const toggleSection = (sectionName: string) => {
+  const toggleSection = useCallback((sectionName: string) => {
     setOpenSections(prev => prev.includes(sectionName)
       ? prev.filter(s => s !== sectionName)
       : [...prev, sectionName]
     );
-  };
+  }, []);
 
   const handleDeletePhotoLogJob = useCallback((jobIdToDelete: string) => {
     setPhotoLogJobs(prev => prev.filter(j => j.id !== jobIdToDelete));
@@ -329,7 +340,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       const p1p2Jobs = [...jobsToSaveP1, ...jobsToSaveP2];
       p1p2Jobs.forEach(job => {
         if (job.selectedItem === 'TN/TP') {
-          allItems.add('TN'); allItems.add('TP');
+          allItems.add('TN');
+          allItems.add('TP');
         } else {
           allItems.add(job.selectedItem);
         }
@@ -500,14 +512,14 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         if (p1Items.includes('TN/TP')) available.photoLog.add('TN/TP');
         if (p2Items.includes('TN/TP')) available.fieldCount.add('TN/TP');
       }
-      
+
       loadedItems.forEach(item => {
         if (p1Items.includes(item)) available.photoLog.add(item);
         if (p2Items.includes(item)) available.fieldCount.add(item);
         if (p3Items.includes(item)) available.drinkingWater.add(item);
         if (p4Items.includes(item as any)) available.structuralCheck.add(item);
       });
-    
+
       if (loadedData.values.TU && loadedData.values.Cl && p3Items.includes('TU/CL')) {
         available.drinkingWater.add('TU/CL');
         available.drinkingWater.delete('TU');
@@ -520,14 +532,14 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         drinkingWater: Array.from(available.drinkingWater),
         structuralCheck: Array.from(available.structuralCheck),
       };
-      
+
       const createP1P2Job = (itemName: string): PhotoLogJob => {
         const reconstructedOcrData: PhotoLogJob['processedOcrData'] = [];
         if (itemName === "TN/TP") {
           const tnData = values.TN || {};
           const tpData = values.TP || {};
           const timeToEntryMap: Record<string, Partial<PhotoLogJob['processedOcrData'][0]>> = {};
-          
+
           Object.entries(tnData).forEach(([id, data]) => {
             if (id === '_checklistData' || id === '_postInspectionDate') return;
             const key = (data as any).time || id;
@@ -542,22 +554,31 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             (timeToEntryMap[key] as any).valueTP = (data as any).val;
             (timeToEntryMap[key] as any).identifierTP = id;
           });
-          Object.values(timeToEntryMap).sort((a,b) => (a.time || '').localeCompare(b.time || '')).forEach(partialEntry => {
+          Object.values(timeToEntryMap).sort((a, b) => (a.time || '').localeCompare(b.time || '')).forEach(partialEntry => {
             reconstructedOcrData.push({
-              id: partialEntry.id!, time: partialEntry.time || '', value: (partialEntry as any).value || '',
-              valueTP: (partialEntry as any).valueTP, identifier: (partialEntry as any).identifier, identifierTP: (partialEntry as any).identifierTP,
+              id: partialEntry.id!,
+              time: partialEntry.time || '',
+              value: (partialEntry as any).value || '',
+              valueTP: (partialEntry as any).valueTP,
+              identifier: (partialEntry as any).identifier,
+              identifierTP: (partialEntry as any).identifierTP,
             });
           });
         } else {
           const itemData: Record<string, SavedValueEntry> = (values as any)[itemName] || {};
-          Object.entries(itemData).sort(([,a],[,b]) => {
+          Object.entries(itemData).sort(([, a], [, b]) => {
             const timeA = a?.time || '';
             const timeB = b?.time || '';
             return timeA.localeCompare(timeB);
           }).forEach(([id, entryData]) => {
             if (id === '_checklistData' || id === '_postInspectionDate') return;
             if (entryData) {
-              reconstructedOcrData.push({ id: self.crypto.randomUUID(), time: String(entryData.time), value: String(entryData.val), identifier: id });
+              reconstructedOcrData.push({
+                id: self.crypto.randomUUID(),
+                time: String(entryData.time),
+                value: String(entryData.val),
+                identifier: id
+              });
             }
           });
         }
@@ -604,16 +625,26 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         const reconstructedOcrData = DRINKING_WATER_IDENTIFIERS.map(identifier => {
           const entry: DrinkingWaterJob['processedOcrData'][0] = { id: self.crypto.randomUUID(), time: '', value: '', identifier };
           if (itemName === 'TU/CL') entry.valueTP = '';
-          const tuData = local_values.TU || {}; const clData = local_values.Cl || {};
+          const tuData = local_values.TU || {};
+          const clData = local_values.Cl || {};
           let pVal, sVal, tVal;
-          if (itemName === 'TU') { pVal = tuData[identifier]?.val; tVal = tuData[identifier]?.time; } 
-          else if (itemName === 'Cl') { pVal = clData[identifier]?.val; tVal = clData[identifier]?.time; } 
-          else if (itemName === 'TU/CL') { pVal = tuData[identifier]?.val; sVal = clData[identifier]?.val; tVal = tuData[identifier]?.time || clData[identifier]?.time; }
+          if (itemName === 'TU') {
+            pVal = tuData[identifier]?.val;
+            tVal = tuData[identifier]?.time;
+          } else if (itemName === 'Cl') {
+            pVal = clData[identifier]?.val;
+            tVal = clData[identifier]?.time;
+          } else if (itemName === 'TU/CL') {
+            pVal = tuData[identifier]?.val;
+            sVal = clData[identifier]?.val;
+            tVal = tuData[identifier]?.time || clData[identifier]?.time;
+          }
           entry.value = pVal || '';
           if (entry.valueTP !== undefined) entry.valueTP = sVal || '';
           entry.time = tVal || '';
           return entry;
         });
+
         return {
           id: self.crypto.randomUUID(),
           receiptNumber: local_receipt_no,
@@ -633,36 +664,36 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         setPhotoLogJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP1Jobs]);
         if (activePage === 'photoLog') setActivePhotoLogJobId(newP1Jobs[0]?.id || null);
       }
-      
+
       const newP2Jobs = allSelections.fieldCount.map(createP1P2Job);
       if (newP2Jobs.length > 0) {
         setFieldCountJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP2Jobs]);
         if (activePage === 'fieldCount') setActiveFieldCountJobId(newP2Jobs[0]?.id || null);
       }
-  
+
       const newP3Jobs: DrinkingWaterJob[] = allSelections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
       if (newP3Jobs.length > 0) {
         setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
         if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
       }
-  
+
       const newP4Jobs = allSelections.structuralCheck.map(itemName => {
         const itemData = (values as any)[itemName as MainStructuralItemKey];
         if (!itemData || !itemData['_checklistData']) return null;
-        return { 
-          id: self.crypto.randomUUID(), 
-          receiptNumber: receipt_no, 
-          mainItemKey: itemName as MainStructuralItemKey, 
-          checklistData: JSON.parse(itemData['_checklistData'].val), 
-          postInspectionDate: itemData['_postInspectionDate']?.val || '선택 안됨', 
-          postInspectionDateConfirmedAt: null, 
-          photos: [], 
+        return {
+          id: self.crypto.randomUUID(),
+          receiptNumber: receipt_no,
+          mainItemKey: itemName as MainStructuralItemKey,
+          checklistData: JSON.parse(itemData['_checklistData'].val),
+          postInspectionDate: itemData['_postInspectionDate']?.val || '선택 안됨',
+          postInspectionDateConfirmedAt: null,
+          photos: [],
           photoComments: {},
           submissionStatus: 'idle',
           submissionMessage: undefined,
         } as StructuralJob;
       }).filter(Boolean) as StructuralJob[];
-  
+
       if (newP4Jobs.length > 0) {
         setStructuralCheckJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP4Jobs]);
         if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP4Jobs[0]?.id || null);
@@ -689,6 +720,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         return;
       }
     }
+
     if (activePage === 'photoLog' || activePage === 'fieldCount') {
       const newJob: PhotoLogJob = {
         id: self.crypto.randomUUID(),
@@ -750,20 +782,21 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         }
         return [itemName, { status: '선택 안됨', notes: defaultNotes, confirmedAt: null, specialNotes: '' } as StructuralCheckSubItemData];
       }));
+
       if (key === 'PH') newChecklist["측정범위확인"].notes = "pH 0-14";
       if (key === 'TU') newChecklist["측정범위확인"].notes = "0-10 NTU";
       if (key === 'Cl') newChecklist["측정범위확인"].notes = "0-2 mg/L";
-      
+
       const isFixedDateItem = key === 'PH' || key === 'TU' || key === 'Cl';
 
-      const newJob: StructuralJob = { 
-        id: self.crypto.randomUUID(), 
-        receiptNumber, 
-        mainItemKey: key, 
-        checklistData: newChecklist, 
-        postInspectionDate: isFixedDateItem ? '2년 후' : '선택 안됨', 
-        postInspectionDateConfirmedAt: null, 
-        photos: [], 
+      const newJob: StructuralJob = {
+        id: self.crypto.randomUUID(),
+        receiptNumber,
+        mainItemKey: key,
+        checklistData: newChecklist,
+        postInspectionDate: isFixedDateItem ? '2년 후' : '선택 안됨',
+        postInspectionDateConfirmedAt: null,
+        photos: [],
         photoComments: {},
         submissionStatus: 'idle',
         submissionMessage: undefined,
@@ -782,7 +815,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         timeRangeInMs: 'all',
         viewEndTimestamp: null,
         submissionStatus: 'idle',
-        sensorType: 'SS', // Default to SS as consistent name
+        sensorType: 'SS',
       };
       setCsvGraphJobs(prev => [...prev, newJob]);
       setActiveCsvGraphJobId(newJob.id);
@@ -847,7 +880,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         const firstResult = results[0];
         const newLat = parseFloat(firstResult.y);
         const newLng = parseFloat(firstResult.x);
-        
+
         if (!isNaN(newLat) && !isNaN(newLng)) {
           setCoords({ lat: newLat, lng: newLng });
           setCurrentGpsAddress(firstResult.road_address_name || firstResult.address_name);
@@ -887,6 +920,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     return [];
   }, [activePage]);
 
+  const showTaskManagement = useMemo(() => TASK_PAGES.includes(activePage), [activePage]);
+
   const navButtonBaseStyle = "px-3 py-2 rounded-md font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs sm:text-sm flex-grow sm:flex-grow-0";
   const activeNavButtonStyle = "bg-sky-500 text-white";
   const inactiveNavButtonStyle = "bg-slate-700 hover:bg-slate-600 text-slate-300";
@@ -894,37 +929,104 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
   const appIdToSync = selectedApplication ? selectedApplication.id : null;
 
-  const renderActivePage = () => {
+  const activePageContent = useMemo(() => {
     switch (activePage) {
       case 'photoLog':
-        return <PhotoLogPage userName={userName} jobs={photoLogJobs} setJobs={setPhotoLogJobs} activeJobId={activePhotoLogJobId} setActiveJobId={setActivePhotoLogJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeletePhotoLogJob} />;
+        return (
+          <PhotoLogPage
+            userName={userName}
+            jobs={photoLogJobs}
+            setJobs={setPhotoLogJobs}
+            activeJobId={activePhotoLogJobId}
+            setActiveJobId={setActivePhotoLogJobId}
+            siteName={siteNameOnly}
+            siteLocation={finalSiteLocation}
+            onDeleteJob={handleDeletePhotoLogJob}
+          />
+        );
       case 'fieldCount':
-        return <FieldCountPage userName={userName} jobs={fieldCountJobs} setJobs={setFieldCountJobs} activeJobId={activeFieldCountJobId} setActiveJobId={setActiveFieldCountJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteFieldCountJob} />;
+        return (
+          <FieldCountPage
+            userName={userName}
+            jobs={fieldCountJobs}
+            setJobs={setFieldCountJobs}
+            activeJobId={activeFieldCountJobId}
+            setActiveJobId={setActiveFieldCountJobId}
+            siteName={siteNameOnly}
+            siteLocation={finalSiteLocation}
+            onDeleteJob={handleDeleteFieldCountJob}
+          />
+        );
       case 'drinkingWater':
-        return <DrinkingWaterPage userName={userName} jobs={drinkingWaterJobs} setJobs={setDrinkingWaterJobs} activeJobId={activeDrinkingWaterJobId} setActiveJobId={setActiveDrinkingWaterJobId} siteName={siteNameOnly} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteDrinkingWaterJob} />;
+        return (
+          <DrinkingWaterPage
+            userName={userName}
+            jobs={drinkingWaterJobs}
+            setJobs={setDrinkingWaterJobs}
+            activeJobId={activeDrinkingWaterJobId}
+            setActiveJobId={setActiveDrinkingWaterJobId}
+            siteName={siteNameOnly}
+            siteLocation={finalSiteLocation}
+            onDeleteJob={handleDeleteDrinkingWaterJob}
+          />
+        );
       case 'structuralCheck':
-        return <StructuralCheckPage 
-          userName={userName}
-          jobs={structuralCheckJobs}
-          setJobs={setStructuralCheckJobs}
-          activeJobId={activeStructuralCheckJobId}
-          setActiveJobId={setActiveStructuralCheckJobId}
-          siteName={siteNameOnly}
-          onDeleteJob={handleDeleteStructuralCheckJob}
-          currentGpsAddress={currentGpsAddress}
-          applications={applications}
-          selectedApplication={selectedApplication}
-        />;
+        return (
+          <StructuralCheckPage
+            userName={userName}
+            jobs={structuralCheckJobs}
+            setJobs={setStructuralCheckJobs}
+            activeJobId={activeStructuralCheckJobId}
+            setActiveJobId={setActiveStructuralCheckJobId}
+            siteName={siteNameOnly}
+            onDeleteJob={handleDeleteStructuralCheckJob}
+            currentGpsAddress={currentGpsAddress}
+            applications={applications}
+            selectedApplication={selectedApplication}
+          />
+        );
       case 'kakaoTalk':
         return <KakaoTalkPage userName={userName} userContact={userContact} />;
       case 'csvGraph':
-        return <CsvGraphPage userName={userName} jobs={csvGraphJobs} setJobs={setCsvGraphJobs} activeJobId={activeCsvGraphJobId} setActiveJobId={setActiveCsvGraphJobId} siteLocation={finalSiteLocation} onDeleteJob={handleDeleteCsvGraphJob} />;
+        return (
+          <CsvGraphPage
+            userName={userName}
+            jobs={csvGraphJobs}
+            setJobs={setCsvGraphJobs}
+            activeJobId={activeCsvGraphJobId}
+            setActiveJobId={setActiveCsvGraphJobId}
+            siteLocation={finalSiteLocation}
+            onDeleteJob={handleDeleteCsvGraphJob}
+          />
+        );
       default:
         return null;
     }
-  };
-
-  const showTaskManagement = ['photoLog', 'fieldCount', 'drinkingWater', 'structuralCheck', 'csvGraph'].includes(activePage);
+  }, [
+    activePage,
+    userName,
+    userContact,
+    photoLogJobs,
+    activePhotoLogJobId,
+    fieldCountJobs,
+    activeFieldCountJobId,
+    drinkingWaterJobs,
+    activeDrinkingWaterJobId,
+    structuralCheckJobs,
+    activeStructuralCheckJobId,
+    currentGpsAddress,
+    applications,
+    selectedApplication,
+    csvGraphJobs,
+    activeCsvGraphJobId,
+    siteNameOnly,
+    finalSiteLocation,
+    handleDeletePhotoLogJob,
+    handleDeleteFieldCountJob,
+    handleDeleteDrinkingWaterJob,
+    handleDeleteStructuralCheckJob,
+    handleDeleteCsvGraphJob,
+  ]);
 
   return (
     <div className="w-full min-h-screen min-h-[100dvh] bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-0 sm:px-8 py-0 sm:py-8 font-[Inter] overflow-x-hidden selection:bg-sky-500/30 touch-manipulation">
@@ -932,135 +1034,134 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} />
 
         <div className="w-full max-w-3xl mb-4 flex flex-col sm:flex-row justify-between items-center bg-slate-800/50 p-3 rounded-lg shadow border border-slate-700/50">
-        <div className="text-sm text-sky-300 mb-2 sm:mb-0">
-          환영합니다, <span className="font-semibold">{userName}</span>님!
-        </div>
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center p-1 bg-slate-700 rounded-lg">
-            <ActionButton
-              onClick={onLogout}
-              variant="secondary"
-              className="bg-red-600 hover:bg-red-700 focus:ring-red-500 text-white text-xs px-3 py-1.5 h-auto"
-              icon={<LogoutIcon />}
-              aria-label="로그아웃"
-            >
-              로그아웃
-            </ActionButton>
+          <div className="text-sm text-sky-300 mb-2 sm:mb-0">
+            환영합니다, <span className="font-semibold">{userName}</span>님!
           </div>
-        </div>
-      </div>
-
-      { !['kakaoTalk'].includes(activePage) && (
-        <div className="w-full max-w-3xl mb-6 p-4 bg-slate-800/60 rounded-lg border border-slate-700 shadow-sm space-y-2">
-          <div>
-            <button
-              onClick={() => toggleSection('applicationOcr')}
-              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-              aria-expanded={openSections.includes('applicationOcr')}
-              aria-controls="application-ocr-section"
-            >
-              <h3 className="text-lg font-semibold text-slate-100">목록</h3>
-              <ChevronDownIcon
-                className={`w-5 h-5 text-slate-400 transition-transform ${openSections.includes('applicationOcr') ? 'rotate-180' : ''}`}
-              />
-            </button>
-            <div
-              id="application-ocr-section"
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('applicationOcr') ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}
-            >
-              <ApplicationOcrSection 
-                userName={userName}
-                userContact={userContact}
-                onApplicationSelect={handleApplicationSelect}
-                siteNameToSync={siteName}
-                appIdToSync={appIdToSync}
-                receiptNumberCommonToSync={receiptNumberCommon}
-                applications={applications}
-                setApplications={setApplications}
-                isLoadingApplications={isLoadingApplications}
-                loadApplications={loadApplications}
-              />
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center p-1 bg-slate-700 rounded-lg">
+              <ActionButton
+                onClick={onLogout}
+                variant="secondary"
+                className="bg-red-600 hover:bg-red-700 focus:ring-red-500 text-white text-xs px-3 py-1.5 h-auto"
+                icon={<LogoutIcon />}
+                aria-label="로그아웃"
+              >
+                로그아웃
+              </ActionButton>
             </div>
           </div>
-          
-          {/* 공통 정보 및 작업 추가 */}
-          <div>
-            <button
-              onClick={() => toggleSection('addTask')}
-              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-              aria-expanded={openSections.includes('addTask')}
-              aria-controls="add-task-section"
-            >
-              <h3 className="text-lg font-semibold text-slate-100">공통 정보 및 작업 관리</h3>
-              <ChevronDownIcon
-                className={`w-5 h-5 text-slate-400 transition-transform ${openSections.includes('addTask') ? 'rotate-180' : ''}`}
-              />
-            </button>
+        </div>
 
-            <div
-              id="add-task-section"
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('addTask') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}
-            >
-              <div className="pt-4 px-2 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-4 items-end">
-                  <div className='sm:col-span-4'>
-                    <label htmlFor="global-receipt-common" className="block text-sm font-medium text-slate-300 mb-1">
-                      접수번호 (공통) <span className="text-amber-400 font-bold">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      id="global-receipt-common"
-                      value={receiptNumberCommon}
-                      onChange={(e) => setReceiptNumberCommon(e.target.value)}
-                      className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
-                      placeholder="예: 25-000000-01"
-                    />
-                  </div>
+        {!['kakaoTalk'].includes(activePage) && (
+          <div className="w-full max-w-3xl mb-6 p-4 bg-slate-800/60 rounded-lg border border-slate-700 shadow-sm space-y-2">
+            <div>
+              <button
+                onClick={() => toggleSection('applicationOcr')}
+                className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
+                aria-expanded={openSections.includes('applicationOcr')}
+                aria-controls="application-ocr-section"
+              >
+                <h3 className="text-lg font-semibold text-slate-100">목록</h3>
+                <ChevronDownIcon
+                  className={`w-5 h-5 text-slate-400 transition-transform ${openSections.includes('applicationOcr') ? 'rotate-180' : ''}`}
+                />
+              </button>
+              <div
+                id="application-ocr-section"
+                className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('applicationOcr') ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}
+              >
+                <ApplicationOcrSection
+                  userName={userName}
+                  userContact={userContact}
+                  onApplicationSelect={handleApplicationSelect}
+                  siteNameToSync={siteName}
+                  appIdToSync={appIdToSync}
+                  receiptNumberCommonToSync={receiptNumberCommon}
+                  applications={applications}
+                  setApplications={setApplications}
+                  isLoadingApplications={isLoadingApplications}
+                  loadApplications={loadApplications}
+                />
+              </div>
+            </div>
 
-                  <div className='sm:col-span-2'>
-                    <label htmlFor="global-receipt-detail" className="block text-sm font-medium text-slate-300 mb-1">
-                      (세부) <span className="text-amber-400 font-bold">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      id="global-receipt-detail"
-                      value={receiptNumberDetail}
-                      onChange={(e) => setReceiptNumberDetail(e.target.value)}
-                      className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
-                      placeholder="예: 1"
-                    />
-                  </div>
+            <div>
+              <button
+                onClick={() => toggleSection('addTask')}
+                className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
+                aria-expanded={openSections.includes('addTask')}
+                aria-controls="add-task-section"
+              >
+                <h3 className="text-lg font-semibold text-slate-100">공통 정보 및 작업 관리</h3>
+                <ChevronDownIcon
+                  className={`w-5 h-5 text-slate-400 transition-transform ${openSections.includes('addTask') ? 'rotate-180' : ''}`}
+                />
+              </button>
 
-                  <div className='sm:col-span-6'>
-                    <label htmlFor="global-site-location" className="block text-sm font-medium text-slate-300 mb-1">
-                      현장 위치 (공통)
-                    </label>
-                    <input
-                      type="text"
-                      id="global-site-location"
-                      value={siteName}
-                      onChange={(e) => setSiteName(e.target.value)}
-                      className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm"
-                      placeholder="예: OO처리장"
-                    />
-                  </div>
+              <div
+                id="add-task-section"
+                className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('addTask') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}
+              >
+                <div className="pt-4 px-2 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-4 items-end">
+                    <div className='sm:col-span-4'>
+                      <label htmlFor="global-receipt-common" className="block text-sm font-medium text-slate-300 mb-1">
+                        접수번호 (공통) <span className="text-amber-400 font-bold">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        id="global-receipt-common"
+                        value={receiptNumberCommon}
+                        onChange={(e) => setReceiptNumberCommon(e.target.value)}
+                        className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                        placeholder="예: 25-000000-01"
+                      />
+                    </div>
 
-                  {activePage !== 'csvGraph' && showTaskManagement && (
-                    <div className="sm:col-span-12">
-                      <label htmlFor="new-task-item" className="block text-sm font-medium text-slate-300 mb-1">항목</label>
-                      <select
-                        id="new-task-item"
-                        value={newItemKey}
-                        onChange={(e) => setNewItemKey(e.target.value)}
-                        className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]"
-                      >
-                        <option value="" disabled>선택...</option>
-                        {Array.isArray(itemOptionsForNewTask) &&
-                         itemOptionsForNewTask.length > 0 &&
-                         typeof itemOptionsForNewTask[0] === 'object' &&
-                         itemOptionsForNewTask[0] !== null &&
-                         'label' in (itemOptionsForNewTask[0] as any)
-                          ? (
+                    <div className='sm:col-span-2'>
+                      <label htmlFor="global-receipt-detail" className="block text-sm font-medium text-slate-300 mb-1">
+                        (세부) <span className="text-amber-400 font-bold">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        id="global-receipt-detail"
+                        value={receiptNumberDetail}
+                        onChange={(e) => setReceiptNumberDetail(e.target.value)}
+                        className="block w-full p-2.5 bg-slate-800 border border-amber-500 rounded-md shadow-sm text-amber-200 text-sm placeholder-slate-400 focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                        placeholder="예: 1"
+                      />
+                    </div>
+
+                    <div className='sm:col-span-6'>
+                      <label htmlFor="global-site-location" className="block text-sm font-medium text-slate-300 mb-1">
+                        현장 위치 (공통)
+                      </label>
+                      <input
+                        type="text"
+                        id="global-site-location"
+                        value={siteName}
+                        onChange={(e) => setSiteName(e.target.value)}
+                        className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm"
+                        placeholder="예: OO처리장"
+                      />
+                    </div>
+
+                    {activePage !== 'csvGraph' && showTaskManagement && (
+                      <div className="sm:col-span-12">
+                        <label htmlFor="new-task-item" className="block text-sm font-medium text-slate-300 mb-1">항목</label>
+                        <select
+                          id="new-task-item"
+                          value={newItemKey}
+                          onChange={(e) => setNewItemKey(e.target.value)}
+                          className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-slate-100 text-sm h-[42px]"
+                        >
+                          <option value="" disabled>선택...</option>
+                          {Array.isArray(itemOptionsForNewTask) &&
+                          itemOptionsForNewTask.length > 0 &&
+                          typeof itemOptionsForNewTask[0] === 'object' &&
+                          itemOptionsForNewTask[0] !== null &&
+                          'label' in (itemOptionsForNewTask[0] as any)
+                            ? (
                               itemOptionsForNewTask as {
                                 label: string;
                                 items: { key: string; name: string }[];
@@ -1074,183 +1175,149 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                                 ))}
                               </optgroup>
                             ))
-                          : (itemOptionsForNewTask as string[]).map((item) => (
+                            : (itemOptionsForNewTask as string[]).map((item) => (
                               <option key={item} value={item}>
                                 {item}
                               </option>
                             ))}
-                      </select>
-                    </div>
-                  )}
+                        </select>
+                      </div>
+                    )}
 
-                  {showTaskManagement && (
-                    <div className="sm:col-span-12">
-                      <ActionButton onClick={handleAddTask} fullWidth>추가</ActionButton>
-                    </div>
-                  )}
+                    {showTaskManagement && (
+                      <div className="sm:col-span-12">
+                        <ActionButton onClick={handleAddTask} fullWidth>추가</ActionButton>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-          
-          {activePage === 'structuralCheck' && (
+
+            {activePage === 'structuralCheck' && (
+              <div>
+                <button
+                  onClick={() => toggleSection('locationHelper')}
+                  className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
+                  aria-expanded={openSections.includes('locationHelper')}
+                  aria-controls="location-helper-section"
+                >
+                  <h3 className="text-lg font-semibold text-slate-100">위치 도우미 (GPS 주소)</h3>
+                  <ChevronDownIcon className={`w-5 h-5 text-slate-400 transition-transform ${openSections.includes('locationHelper') ? 'rotate-180' : ''}`} />
+                </button>
+
+                <div
+                  id="location-helper-section"
+                  className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('locationHelper') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}
+                >
+                  <div className="pt-4 px-2 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-2 items-center">
+                      <div className="sm:col-span-6">
+                        <label htmlFor="current-gps-address" className="sr-only">현재 주소 (GPS)</label>
+                        <input
+                          type="text"
+                          id="current-gps-address"
+                          value={currentGpsAddress}
+                          onChange={(e) => setCurrentGpsAddress(e.target.value)}
+                          className="block w-full p-2.5 bg-slate-800 border border-slate-600 rounded-md shadow-sm text-slate-300 text-sm placeholder-slate-400"
+                          placeholder="GPS 주소 또는 직접 입력"
+                        />
+                      </div>
+                      <div className="sm:col-span-6">
+                        <div className="grid grid-cols-4 gap-2">
+                          <ActionButton onClick={handleFetchGpsAddress} disabled={isFetchingAddress} fullWidth icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />} className="!px-2 !py-2.5 !text-xs">GPS</ActionButton>
+                          <ActionButton onClick={handleSearchAddress} disabled={isFetchingAddress} fullWidth icon={<SearchIcon />} className="!px-2 !py-2.5 !text-xs">찾기</ActionButton>
+                          <ActionButton onClick={handleOpenMap} disabled={isFetchingAddress || !!coords} fullWidth icon={<MapIcon />} className="!px-2 !py-2.5 !text-xs">열기</ActionButton>
+                          <ActionButton onClick={handleResetGps} disabled={isFetchingAddress || !coords} fullWidth variant="secondary" icon={<TrashIcon />} className="!px-2 !py-2.5 !text-xs">삭제</ActionButton>
+                        </div>
+                      </div>
+                    </div>
+                    {coords && (
+                      <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
+                        <MapView
+                          latitude={coords.lat}
+                          longitude={coords.lng}
+                          address={currentGpsAddress?.trim() ?? ''}
+                          onAddressSelect={(addr, lat, lng) => {
+                            setCurrentGpsAddress(addr);
+                            setCoords({ lat, lng });
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <button
-                onClick={() => toggleSection('locationHelper')}
+                onClick={() => toggleSection('data')}
                 className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-                aria-expanded={openSections.includes('locationHelper')}
-                aria-controls="location-helper-section"
+                aria-expanded={openSections.includes('data')}
+                aria-controls="data-section"
               >
-                <h3 className="text-lg font-semibold text-slate-100">위치 도우미 (GPS 주소)</h3>
-                <ChevronDownIcon className={`w-5 h-5 text-slate-400 transition-transform ${openSections.includes('locationHelper') ? 'rotate-180' : ''}`} />
+                <h3 className="text-lg font-semibold text-slate-100">데이터 관리</h3>
+                <ChevronDownIcon className={`w-5 h-5 text-slate-400 transition-transform ${openSections.includes('data') ? 'rotate-180' : ''}`} />
               </button>
 
               <div
-                id="location-helper-section"
-                className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('locationHelper') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}
+                id="data-section"
+                className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('data') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}
               >
-                <div className="pt-4 px-2 space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-x-3 gap-y-2 items-center">
-                    <div className="sm:col-span-6">
-                      <label htmlFor="current-gps-address" className="sr-only">현재 주소 (GPS)</label>
-                      <input
-                        type="text"
-                        id="current-gps-address"
-                        value={currentGpsAddress}
-                        onChange={(e) => setCurrentGpsAddress(e.target.value)}
-                        className="block w-full p-2.5 bg-slate-800 border border-slate-600 rounded-md shadow-sm text-slate-300 text-sm placeholder-slate-400"
-                        placeholder="GPS 주소 또는 직접 입력"
-                      />
-                    </div>
-                    <div className="sm:col-span-6">
-                      <div className="grid grid-cols-4 gap-2">
-                        <ActionButton onClick={handleFetchGpsAddress} disabled={isFetchingAddress} fullWidth icon={isFetchingAddress ? <Spinner size="sm" /> : <GpsIcon />} className="!px-2 !py-2.5 !text-xs">GPS</ActionButton>
-                        <ActionButton onClick={handleSearchAddress} disabled={isFetchingAddress} fullWidth icon={<SearchIcon />} className="!px-2 !py-2.5 !text-xs">찾기</ActionButton>
-                        <ActionButton onClick={handleOpenMap} disabled={isFetchingAddress || !!coords} fullWidth icon={<MapIcon />} className="!px-2 !py-2.5 !text-xs">열기</ActionButton>
-                        <ActionButton onClick={handleResetGps} disabled={isFetchingAddress || !coords} fullWidth variant="secondary" icon={<TrashIcon />} className="!px-2 !py-2.5 !text-xs">삭제</ActionButton>
-                      </div>
-                    </div>
+                <div className="pt-4 px-2 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <ActionButton
+                      onClick={handleSaveDraft}
+                      variant="secondary"
+                      icon={isSaving ? <Spinner size="sm" /> : <SaveIcon />}
+                      disabled={isSaving || isLoading}
+                    >
+                      {isSaving ? '저장 중...' : '임시 저장'}
+                    </ActionButton>
+                    <ActionButton
+                      onClick={handleLoadDraft}
+                      variant="secondary"
+                      icon={isLoading ? <Spinner size="sm" /> : <LoadIcon />}
+                      disabled={isSaving || isLoading}
+                    >
+                      {isLoading ? '로딩 중...' : '불러오기'}
+                    </ActionButton>
                   </div>
-                  {coords && (
-                    <div className="mt-4 h-[300px] rounded-lg overflow-hidden border border-slate-600">
-                      <MapView
-                        latitude={coords.lat}
-                        longitude={coords.lng}
-                        address={currentGpsAddress?.trim() ?? ''}  // ✅ 수정: address 전달(빈값 안전)
-                        onAddressSelect={(addr, lat, lng) => {
-                          setCurrentGpsAddress(addr);
-                          setCoords({ lat, lng });
-                        }}
-                      />
-                    </div>
+
+                  {draftMessage && (
+                    <p className={`text-xs text-center ${draftMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`} role="status">
+                      {draftMessage.type === 'success' ? '✅' : '❌'} {draftMessage.text}
+                    </p>
                   )}
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* 데이터 관리 */}
-          <div>
-            <button
-              onClick={() => toggleSection('data')}
-              className="w-full flex justify-between items-center text-left p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-all"
-              aria-expanded={openSections.includes('data')}
-              aria-controls="data-section"
-            >
-              <h3 className="text-lg font-semibold text-slate-100">데이터 관리</h3>
-              <ChevronDownIcon className={`w-5 h-5 text-slate-400 transition-transform ${openSections.includes('data') ? 'rotate-180' : ''}`} />
-            </button>
-
-            <div
-              id="data-section"
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('data') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}
-            >
-              <div className="pt-4 px-2 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <ActionButton
-                    onClick={handleSaveDraft}
-                    variant="secondary"
-                    icon={isSaving ? <Spinner size="sm" /> : <SaveIcon />}
-                    disabled={isSaving || isLoading}
-                  >
-                    {isSaving ? '저장 중...' : '임시 저장'}
-                  </ActionButton>
-                  <ActionButton
-                    onClick={handleLoadDraft}
-                    variant="secondary"
-                    icon={isLoading ? <Spinner size="sm" /> : <LoadIcon />}
-                    disabled={isSaving || isLoading}
-                  >
-                    {isLoading ? '로딩 중...' : '불러오기'}
-                  </ActionButton>
-                </div>
-
-                {draftMessage && (
-                  <p className={`text-xs text-center ${draftMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`} role="status">
-                    {draftMessage.type === 'success' ? '✅' : '❌'} {draftMessage.text}
+                  <p className="text-xs text-slate-500 text-center">
+                    임시 저장은 현재 활성 작업의 접수번호와 동일한 모든 작업을 함께 저장/불러오기 합니다.
                   </p>
-                )}
-
-                <p className="text-xs text-slate-500 text-center">
-                  임시 저장은 현재 활성 작업의 접수번호와 동일한 모든 작업을 함께 저장/불러오기 합니다.
-                </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* 네비게이션 - 모바일에서 상단 고정 (Sticky) */}
-      <nav className="sticky top-2 z-40 w-full max-w-5xl mb-6 flex justify-center space-x-1 sm:space-x-2 p-1.5 sm:p-2 bg-slate-800/95 backdrop-blur-md rounded-lg shadow-xl border border-slate-700/50">
-        <button
-          onClick={() => setActivePage('structuralCheck')}
-          className={`${navButtonBaseStyle} ${activePage === 'structuralCheck' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'structuralCheck'}
-        >
-          구조 확인 (P1)
-        </button>
-        <button
-          onClick={() => setActivePage('photoLog')}
-          className={`${navButtonBaseStyle} ${activePage === 'photoLog' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'photoLog'}
-        >
-          수질 분석 (P2)
-        </button>
-        <button
-          onClick={() => setActivePage('fieldCount')}
-          className={`${navButtonBaseStyle} ${activePage === 'fieldCount' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'fieldCount'}
-        >
-          현장 계수 (P3)
-        </button>
-        <button
-          onClick={() => setActivePage('drinkingWater')}
-          className={`${navButtonBaseStyle} ${activePage === 'drinkingWater' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'drinkingWater'}
-        >
-          먹는물 분석 (P4)
-        </button>
-        <button
-          onClick={() => setActivePage('kakaoTalk')}
-          className={`${navButtonBaseStyle} ${activePage === 'kakaoTalk' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'kakaoTalk'}
-        >
-          카톡 전송 (P5)
-        </button>
-        <button
-          onClick={() => setActivePage('csvGraph')}
-          className={`${navButtonBaseStyle} ${activePage === 'csvGraph' ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-          aria-pressed={activePage === 'csvGraph'}
-        >
-          CSV 그래프 (P6)
-        </button>
-      </nav>
+        <nav className="sticky top-2 z-40 w-full max-w-5xl mb-6 flex justify-center space-x-1 sm:space-x-2 p-1.5 sm:p-2 bg-slate-800/95 backdrop-blur-md rounded-lg shadow-xl border border-slate-700/50">
+          {NAV_ITEMS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setActivePage(key)}
+              className={`${navButtonBaseStyle} ${activePage === key ? activeNavButtonStyle : inactiveNavButtonStyle}`}
+              aria-pressed={activePage === key}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
 
-      {renderActivePage()}
-      
-      {userRole === 'admin' && <AdminPanel adminUserName={userName} />}
+        {activePageContent}
 
-      <Footer />
+        {userRole === 'admin' && <AdminPanel adminUserName={userName} />}
+
+        <Footer />
       </div>
     </div>
   );
