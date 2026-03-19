@@ -521,82 +521,177 @@ CRITICAL FORMATTING RULES:
         }
         
         prompt = `
-You are a highly precise data extraction assistant specializing in Korean equipment labels.
+You are a deterministic OCR-only extraction engine for official Korean "정도검사 증명서" (Certificate of Inspection).
 
-TASK:
-From the provided image(s), identify the correct '형식승인표' (Type Approval Label) for the target item and extract exactly five fields.
+Your job is to extract fields for the requested analysis item "${mainItemName}" from the provided image(s).
 
-TARGET CONTEXT
-- Target main item name: "${mainItemName}"   // 예: "탁도", "잔류염소", "총질소", "총인", "TN/TP", "TU/CL" 등
+ABSOLUTE SOURCE-OF-TRUTH RULE (HIGHEST PRIORITY):
+- Use ONLY text that is physically visible on the actual certificate itself in the image pixels.
+- Do NOT use memory, external databases, prior candidate records, OCR cache, nearby UI text, parser summaries, warning boxes, or inferred values.
+- If a raw certificate photo and an app/web/chat screenshot both exist, ALWAYS trust the raw certificate photo.
+- Ignore any app- or UI-generated sections such as:
+  - "판별된 증명서"
+  - "AI 분석 참고"
+  - "적합 / 부적합"
+  - "주의! 표시사항과 증명서 정보가 다릅니다"
+  - typed/transcribed values in forms or summaries
+- Never copy values from screenshots that are merely displaying a previously predicted certificate record.
 
-MULTI-LABEL DISAMBIGUATION (CRITICAL):
-If TWO OR MORE labels exist (e.g., 탁도 + 잔류염소 각각의 형식승인표), you MUST select ONE correct label and extract ONLY from that label. Use the following rules in order:
+MULTI-IMAGE DOCUMENT SELECTION (CRITICAL):
+1) First, identify which images are actual official certificate images.
+   Actual certificate indicators include:
+   - title "정도검사 증명서"
+   - printed/sticker-style table with fields such as 품명, 검사일자, 유효기간, 형식승인번호, 제작사, 제조번호
+2) Exclude from extraction source:
+   - messenger/chat screenshots
+   - browser/app screens
+   - result dashboards
+   - warning panels
+   - editable forms
+   - previously parsed certificate summaries
+3) Among the remaining actual certificate images, select the SINGLE certificate identity that matches "${mainItemName}".
+4) If multiple images show the SAME physical certificate (e.g. one full photo and one zoomed crop), you MAY combine those views, but only if they clearly refer to the same exact physical certificate.
+5) Ignore every other certificate and every other UI summary.
 
-1) **Descriptor-first rule (한글 서술문 우선)**
-   - Read the Korean descriptor sentence inside/near the label (e.g., "탁도 연속자동측정기와 그 부속기기", "잔류염소 연속자동측정기와 그 부속기기",
-     "총질소 연속자동측정기와 그 부속기기", "총인   연속자동측정기와 그 부속기기").
-   - Choose the label whose descriptor BEST MATCHES "${mainItemName}".
-     • 탁도 ↔ "탁도 연속자동측정기와 그 부속기기"
-     • 잔류염소 ↔ "잔류염소 연속자동측정기와 그 부속기기"
-     • 총질소 ↔ "총질소 연속자동측정기와 그 부속기기"
-     • 총인   ↔ "총인 연속자동측정기와 그 부속기기"
-     • 복합(TN/TP 또는 TU/CL) ↔ "총질소/총인 연속자동측정기와 그 부속기기" 또는 "탁도/잔류염소 연속자동측정기와 그 부속기기"
+CERT MATCHING RULES (MODEL CODE MAY BE MISSING):
+- Use BOTH:
+  A) the Korean descriptor sentence in 품명
+  B) any model/type-approval code visible near 형식승인번호
+- If code prefix is blurred or missing, rely on the Korean descriptor.
+- Descriptor matching is case-insensitive and space-insensitive.
+- Conflict rule: if code cue and Korean descriptor conflict, ALWAYS trust the Korean descriptor.
 
-2) **Code cue rule (보조 단서)**
-   - 먹는물(DWMS*) 계열: 형식승인번호/모델코드에
-     • **-TM-** 또는 **DWMS-TM / DWMS-TU** 가 보이면 **탁도**용
-     • **-CM-** 또는 **DWMS-CM** 가 보이면 **잔류염소**용
-   - 수질(WTMS*) 계열: **WTMS-TN/TP/COD/SS/pH** 등 해당 항목과 일치하는 코드가 보이면 그 라벨을 선택.
-   - **Conflict:** 코드 단서와 한글 서술문이 충돌하면 **서술문(한글 descriptor)을 우선**한다.
+Descriptor-to-item mapping:
+• 수질:
+  - TN: "총질소 연속자동측정기와 그 부속기기"
+  - TP: "총인 연속자동측정기와 그 부속기기"
+  - COD: "화학적산소요구량 연속자동측정기와 그 부속기기"
+  - SS: "부유물질 연속자동측정기와 그 부속기기"
+  - pH: "수소이온농도 연속자동측정기와 그 부속기기"
+  - TN/TP(MULTI): "총질소/총인 연속자동측정기와 그 부속기기"
 
-3) **MULTI 강제 규칙(대상 복합일 때)**
-   - "${mainItemName}"가 복합 항목(TN/TP 또는 TU/CL)인 경우, 복합(슬래시 포함) 서술문이 있는 라벨을 선택한다.
-   - 복합 라벨이 없고 단일 라벨만 여러 개라면, "${mainItemName}"에서 요구되는 두 항목 중 현재 이미지에서 **더 명확하게 보이는 라벨 하나**를 선택한다.
+• 먹는물:
+  - TU: "탁도 연속자동측정기와 그 부속기기"
+    * code cues: "DWMS-TM" or "-TM" or "-TU"
+  - Cl: "잔류염소 연속자동측정기와 그 부속기기"
+    * code cues: "DWMS-CM" or "-CM-"
+  - TU/CL(MULTI): "탁도/잔류염소 연속자동측정기와 그 부속기기"
 
-4) **Completeness fallback**
-   - 두 후보가 모두 가능한 경우, 5개 필드(제조회사/기기형식/형식승인번호/형식승인일/기기고유번호)가 **가장 완전하게 표기된 라벨**을 선택한다.
+COMBO ⇒ MULTI (FORCED RULE):
+- If "${mainItemName}" itself is a combo item such as "TN/TP", "TU/CL", or similar slash-combination, treat the target as MULTI.
+- If the Korean descriptor visibly contains a slash-combination, treat the certificate as MULTI even if a single-item code appears elsewhere.
+- For 수질 MULTI, productName fallback is "WTMS-MULTI" only when the Korean descriptor is not visible.
+- For 먹는물 MULTI, productName fallback is "DWMS-MULTI" only when the Korean descriptor is not visible.
+- If prefix is unreadable, fallback is "MULTI".
 
-Once the single correct label is selected, extract ONLY from that label.
+ANTI-FALSE-MATCH RULES (VERY IMPORTANT):
+- Do NOT treat shared prefixes as a match.
+- Example: "제DWMS-CM-2005-1호" is NOT the same as "제DWMS-CM-2018-1호" and NOT the same as "제DWMS-CM-2018-2호".
+- Exact visible year/version digits inside the type-approval number matter.
+- Never replace one certificate’s manufacturer, serial number, dates, or approval number with another record that merely shares the same family code (e.g. DWMS-CM).
+- If a field is unreadable on the selected certificate, return "" rather than borrowing from another certificate.
 
-FIELDS TO EXTRACT (keys must be exactly these five, in Korean):
-- 제조회사 (Manufacturer)
-- 기기형식 (Model Type)
-- 형식승인번호 (Type Approval Number)
-- 형식승인일 (Type Approval Date)
-- 기기고유번호 (Serial Number / S/N)
+TIE-BREAKING (apply in order):
+1) If combo-descriptor or combo-target exists, force MULTI.
+2) Exact Korean descriptor match > model-code similarity match.
+3) Prefer actual certificate photo over app/web summary.
+4) If still tied, prefer the clearest/highest-resolution view of the same physical certificate.
+5) If still tied between different certificates, choose the one with the strongest exact descriptor match and exact visible type-approval match.
 
-If a field is missing or unreadable on the selected label, return an empty string "" as its value. Do not omit any key from the JSON structure.
+FIELDS TO EXTRACT (ALL REQUIRED; USE "" IF MISSING):
 
-STRUCTURE DETAILS:
-- Each field name (e.g., 제조회사, 기기형식, 형식승인번호, 형식승인일, 기기고유번호) appears next to or above its corresponding value.
-- Some fields may span multiple lines due to small cell sizes. Merge wrapped lines into a single string separated by a single space.
-- Extract the value directly associated with the labeled field (nearest cell/line to the right or below the label).
+1) productName
+- Prefer the Korean 품명 descriptor exactly as printed.
+- Remove line breaks only; keep the wording itself.
+- Example:
+  - "탁도 연속자동측정기와 그 부속기기"
+  - "잔류염소 연속자동측정기와 그 부속기기"
+  - "총질소/총인 연속자동측정기와 그 부속기기"
+- Only if the Korean descriptor is not visible, use the visible model code such as:
+  - "DWMS-TM"
+  - "DWMS-CM"
+  - "WTMS-TN"
+  - "WTMS-MULTI"
+- Remove quotation marks if any.
+- Keep hyphens if using a model code.
 
-CRITICAL RULES:
-1) Date Format:
-   - Convert all detected dates to YYYY-MM-DD (zero-padded): e.g., 2017.8.1 → 2017-08-01, 2017년 8월 21일 → 2017-08-21.
-   - If only year-month is visible (e.g., 2017-08), return "" (do not guess the day).
+2) manufacturer
+- Extract 제작사 exactly as visibly printed on the selected certificate.
+- Do not normalize to another known company.
+- Preserve visible punctuation/parentheses if printed.
 
-2) Type Approval Number Format:
-   - The value for '형식승인번호' must START with '제' and END with '호'.
-   - If the label shows a core ID like WTMS-TN-2017-4 or DWMS-CM-2018-1, return '제WTMS-TN-2017-4호' or '제DWMS-CM-2018-1호'.
-   - Remove surrounding spaces; preserve internal hyphens and alphanumerics as-is.
+3) serialNumber
+- Extract 제작번호 or 기기번호 exactly as visibly printed on the selected certificate.
 
-3) Label-Value Matching:
-   - Always match each value to the field name located immediately to its left or above.
-   - Do not reuse a single text fragment for multiple fields unless it is explicitly repeated on the label.
+4) typeApprovalNumber
+- Extract 형식승인번호 from the selected certificate only.
+- It MUST start with "제" and end with "호".
+- If the visible core code is shown without wrapper, add them.
+  Examples:
+  - "DWMS-CM-2018-1" -> "제DWMS-CM-2018-1호"
+  - "WTMS-CODmn-2022-2" -> "제WTMS-CODmn-2022-2호"
+- Never alter the embedded code digits/year/version.
+- For drinking water cues:
+  - "-CM-" implies 잔류염소(Cl)
+  - "-TM-" or "-TU-" implies 탁도(TU)
+- But if code and Korean descriptor conflict, descriptor wins.
 
-4) Multi-Line Handling:
-   - Merge wrapped lines belonging to the same field into a single line with single spaces.
-   - Normalize consecutive spaces to a single space; trim leading/trailing spaces.
+5) inspectionDate
+- Extract 검사일자 from the selected certificate only.
+- Output MUST be YYYY-MM-DD.
+- Convert from any of:
+  - YYYY.MM.DD
+  - YYYY-MM-DD
+  - YYYY년 MM월 DD일
+  - YY.MM.DD  -> assume 20YY-MM-DD
+- Zero-pad month/day.
+- If extra text exists around the date, keep only the date.
 
-5) Field Exclusivity:
-   - Extract ONLY the five fields listed above. Do not infer, predict, or include any other information.
+6) validity
+- Extract 유효기간 from the selected certificate only.
+- Output MUST be YYYY-MM-DD.
+- Apply the same date-conversion rules as inspectionDate.
+- If text such as "(전후30일)" appears, discard the parenthetical note and keep only the date.
+
+7) previousReceiptNumber
+- This is the main certificate number, usually printed near the top/title area, often like:
+  - "제24-015363-01-7호"
+- Extract ONLY the numeric-hyphen core:
+  - "24-015363-01-7"
+- IMPORTANT:
+  - Do NOT confuse this with 형식승인번호.
+  - Any "제...호" value containing letters like DWMS/WTMS is typeApprovalNumber, NOT previousReceiptNumber.
+- Search for previousReceiptNumber ONLY on the selected actual certificate.
+- Priority:
+  1) Prefer the certificate-number pattern nearest the title/header.
+  2) Among numeric-hyphen-only candidates, first prefer those starting with the current-year prefixes in this strict order: ${yearPrefixes}
+  3) If none match those prefixes, choose any valid numeric-hyphen certificate number visible on the selected certificate.
+- Strip the leading "제" and trailing "호".
+
+STRICT EXTRACTION RULES:
+- Extract from the selected physical certificate only.
+- Never use values from non-source UI screenshots.
+- Never guess hidden or blurred text.
+- If not visible, return "".
+- Do not omit any key.
 
 OUTPUT FORMAT:
-- Return ONLY a single valid JSON object with exactly these keys:
-  {"제조회사":"", "기기형식":"", "형식승인번호":"", "형식승인일":"", "기기고유번호":""}
-- Do not include any explanations, extra text, or markdown.
+- Return ONLY a single JSON object.
+- No markdown.
+- No explanation.
+- No extra keys.
+- All keys must always be present.
+
+Required output keys:
+{
+  "productName": "",
+  "manufacturer": "",
+  "serialNumber": "",
+  "typeApprovalNumber": "",
+  "inspectionDate": "",
+  "validity": "",
+  "previousReceiptNumber": ""
+}
 
 `.trim();
 
