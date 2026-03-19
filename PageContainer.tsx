@@ -1029,8 +1029,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   ]);
 
   return (
-    <div className="w-full min-h-screen min-h-[100dvh] bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-0 sm:px-8 py-0 sm:py-8 font-[Inter] overflow-x-hidden selection:bg-sky-500/30 touch-manipulation">
-      <div className="w-full max-w-5xl flex flex-col items-center bg-slate-900/40 min-h-screen sm:min-h-0 sm:rounded-2xl border-x border-slate-800/50 shadow-2xl px-2 sm:px-6 py-4 sm:py-8">
+    <div className="w-full min-h-[100dvh] bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-0 sm:px-8 py-0 sm:py-8 font-[Inter] overflow-x-hidden selection:bg-sky-500/30 touch-manipulation">
+      <div className="w-full max-w-5xl flex flex-col items-center bg-slate-900/40 min-h-[100dvh] sm:min-h-0 sm:rounded-2xl border-x border-slate-800/50 shadow-2xl px-2 sm:px-6 py-4 sm:py-8">
         <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} />
 
         <div className="w-full max-w-3xl mb-4 flex flex-col sm:flex-row justify-between items-center bg-slate-800/50 p-3 rounded-lg shadow border border-slate-700/50">
