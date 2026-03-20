@@ -2,7 +2,7 @@ import axios from "axios";
 
 const VLLM_BASE_URL = "https://mobile.ktl.re.kr/genai/v1";
 const API_KEY = "EMPTY";
-const MODEL = "qwen3vl-30b";
+const MODEL = "qwen35-27b";
 
 interface VllmChatCompletionResponse {
   choices: {
@@ -28,6 +28,12 @@ interface VllmPayload {
     messages: VllmMessage[];
     stream: boolean;
     response_format?: { type: "json_object" };
+    extra_body?: {
+        top_k?: number;
+        chat_template_kwargs?: {
+            enable_thinking?: boolean;
+        };
+    };
 }
 
 export const callVllmApi = async (
@@ -38,6 +44,10 @@ export const callVllmApi = async (
     model: MODEL,
     messages: messages,
     stream: false,
+    extra_body: {
+        top_k: 20,
+        chat_template_kwargs: { enable_thinking: false },
+    },
   };
 
   try {
