@@ -33,8 +33,6 @@ import { preprocessImageForGemini } from './services/imageProcessingService';
 import type { StructuralJob, JobPhoto } from './shared/types';
 import type { Application } from './components/ApplicationOcrSection';
 
-
-
 interface QuickAnalysisFeedback {
   targetItemName: AnalysisType;
   message: string;
@@ -44,6 +42,14 @@ interface QuickAnalysisFeedback {
 export type AnalysisType = "측정범위확인" | "측정방법확인" | "표시사항확인" | "운용프로그램확인" | "정도검사 증명서" | "지시부 번호" | "센서부 번호";
 type AnalysisStatusForPhotos = Record<string, Record<number, Set<AnalysisType>>>;
 type AnalyzedTypesForJob = Record<string, Set<AnalysisType>>;
+
+type MarkingAnalysisResult = {
+  제조회사: string;
+  기기형식: string;
+  형식승인번호: string;
+  형식승인일: string;
+  기기고유번호: string;
+};
 
 const TrashIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -62,7 +68,6 @@ const sanitizeFilenameComponent = (component: string): string => {
   return component.replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_').replace(/__+/g, '_');
 };
 
-
 const getCurrentTimestamp = (): string => {
   const now = new Date();
   const year = now.getFullYear();
@@ -79,6 +84,138 @@ const getCurrentLocalDateTimeString = (): string => {
     return now.toISOString().slice(0, 16);
 };
 
+const EMPTY_MARKING_ANALYSIS_RESULT: MarkingAnalysisResult = {
+  제조회사: '',
+  기기형식: '',
+  형식승인번호: '',
+  형식승인일: '',
+  기기고유번호: '',
+};
+
+const stripCodeFence = (text: string): string => {
+  return text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+};
+
+const escapeRegExp = (value: string): string => {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const normalizeApprovalNumber = (value: string): string => {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+
+  let cleaned = raw
+    .replace(/\s+/g, '')
+    .replace(/^["']|["']$/g, '');
+
+  if (cleaned.startsWith('제') && cleaned.endsWith('호')) return cleaned;
+  if (cleaned.startsWith('제') && !cleaned.endsWith('호')) return `${cleaned}호`;
+  if (!cleaned.startsWith('제') && cleaned.endsWith('호')) return `제${cleaned}`;
+
+  return `제${cleaned}호`;
+};
+
+const normalizeYmdDate = (value: string): string => {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+
+  const compact = raw
+    .replace(/\(.*?\)/g, '')
+    .replace(/\s+/g, '')
+    .replace(/년/g, '-')
+    .replace(/월/g, '-')
+    .replace(/일/g, '')
+    .replace(/[./]/g, '-')
+    .replace(/--+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  const match = compact.match(/^(\d{2,4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return '';
+
+  let [, y, m, d] = match;
+  if (y.length === 2) y = `20${y}`;
+  return `${y.padStart(4, '0')}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+};
+
+const extractLooseField = (text: string, keys: string[]): string => {
+  const source = stripCodeFence(text);
+
+  for (const key of keys) {
+    const pattern1 = new RegExp(`["']?${escapeRegExp(key)}["']?\\s*[:：]\\s*["']?([^"'\n\r,}]+)`, 'i');
+    const m1 = source.match(pattern1);
+    if (m1?.[1]?.trim()) return m1[1].trim();
+
+    const pattern2 = new RegExp(`${escapeRegExp(key)}\\s*[:：]\\s*(.+)`, 'i');
+    const m2 = source.match(pattern2);
+    if (m2?.[1]?.trim()) {
+      return m2[1].trim().replace(/[,}]$/, '').trim();
+    }
+  }
+
+  return '';
+};
+
+const normalizeMarkingAnalysisResult = (rawText: string): MarkingAnalysisResult => {
+  const cleaned = stripCodeFence(rawText);
+
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const candidate = JSON.parse(cleaned);
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      parsed = candidate as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  const pickParsed = (...keys: string[]): string => {
+    if (!parsed) return '';
+    for (const key of keys) {
+      const value = parsed[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+    return '';
+  };
+
+  const manufacturer =
+    pickParsed('제조회사', '제작사', '제조사', 'manufacturer') ||
+    extractLooseField(cleaned, ['제조회사', '제작사', '제조사', 'manufacturer']);
+
+  const deviceType =
+    pickParsed('기기형식', '기기형', '모델명', '형식', 'productName', 'modelName', 'model') ||
+    extractLooseField(cleaned, ['기기형식', '기기형', '모델명', '형식', 'productName', 'modelName', 'model']);
+
+  const typeApprovalNumberRaw =
+    pickParsed('형식승인번호', 'typeApprovalNumber') ||
+    extractLooseField(cleaned, ['형식승인번호', 'typeApprovalNumber']);
+
+  const approvalDateRaw =
+    pickParsed('형식승인일', '형식승인일자', '제조일자', 'manufactureDate', 'approvalDate') ||
+    extractLooseField(cleaned, ['형식승인일', '형식승인일자', '제조일자', 'manufactureDate', 'approvalDate']);
+
+  const serialNumber =
+    pickParsed('기기고유번호', '제조번호', '기기번호', 'serialNumber', 'S/N', 'SN') ||
+    extractLooseField(cleaned, ['기기고유번호', '제조번호', '기기번호', 'serialNumber', 'S/N', 'SN']);
+
+  return {
+    제조회사: manufacturer,
+    기기형식: deviceType,
+    형식승인번호: normalizeApprovalNumber(typeApprovalNumberRaw),
+    형식승인일: normalizeYmdDate(approvalDateRaw),
+    기기고유번호: serialNumber,
+  };
+};
+
+const hasAnyMeaningfulMarkingValue = (result: MarkingAnalysisResult): boolean => {
+  return Object.values(result).some(v => (v || '').trim() !== '');
+};
+
 interface StructuralCheckPageProps {
   userName: string;
   jobs: StructuralJob[];
@@ -92,17 +229,17 @@ interface StructuralCheckPageProps {
   selectedApplication: Application | null;
 }
 
-const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({ 
+const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
   userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, onDeleteJob,
   currentGpsAddress, applications, selectedApplication
 }) => {
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const activeJobFileInputRef = useRef<HTMLInputElement>(null);
   const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
-  const [isLoading, setIsLoading] = useState<boolean>(false); 
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isKtlPreflightModalOpen, setKtlPreflightModalOpen] = useState<boolean>(false);
   const [ktlPreflightData, setKtlPreflightData] = useState<KtlPreflightData | null>(null);
-  const [isAnalyzingDetail, setIsAnalyzingDetail] = useState<boolean>(false); 
+  const [isAnalyzingDetail, setIsAnalyzingDetail] = useState<boolean>(false);
   const [detailAnalysisError, setDetailAnalysisError] = useState<string | null>(null);
   const [quickAnalysisTarget, setQuickAnalysisTarget] = useState<AnalysisType | null>(null);
   const [quickAnalysisFeedback, setQuickAnalysisFeedback] = useState<QuickAnalysisFeedback | null>(null);
@@ -143,9 +280,9 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
                 };
             }
         }
-        
+
         const newPostInspectionDateConfirmedAt = job.postInspectionDateConfirmedAt ? formattedDateTime : null;
-        
+
         return {
           ...job,
           checklistData: updatedChecklistData,
@@ -255,7 +392,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
         return `(주의) 표시사항과 증명서 정보가 다릅니다:\n- ${messages.join('\n- ')}\n내용을 확인하세요.`;
     }
   }, [activeJob]);
-  
+
   const resetActiveJobSubmissionStatus = useCallback(() => {
     if (!activeJobId) return;
     updateActiveJob(job => ({
@@ -308,7 +445,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     setAnalysisStatusForPhotos(prev => ({...prev, [activeJobId!]: {}}));
     setIsCameraOpen(false);
   }, [activeJobId, updateActiveJob]);
-  
+
   const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
 
   const handleActiveJobPhotosSet = useCallback((images: ImageInfo[]) => {
@@ -338,7 +475,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     });
     setAnalysisStatusForPhotos(prev => ({...prev, [activeJobId!]: {}}));
   }, [activeJob, activeJobId, currentPhotoIndexOfActiveJob, updateActiveJob]);
-  
+
   const handleChecklistItemChange = (itemName: string, field: 'status' | 'notes' | 'specialNotes', value: ChecklistStatus | string) => {
     if (!activeJobId) return;
     updateActiveJob(job => {
@@ -347,11 +484,11 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
         const newStatus = value as ChecklistStatus;
         updatedItemData.status = newStatus;
         if (newStatus !== '선택 안됨') updatedItemData.confirmedAt = getCurrentTimestamp();
-        
+
         if (job.mainItemKey === 'TU' && itemName === '세척 기능') {
           updatedItemData.specialNotes = newStatus === '적합' ? '세척 가능' : newStatus === '부적합' ? '없음' : '';
         }
-        
+
         if (job.mainItemKey === 'Cl' && itemName === '검출장치') {
           updatedItemData.specialNotes = newStatus === '적합' ? '(전극식/시약식)에 따른 구성요소 확인 및 내식성 재질 사용, 세척 가능' : '';
         }
@@ -370,7 +507,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
   const handlePostInspectionDateChange = (newDateValue: string) => {
     updateActiveJob(job => ({ ...job, postInspectionDate: newDateValue, postInspectionDateConfirmedAt: newDateValue === POST_INSPECTION_DATE_OPTIONS[0] ? null : getCurrentTimestamp(), submissionStatus: 'idle', submissionMessage: undefined }));
   };
-  
+
   const handleSetAllSuitableForActiveJob = useCallback(() => {
     if (!activeJob) return;
     const timestamp = getCurrentTimestamp();
@@ -380,10 +517,10 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
 
       itemsForThisJobType.forEach(itemName => {
         if (job.mainItemKey !== 'TOC' || (itemName !== EMISSION_STANDARD_ITEM_NAME && itemName !== RESPONSE_TIME_ITEM_NAME)) {
-          updatedChecklistData[itemName] = { 
-            ...(job.checklistData[itemName] || {}), // Ensure object exists
-            status: '적합', 
-            confirmedAt: timestamp 
+          updatedChecklistData[itemName] = {
+            ...(job.checklistData[itemName] || {}),
+            status: '적합',
+            confirmedAt: timestamp
           };
           if (job.mainItemKey === 'TU' && itemName === '세척 기능') {
             updatedChecklistData[itemName].specialNotes = '세척 가능';
@@ -397,7 +534,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     });
     setQuickAnalysisFeedback(null);
   }, [activeJob, updateActiveJob]);
-  
+
   const handleAnalyzeChecklistItemDetail = useCallback(async (itemNameForAnalysis: AnalysisType, isQuickAnalysis: boolean = false) => {
     if (!activeJob || activeJob.photos.length === 0) {
         const errorMsg = "판별을 위해 사진을 먼저 첨부하세요.";
@@ -417,7 +554,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     let autoComment = '';
 
     const mainItemName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey;
-    
+
     switch (itemNameForAnalysis) {
       case "정도검사 증명서":
         autoComment = "정도검사 증명서";
@@ -426,7 +563,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
         const yearPrefixes = Array.from({ length: 5 }, (_, i) => `${twoDigitYear - i}-`).join("', '");
 
         prompt = `
-You are a highly precise data extraction assistant specializing in official Korean '정도검사 증명서' (Certificate of Inspection). From the provided certificate image(s) for a "${mainItemName}" device, extract ALL fields below. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS. Respond ONLY with a single JSON object (no markdown, no extra text). 
+You are a highly precise data extraction assistant specializing in official Korean '정도검사 증명서' (Certificate of Inspection). From the provided certificate image(s) for a "${mainItemName}" device, extract ALL fields below. If a field is not visible, use an empty string "" as its value. DO NOT OMIT ANY KEYS. Respond ONLY with a single JSON object (no markdown, no extra text).
 
 MULTI-IMAGE / RIGHT-CERT SELECTION (CRITICAL):
 - If multiple certificate images are provided, you MUST select the single certificate that matches the requested analysis item "${mainItemName}" and extract fields from THAT one only.
@@ -513,186 +650,125 @@ CRITICAL FORMATTING RULES:
         const key = activeJob.mainItemKey;
 
         if (key === 'Cl') {
-            itemSpecificHint = `CRITICAL HINT: The device may have multiple labels. You MUST find the specific '형식승인표' for 잔류염소 (Chlorine). The correct '형식승인번호' for this item will contain 'CM' or 'MULTI' (case-insensitive). Prioritize labels containing these identifiers. Ignore labels with 'TM' unless no 'CM' or 'MULTI' label is found.`;
+          itemSpecificHint = `
+- CRITICAL ITEM MATCHING HINT FOR THIS JOB:
+  - The device may have multiple labels.
+  - You MUST find the specific nameplate / 형식승인표 for 잔류염소(Chlorine).
+  - The correct 형식승인번호 or code cue will usually contain "CM" or "MULTI".
+  - Prefer labels whose Korean descriptor matches 잔류염소.
+  - Ignore labels for 탁도(TM/TU) unless no CM/MULTI-matching chlorine label is visible.
+`;
         } else if (key === 'TU') {
-            itemSpecificHint = `CRITICAL HINT: The device may have multiple labels. You MUST find the specific '형식승인표' for 탁도 (Turbidity). The correct '형식승인번호' for this item will contain 'TM' or 'MULTI' (case-insensitive). Prioritize labels containing these identifiers. Ignore labels with 'CM' unless no 'TM' or 'MULTI' label is found.`;
-        } else if (key === 'TN' || key === 'TP') {
-            itemSpecificHint = `CRITICAL HINT: The device may have multiple labels. You MUST find the specific '형식승인표' for ${mainItemName}. The correct '형식승인번호' for this item will often contain '${key}' or 'MULTI' (case-insensitive). Prioritize labels containing these identifiers.`;
+          itemSpecificHint = `
+- CRITICAL ITEM MATCHING HINT FOR THIS JOB:
+  - The device may have multiple labels.
+  - You MUST find the specific nameplate / 형식승인표 for 탁도(Turbidity).
+  - The correct 형식승인번호 or code cue will usually contain "TM", "TU", or "MULTI".
+  - Prefer labels whose Korean descriptor matches 탁도.
+  - Ignore labels for 잔류염소(CM) unless no TM/TU/MULTI-matching turbidity label is visible.
+`;
+        } else if (key === 'TN' || key === 'TP' || key === 'COD' || key === 'SS' || key === 'PH') {
+          itemSpecificHint = `
+- CRITICAL ITEM MATCHING HINT FOR THIS JOB:
+  - The device may have multiple labels.
+  - You MUST find the specific nameplate / 형식승인표 for "${mainItemName}".
+  - Prefer the label whose Korean descriptor matches "${mainItemName}" exactly.
+  - If model/type-approval code is visible, prefer the one directly matching this item, not a sibling item.
+  - If one label is MULTI and its descriptor explicitly covers this item, MULTI may be the correct target.
+`;
+        } else {
+          itemSpecificHint = `
+- If multiple labels exist, choose ONLY the single label that best matches "${mainItemName}".
+- Never combine values from different labels.
+`;
         }
-        
+
         prompt = `
-You are a deterministic OCR-only extraction engine for official Korean "정도검사 증명서" (Certificate of Inspection).
+You are a deterministic OCR-only extraction engine for Korean legal metrology device nameplates.
 
-Your job is to extract fields for the requested analysis item "${mainItemName}" from the provided image(s).
+Your task is to extract the marking/nameplate information for the requested item "${mainItemName}" from the provided image.
 
-ABSOLUTE SOURCE-OF-TRUTH RULE (HIGHEST PRIORITY):
-- Use ONLY text that is physically visible on the actual certificate itself in the image pixels.
-- Do NOT use memory, external databases, prior candidate records, OCR cache, nearby UI text, parser summaries, warning boxes, or inferred values.
-- If a raw certificate photo and an app/web/chat screenshot both exist, ALWAYS trust the raw certificate photo.
-- Ignore any app- or UI-generated sections such as:
-  - "판별된 증명서"
-  - "AI 분석 참고"
+ABSOLUTE SOURCE-OF-TRUTH RULE:
+- Use ONLY text physically visible in the image pixels.
+- Do NOT use memory, inferred values, prior results, surrounding UI text, overlays, summaries, forms, or chat content.
+- If an app/web/chat screenshot and a real device label photo both appear, ALWAYS trust the real physical label photo.
+- Ignore any non-source UI text such as:
+  - "AI 분석"
+  - "판별 결과"
   - "적합 / 부적합"
-  - "주의! 표시사항과 증명서 정보가 다릅니다"
-  - typed/transcribed values in forms or summaries
-- Never copy values from screenshots that are merely displaying a previously predicted certificate record.
+  - previously filled form values
+  - warning boxes
+  - comparison notes
 
-MULTI-IMAGE DOCUMENT SELECTION (CRITICAL):
-1) First, identify which images are actual official certificate images.
-   Actual certificate indicators include:
-   - title "정도검사 증명서"
-   - printed/sticker-style table with fields such as 품명, 검사일자, 유효기간, 형식승인번호, 제작사, 제조번호
-2) Exclude from extraction source:
-   - messenger/chat screenshots
-   - browser/app screens
-   - result dashboards
-   - warning panels
-   - editable forms
-   - previously parsed certificate summaries
-3) Among the remaining actual certificate images, select the SINGLE certificate identity that matches "${mainItemName}".
-4) If multiple images show the SAME physical certificate (e.g. one full photo and one zoomed crop), you MAY combine those views, but only if they clearly refer to the same exact physical certificate.
-5) Ignore every other certificate and every other UI summary.
+TARGET LABEL SELECTION (VERY IMPORTANT):
+1) Find the actual physical marking label / nameplate / 형식승인표 attached to the device.
+2) Prefer a label containing several of these fields:
+   - 형식승인번호
+   - 제조회사 / 제작사 / 제조자
+   - 기기형식 / 모델명 / 형식
+   - 제조번호 / 기기번호 / S/N
+   - 형식승인일 / 제조일자
+3) If there are multiple labels on the same device, choose ONLY ONE label that corresponds to "${mainItemName}".
+4) NEVER merge values from different labels.
+5) If a field is unreadable on the selected label, return "" for that field.
+${itemSpecificHint}
 
-CERT MATCHING RULES (MODEL CODE MAY BE MISSING):
-- Use BOTH:
-  A) the Korean descriptor sentence in 품명
-  B) any model/type-approval code visible near 형식승인번호
-- If code prefix is blurred or missing, rely on the Korean descriptor.
-- Descriptor matching is case-insensitive and space-insensitive.
-- Conflict rule: if code cue and Korean descriptor conflict, ALWAYS trust the Korean descriptor.
-
-Descriptor-to-item mapping:
-• 수질:
-  - TN: "총질소 연속자동측정기와 그 부속기기"
-  - TP: "총인 연속자동측정기와 그 부속기기"
-  - COD: "화학적산소요구량 연속자동측정기와 그 부속기기"
-  - SS: "부유물질 연속자동측정기와 그 부속기기"
-  - pH: "수소이온농도 연속자동측정기와 그 부속기기"
-  - TN/TP(MULTI): "총질소/총인 연속자동측정기와 그 부속기기"
-
-• 먹는물:
-  - TU: "탁도 연속자동측정기와 그 부속기기"
-    * code cues: "DWMS-TM" or "-TM" or "-TU"
-  - Cl: "잔류염소 연속자동측정기와 그 부속기기"
-    * code cues: "DWMS-CM" or "-CM-"
-  - TU/CL(MULTI): "탁도/잔류염소 연속자동측정기와 그 부속기기"
-
-COMBO ⇒ MULTI (FORCED RULE):
-- If "${mainItemName}" itself is a combo item such as "TN/TP", "TU/CL", or similar slash-combination, treat the target as MULTI.
-- If the Korean descriptor visibly contains a slash-combination, treat the certificate as MULTI even if a single-item code appears elsewhere.
-- For 수질 MULTI, productName fallback is "WTMS-MULTI" only when the Korean descriptor is not visible.
-- For 먹는물 MULTI, productName fallback is "DWMS-MULTI" only when the Korean descriptor is not visible.
-- If prefix is unreadable, fallback is "MULTI".
-
-ANTI-FALSE-MATCH RULES (VERY IMPORTANT):
-- Do NOT treat shared prefixes as a match.
-- Example: "제DWMS-CM-2005-1호" is NOT the same as "제DWMS-CM-2018-1호" and NOT the same as "제DWMS-CM-2018-2호".
-- Exact visible year/version digits inside the type-approval number matter.
-- Never replace one certificate’s manufacturer, serial number, dates, or approval number with another record that merely shares the same family code (e.g. DWMS-CM).
-- If a field is unreadable on the selected certificate, return "" rather than borrowing from another certificate.
-
-TIE-BREAKING (apply in order):
-1) If combo-descriptor or combo-target exists, force MULTI.
-2) Exact Korean descriptor match > model-code similarity match.
-3) Prefer actual certificate photo over app/web summary.
-4) If still tied, prefer the clearest/highest-resolution view of the same physical certificate.
-5) If still tied between different certificates, choose the one with the strongest exact descriptor match and exact visible type-approval match.
-
-FIELDS TO EXTRACT (ALL REQUIRED; USE "" IF MISSING):
-
-1) productName
-- Prefer the Korean 품명 descriptor exactly as printed.
-- Remove line breaks only; keep the wording itself.
+ITEM MATCHING RULES:
+- Prefer the Korean descriptor or visible item text over vague code similarity.
+- Shared family prefixes are NOT enough.
+- Exact embedded year/version digits matter.
 - Example:
-  - "탁도 연속자동측정기와 그 부속기기"
-  - "잔류염소 연속자동측정기와 그 부속기기"
-  - "총질소/총인 연속자동측정기와 그 부속기기"
-- Only if the Korean descriptor is not visible, use the visible model code such as:
-  - "DWMS-TM"
-  - "DWMS-CM"
-  - "WTMS-TN"
-  - "WTMS-MULTI"
-- Remove quotation marks if any.
-- Keep hyphens if using a model code.
+  - "제DWMS-CM-2005-1호" is NOT the same as "제DWMS-CM-2018-1호"
+  - "제DWMS-TM-2018-1호" is NOT the same as "제DWMS-CM-2018-1호"
+- If a visible code cue conflicts with the visible Korean item descriptor, prioritize the visible Korean descriptor.
 
-2) manufacturer
-- Extract 제작사 exactly as visibly printed on the selected certificate.
-- Do not normalize to another known company.
-- Preserve visible punctuation/parentheses if printed.
+FIELD EXTRACTION RULES:
+1) "제조회사"
+- Extract the visible manufacturer / 제작사 / 제조자 exactly as printed.
 
-3) serialNumber
-- Extract 제작번호 or 기기번호 exactly as visibly printed on the selected certificate.
+2) "기기형식"
+- Extract the visible model / 형식 / 모델명 exactly as printed.
+- Remove line breaks only.
+- Do not invent missing characters.
 
-4) typeApprovalNumber
-- Extract 형식승인번호 from the selected certificate only.
+3) "형식승인번호"
+- Extract the visible 형식승인번호 from the selected label only.
 - It MUST start with "제" and end with "호".
-- If the visible core code is shown without wrapper, add them.
-  Examples:
+- If only the inner code is visible, wrap it:
   - "DWMS-CM-2018-1" -> "제DWMS-CM-2018-1호"
-  - "WTMS-CODmn-2022-2" -> "제WTMS-CODmn-2022-2호"
-- Never alter the embedded code digits/year/version.
-- For drinking water cues:
-  - "-CM-" implies 잔류염소(Cl)
-  - "-TM-" or "-TU-" implies 탁도(TU)
-- But if code and Korean descriptor conflict, descriptor wins.
+  - "WTMS-TN-2021-2" -> "제WTMS-TN-2021-2호"
+- Do NOT change embedded digits, letters, or hyphens.
 
-5) inspectionDate
-- Extract 검사일자 from the selected certificate only.
+4) "형식승인일"
+- Extract the visible 형식승인일 or 제조일자 from the selected label only.
 - Output MUST be YYYY-MM-DD.
-- Convert from any of:
+- Convert these formats if visible:
   - YYYY.MM.DD
   - YYYY-MM-DD
   - YYYY년 MM월 DD일
-  - YY.MM.DD  -> assume 20YY-MM-DD
-- Zero-pad month/day.
-- If extra text exists around the date, keep only the date.
+  - YY.MM.DD -> assume 20YY-MM-DD
+- If no such date is visible, return "".
 
-6) validity
-- Extract 유효기간 from the selected certificate only.
-- Output MUST be YYYY-MM-DD.
-- Apply the same date-conversion rules as inspectionDate.
-- If text such as "(전후30일)" appears, discard the parenthetical note and keep only the date.
+5) "기기고유번호"
+- Extract the visible 제조번호 / 기기번호 / Serial Number / S/N from the selected label only.
+- Return exactly the visible identifier text without extra commentary.
 
-7) previousReceiptNumber
-- This is the main certificate number, usually printed near the top/title area, often like:
-  - "제24-015363-01-7호"
-- Extract ONLY the numeric-hyphen core:
-  - "24-015363-01-7"
-- IMPORTANT:
-  - Do NOT confuse this with 형식승인번호.
-  - Any "제...호" value containing letters like DWMS/WTMS is typeApprovalNumber, NOT previousReceiptNumber.
-- Search for previousReceiptNumber ONLY on the selected actual certificate.
-- Priority:
-  1) Prefer the certificate-number pattern nearest the title/header.
-  2) Among numeric-hyphen-only candidates, first prefer those starting with the current-year prefixes in this strict order: ${yearPrefixes}
-  3) If none match those prefixes, choose any valid numeric-hyphen certificate number visible on the selected certificate.
-- Strip the leading "제" and trailing "호".
-
-STRICT EXTRACTION RULES:
-- Extract from the selected physical certificate only.
-- Never use values from non-source UI screenshots.
-- Never guess hidden or blurred text.
-- If not visible, return "".
-- Do not omit any key.
-
-OUTPUT FORMAT:
-- Return ONLY a single JSON object.
+STRICT OUTPUT RULES:
+- Return ONLY one JSON object.
 - No markdown.
 - No explanation.
 - No extra keys.
-- All keys must always be present.
+- Every required key must exist.
+- If a value is not visible, use "".
 
-Required output keys:
+Required output:
 {
-  "productName": "",
-  "manufacturer": "",
-  "serialNumber": "",
-  "typeApprovalNumber": "",
-  "inspectionDate": "",
-  "validity": "",
-  "previousReceiptNumber": ""
+  "제조회사": "",
+  "기기형식": "",
+  "형식승인번호": "",
+  "형식승인일": "",
+  "기기고유번호": ""
 }
-
 `.trim();
 
         modelConfig = {
@@ -700,11 +776,11 @@ Required output keys:
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              "제조회사": { type: Type.STRING },
-              "기기형식": { type: Type.STRING },
-              "형식승인번호": { type: Type.STRING },
-              "형식승인일": { type: Type.STRING },
-              "기기고유번호": { type: Type.STRING },
+              "제조회사": { type: Type.STRING, description: "제조회사명" },
+              "기기형식": { type: Type.STRING, description: "모델명/기기형식" },
+              "형식승인번호": { type: Type.STRING, description: "형식승인번호 (제...호)" },
+              "형식승인일": { type: Type.STRING, description: "형식승인일 또는 제조일 (YYYY-MM-DD)" },
+              "기기고유번호": { type: Type.STRING, description: "기기고유번호/제조번호" },
             },
             required: ["제조회사", "기기형식", "형식승인번호", "형식승인일", "기기고유번호"],
             additionalProperties: false
@@ -716,7 +792,7 @@ Required output keys:
         autoComment = "측정범위";
         prompt = `이미지에서 "${mainItemName}" 장비와 관련된 라벨을 찾으세요. 그 라벨에서 "측정범위"라는 텍스트를 찾고, 그 바로 옆이나 아래에 있는 값을 정확하게 추출하여 문자열로 반환해주세요. 예를 들어, "측정범위 0 ~ 100 mg/L"라고 되어 있으면 "0 ~ 100 mg/L"를 반환해야 합니다. 응답에는 추출된 범위 텍스트만 포함하고 다른 설명은 제외해주세요.`;
         break;
-        
+
       case "측정방법확인":
         autoComment = "측정방법";
         const preferredMethod = PREFERRED_MEASUREMENT_METHODS[activeJob.mainItemKey];
@@ -726,7 +802,7 @@ Required output keys:
         }
         prompt += `\n응답에는 추출된 텍스트만 포함하고 다른 설명은 제외해주세요.`;
         break;
-        
+
       case "운용프로그램확인":
         autoComment = "운용프로그램";
         prompt = `이미지에서 장비의 운용프로그램 버전 또는 펌웨어 버전 정보를 찾아 문자열로 반환해주세요. '버전' 또는 'Ver.' 텍스트 근처를 우선 확인하세요. 'Ver. X.XX' 형식과 함께 긴 숫자 문자열이 함께 표시되는 경우에는 짧은 'Ver.' 형식이 아닌 그 아래나 근처의 긴 숫자 문자열(예: 210331119121)만 추출해 주세요. 그 외의 경우에는 발견한 버전 텍스트만 반환해 주세요. 응답에는 추출된 문자열만 포함하고 다른 설명은 제외해 주세요.`;
@@ -758,7 +834,7 @@ Required output keys:
             grayscale: true,
         });
         const resultText = (await extractTextFromImage(processedBase64, processedMimeType, prompt, modelConfig)).trim();
-        
+
         if (itemNameForAnalysis === "정도검사 증명서") {
             const newCertDetails = JSON.parse(resultText) as Partial<CertificateDetails>;
             const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes;
@@ -766,12 +842,19 @@ Required output keys:
             try { if (existingNotes) existingCertDetails = JSON.parse(existingNotes); } catch (e) { /* ignore */ }
             const mergedDetails: CertificateDetails = { ...existingCertDetails, ...newCertDetails, presence: 'present' };
             handleChecklistItemChange(targetChecklistItem, "notes", JSON.stringify(mergedDetails));
+        } else if (itemNameForAnalysis === "표시사항확인") {
+            const normalizedMarking = normalizeMarkingAnalysisResult(resultText);
+
+            if (!hasAnyMeaningfulMarkingValue(normalizedMarking)) {
+                throw new Error("표시사항 라벨을 읽지 못했습니다. 형식승인표/명판이 선명하게 보이도록 다시 촬영해주세요.");
+            }
+
+            handleChecklistItemChange(targetChecklistItem, "notes", JSON.stringify(normalizedMarking));
         } else if (itemNameForAnalysis === "측정범위확인") {
             const itemOptions = MEASUREMENT_RANGE_OPTIONS[activeJob.mainItemKey];
             let matchedOption: string | null = null;
 
             if (itemOptions && resultText) {
-                // Extracts the largest number from a string, which is typically the upper bound of a range.
                 const getUpperBound = (str: string): number | null => {
                     const numbers = str.match(/\d+(\.\d+)?/g);
                     if (!numbers) return null;
@@ -785,7 +868,7 @@ Required output keys:
                 if (resultNumber !== null) {
                     for (const option of itemOptions) {
                         if (option === OTHER_DIRECT_INPUT_OPTION || option === ANALYSIS_IMPOSSIBLE_OPTION) continue;
-                        
+
                         const optionNumber = getUpperBound(option);
                         if (optionNumber !== null && optionNumber === resultNumber) {
                             matchedOption = option;
@@ -794,14 +877,13 @@ Required output keys:
                     }
                 }
             }
-            
+
             handleChecklistItemChange(targetChecklistItem, "notes", matchedOption || `${OTHER_DIRECT_INPUT_OPTION} (${resultText})`);
         } else if (itemNameForAnalysis === "측정방법확인") {
             const itemOptions = MEASUREMENT_METHOD_OPTIONS[activeJob.mainItemKey];
             const foundOption = itemOptions?.find(opt => {
                 const normalizedOpt = opt.replace(/\s+/g, '').toLowerCase();
                 const normalizedResult = resultText.replace(/\s+/g, '').toLowerCase();
-                // Check if one contains the other for flexibility
                 return normalizedOpt.includes(normalizedResult) || normalizedResult.includes(normalizedOpt);
             });
             handleChecklistItemChange(targetChecklistItem, "notes", foundOption || `${OTHER_DIRECT_INPUT_OPTION} (${resultText})`);
@@ -813,21 +895,21 @@ Required output keys:
 
             if (itemNameForAnalysis === "지시부 번호") {
                 indicatorPart = resultText.trim();
-            } else { // "센서부 번호"
+            } else {
                 sensorPart = resultText.trim();
             }
-            
+
             const newNote = [indicatorPart, sensorPart].filter(Boolean).join(', ');
 
             handleChecklistItemChange(targetChecklistItem, "notes", newNote);
         } else {
             handleChecklistItemChange(targetChecklistItem, "notes", resultText);
         }
-        
+
         if (isQuickAnalysis) {
             if (autoComment) handlePhotoCommentChange(photoToProcess.uid, autoComment);
             setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: `${getAnalysisTypeDisplayString(itemNameForAnalysis)} 판별 완료`, type: 'success' });
-            
+
             setAnalysisStatusForPhotos(prev => {
                 const newStatus = { ...prev };
                 if (!newStatus[activeJobId!]) newStatus[activeJobId!] = {};
@@ -835,7 +917,7 @@ Required output keys:
                 newStatus[activeJobId!][currentPhotoIndexOfActiveJob].add(itemNameForAnalysis);
                 return newStatus;
             });
-            
+
             setAnalyzedTypesForJob(prev => {
                 const jobSet = new Set(prev[activeJobId!] || []);
                 jobSet.add(itemNameForAnalysis);
@@ -860,14 +942,14 @@ Required output keys:
 
     setIsRenderingChecklist(true);
     resetActiveJobSubmissionStatus();
-    
+
     if (snapshotHostRef.current) {
         const snapshotRoot = createRoot(snapshotHostRef.current);
         const renderPromise = new Promise<void>(resolve => {
             snapshotRoot.render(
                 <ChecklistSnapshot job={activeJob} />
             );
-            setTimeout(resolve, 100); 
+            setTimeout(resolve, 100);
         });
         await renderPromise;
 
@@ -889,14 +971,14 @@ Required output keys:
             const dataUrl = canvas.toDataURL('image/png');
             const blob = await (await fetch(dataUrl)).blob();
             const base64 = dataUrl.split(',')[1];
-            
+
             const sanitizedReceipt = sanitizeFilenameComponent(activeJob.receiptNumber);
             let itemPart = "";
             if (activeJob.mainItemKey === 'TP') itemPart = "P";
             else if (activeJob.mainItemKey === 'Cl') itemPart = "C";
             else if (activeJob.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(activeJob.mainItemKey);
             const checklistImageName = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
-            
+
             const checklistImageFile = new File([blob], checklistImageName, { type: 'image/png' });
             const checklistImageInfo: ImageInfo = { file: checklistImageFile, base64, mimeType: 'image/png' };
 
@@ -905,11 +987,11 @@ Required output keys:
             const fileNamesForPreflight = [checklistImageName, compositeImageName, zipFileName].filter(Boolean) as string[];
 
             const jsonForPreview = generateStructuralKtlJsonForPreview(
-                [{ 
-                    ...activeJob, 
+                [{
+                    ...activeJob,
                     siteName: siteName,
                     updateUser: userName,
-                    photoFileNames: {}, 
+                    photoFileNames: {},
                     postInspectionDateValue: activeJob.postInspectionDate,
                     ...(selectedApplication && {
                         representative_name: selectedApplication.representative_name,
@@ -948,7 +1030,7 @@ Required output keys:
         setIsRenderingChecklist(false);
     }
   };
-  
+
   const handleConfirmSendToKtl = async () => {
     if (!activeJob || !ktlPreflightData || !ktlPreflightData.generatedChecklistImage) {
       alert("전송 확인을 위한 데이터가 부족합니다.");
@@ -987,7 +1069,7 @@ Required output keys:
       setKtlPreflightData(null);
     }
   };
-  
+
     const handleBatchSendToKtl = async () => {
         if (!siteName.trim()) {
             alert("현장 위치를 입력해야 합니다.");
@@ -1001,13 +1083,11 @@ Required output keys:
         setIsSendingToClaydox(true);
         setBatchSendProgress(`(0/${jobs.length}) 체크리스트 이미지 생성 시작...`);
         setJobs(prev => prev.map(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' })));
-        
-        // 각 작업별로 해당 접수번호의 신청 정보를 주입하여 API로 전달
+
         const jobsWithAppData = jobs.map(job => {
-            // ✅ 수정: 접수번호가 세부번호를 포함하더라도 매칭되도록 startsWith 적용
             const appData = applications.find(a => job.receiptNumber === a.receipt_no || job.receiptNumber.startsWith(a.receipt_no + '-'));
-            return { 
-                ...job, 
+            return {
+                ...job,
                 representative_name: appData?.representative_name,
                 applicant_name: appData?.applicant_name,
                 applicant_phone: appData?.applicant_phone,
@@ -1021,14 +1101,14 @@ Required output keys:
         for (let i = 0; i < jobsWithAppData.length; i++) {
             const job = jobsWithAppData[i];
             setBatchSendProgress(`(${(i + 1)}/${jobsWithAppData.length}) '${job.receiptNumber}' 체크리스트 캡처 중...`);
-            
+
             if (snapshotHostRef.current) {
                 const snapshotRoot = createRoot(snapshotHostRef.current);
                 const renderPromise = new Promise<void>(resolve => {
                     snapshotRoot.render(
                         <ChecklistSnapshot job={job} />
                     );
-                    setTimeout(resolve, 100); 
+                    setTimeout(resolve, 100);
                 });
                 await renderPromise;
 
@@ -1049,7 +1129,7 @@ Required output keys:
                         if (job.mainItemKey === 'TP') itemPart = "P";
                         else if (job.mainItemKey === 'Cl') itemPart = "C";
                         else if (job.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(job.mainItemKey);
-                        
+
                         const filename = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
                         const file = new File([blob], filename, { type: 'image/png' });
                         const base64 = dataUrl.split(',')[1];
@@ -1096,13 +1176,13 @@ Required output keys:
         if (status === 'error') return <span className="text-xs text-red-400" title={message}>❌ {message.length > 30 ? message.substring(0, 27) + '...' : message}</span>;
         return null;
     };
-    
+
     const isControlsDisabled = isLoading || isAnalyzingDetail || isRenderingChecklist || !!batchSendProgress || activeJob?.submissionStatus === 'sending';
-    
+
     const currentMethodOptions = activeJob ? MEASUREMENT_METHOD_OPTIONS[activeJob.mainItemKey] : undefined;
     const currentRangeOptions = activeJob ? MEASUREMENT_RANGE_OPTIONS[activeJob.mainItemKey] : undefined;
     const isFixedDateItem = activeJob?.mainItemKey === 'PH' || activeJob?.mainItemKey === 'TU' || activeJob?.mainItemKey === 'Cl';
-    
+
     const QuickAnalysisButton: React.FC<{ analysisType: AnalysisType }> = ({ analysisType }) => {
         const feedback = quickAnalysisFeedback?.targetItemName === analysisType ? quickAnalysisFeedback : null;
         const wasAnalyzedForJob = analyzedTypesForJob?.[activeJobId!]?.has(analysisType);
@@ -1119,7 +1199,7 @@ Required output keys:
                         ? 'bg-slate-500 hover:bg-slate-500 text-slate-300'
                         : isNotApplicable
                           ? 'bg-slate-600 !text-slate-400'
-                          : wasAnalyzedForJob 
+                          : wasAnalyzedForJob
                             ? 'bg-green-600 hover:bg-green-500 focus:ring-green-500 text-white'
                             : 'bg-purple-600 hover:bg-purple-500 focus:ring-purple-500 text-white'
                     }`}
@@ -1141,7 +1221,7 @@ Required output keys:
     <div className="w-full max-w-4xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
       <div ref={snapshotHostRef} style={{ position: 'fixed', left: '-9999px', top: '0', pointerEvents: 'none', opacity: 0 }}></div>
       <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">구조 확인 (P1)</h2>
-      
+
       {jobs.length > 0 && (
         <div className="space-y-2 mt-4">
           <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
@@ -1222,7 +1302,7 @@ Required output keys:
                         />
                      </div>
                  )}
-                <ThumbnailGallery 
+                <ThumbnailGallery
                     images={activeJob.photos}
                     currentIndex={currentPhotoIndexOfActiveJob}
                     onSelectImage={setCurrentPhotoIndexOfActiveJob}
@@ -1316,7 +1396,7 @@ Required output keys:
                   );
                 })}
               </div>
-                
+
               <div className="mt-4 pt-4 border-t border-slate-600">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
                     <div>
@@ -1345,7 +1425,7 @@ Required output keys:
               </div>
 
               <div className="mt-6 pt-4 border-t border-slate-700">
-                    <ActionButton 
+                    <ActionButton
                         onClick={handleInitiateSendToKtl}
                         disabled={!siteName.trim() || isLoading || isAnalyzingDetail || activeJob.submissionStatus === 'sending' || isRenderingChecklist}
                         fullWidth
