@@ -318,13 +318,14 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
   const order = DEFAULT_PHOTO_KEY_ORDER;
   compositeFiles.forEach((filename, idx) => {
     const keyBase = order[idx] ?? `PHOTO${idx + 1}`;
-    labviewItemObject[`${keyBase}_사진`] = filename;
+    if (payload.pageType !== 'FieldCount') {
+      labviewItemObject[`${keyBase}_사진`] = filename;
+    }
   });
 
   if (payload.pageType === 'FieldCount') {
     if (compositeFiles[0]) labviewItemObject['PHOTO_현장_사진'] = compositeFiles[0];
     if (zipPhotoFileName) labviewItemObject['PHOTO_현장_압축'] = zipPhotoFileName;
-    if (dataTableFileName) labviewItemObject['PHOTO_현장_데이터테이블'] = dataTableFileName;
   } else {
     if (compositeFiles[0]) labviewItemObject['PHOTO_사진'] = compositeFiles[0];
     if (zipPhotoFileName) labviewItemObject['PHOTO_압축'] = zipPhotoFileName;
