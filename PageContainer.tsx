@@ -311,10 +311,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setDraftMessage(null);
 
     try {
-      const jobsToSaveP1 = photoLogJobs.filter(j => j.receiptNumber === receiptToSave);
-      const jobsToSaveP2 = fieldCountJobs.filter(j => j.receiptNumber === receiptToSave);
-      const jobsToSaveP3 = drinkingWaterJobs.filter(j => j.receiptNumber === receiptToSave);
-      const jobsToSaveP4 = structuralCheckJobs.filter(j => j.receiptNumber === receiptToSave);
+      const jobsToSaveP2 = photoLogJobs.filter(j => j.receiptNumber === receiptToSave);
+      const jobsToSaveP3 = fieldCountJobs.filter(j => j.receiptNumber === receiptToSave);
+      const jobsToSaveP4 = drinkingWaterJobs.filter(j => j.receiptNumber === receiptToSave);
+      const jobsToSaveP1 = structuralCheckJobs.filter(j => j.receiptNumber === receiptToSave);
       const jobsToSaveP6 = csvGraphJobs.filter(j => j.receiptNumber === receiptToSave);
 
       const allP1P2JobsForDate = [...photoLogJobs, ...fieldCountJobs].filter(j => j.receiptNumber === receiptToSave);
@@ -337,8 +337,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       };
       allItems.add('_global_metadata');
 
-      const p1p2Jobs = [...jobsToSaveP1, ...jobsToSaveP2];
-      p1p2Jobs.forEach(job => {
+      const p2p3Jobs = [...jobsToSaveP2, ...jobsToSaveP3];
+      p2p3Jobs.forEach(job => {
         if (job.selectedItem === 'TN/TP') {
           allItems.add('TN');
           allItems.add('TP');
@@ -364,7 +364,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         }
       });
 
-      jobsToSaveP3.forEach(job => {
+      jobsToSaveP4.forEach(job => {
         const itemsToProcess = job.selectedItem === 'TU/CL' ? ['TU', 'Cl'] : [job.selectedItem];
         allItems.add(job.selectedItem);
         itemsToProcess.forEach(item => allItems.add(item));
@@ -399,7 +399,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         });
       });
 
-      jobsToSaveP4.forEach(job => {
+      jobsToSaveP1.forEach(job => {
         allItems.add(job.mainItemKey);
         const timestamp = new Date().toISOString();
         const currentItemData = apiPayload[job.mainItemKey] || {};
@@ -659,25 +659,25 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         };
       };
 
-      const newP1Jobs = allSelections.photoLog.map(createP1P2Job);
-      if (newP1Jobs.length > 0) {
-        setPhotoLogJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP1Jobs]);
-        if (activePage === 'photoLog') setActivePhotoLogJobId(newP1Jobs[0]?.id || null);
-      }
-
-      const newP2Jobs = allSelections.fieldCount.map(createP1P2Job);
+      const newP2Jobs = allSelections.photoLog.map(createP1P2Job);
       if (newP2Jobs.length > 0) {
-        setFieldCountJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP2Jobs]);
-        if (activePage === 'fieldCount') setActiveFieldCountJobId(newP2Jobs[0]?.id || null);
+        setPhotoLogJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP2Jobs]);
+        if (activePage === 'photoLog') setActivePhotoLogJobId(newP2Jobs[0]?.id || null);
       }
 
-      const newP3Jobs: DrinkingWaterJob[] = allSelections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
+      const newP3Jobs = allSelections.fieldCount.map(createP1P2Job);
       if (newP3Jobs.length > 0) {
-        setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
-        if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP3Jobs[0]?.id || null);
+        setFieldCountJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP3Jobs]);
+        if (activePage === 'fieldCount') setActiveFieldCountJobId(newP3Jobs[0]?.id || null);
       }
 
-      const newP4Jobs = allSelections.structuralCheck.map(itemName => {
+      const newP4Jobs: DrinkingWaterJob[] = allSelections.drinkingWater.map(item => createDrinkingWaterJob(item, loadedData));
+      if (newP4Jobs.length > 0) {
+        setDrinkingWaterJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP4Jobs]);
+        if (activePage === 'drinkingWater') setActiveDrinkingWaterJobId(newP4Jobs[0]?.id || null);
+      }
+
+      const newP1Jobs = allSelections.structuralCheck.map(itemName => {
         const itemData = (values as any)[itemName as MainStructuralItemKey];
         if (!itemData || !itemData['_checklistData']) return null;
         return {
@@ -694,9 +694,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         } as StructuralJob;
       }).filter(Boolean) as StructuralJob[];
 
-      if (newP4Jobs.length > 0) {
-        setStructuralCheckJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP4Jobs]);
-        if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP4Jobs[0]?.id || null);
+      if (newP1Jobs.length > 0) {
+        setStructuralCheckJobs(prev => [...prev.filter(j => j.receiptNumber !== receipt_no), ...newP1Jobs]);
+        if (activePage === 'structuralCheck') setActiveStructuralCheckJobId(newP1Jobs[0]?.id || null);
       }
 
       setDraftMessage({ type: 'success', text: `'${receipt_no}' 데이터를 모두 불러왔습니다.` });
@@ -1029,7 +1029,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   ]);
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-0 sm:px-8 py-0 sm:py-8 font-[Inter] overflow-x-hidden overflow-y-auto selection:bg-sky-500/30 touch-manipulation">
+    <div className="w-full min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center px-0 sm:px-8 py-0 sm:py-8 font-[Inter] overflow-x-hidden selection:bg-sky-500/30 touch-manipulation">
       <div className="w-full max-w-5xl flex flex-col items-center bg-slate-900/40 min-h-screen sm:min-h-0 sm:rounded-2xl border-x border-slate-800/50 shadow-2xl px-2 sm:px-6 py-4 sm:py-8">
         <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} />
 
