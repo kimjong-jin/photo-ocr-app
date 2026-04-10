@@ -1409,6 +1409,23 @@ export const sendCsvGraphToKtlApi = async (
       [tableKey]: tableImage.name,
     };
 
+    // ✅ 검사시작일, 검사종료일 추출 (CSV 데이터 기준)
+    if (job.parsedData && job.parsedData.data && job.parsedData.data.length > 0) {
+      const data = job.parsedData.data;
+      const firstDate = new Date(data[0].timestamp);
+      const lastDate = new Date(data[data.length - 1].timestamp);
+      
+      const formatDate = (date: Date) => {
+        const yyyy = date.getFullYear();
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      };
+      
+      labviewItemObject['검사시작일'] = formatDate(firstDate);
+      labviewItemObject['검사종료일'] = formatDate(lastDate);
+    }
+
     if (archiveName) {
       labviewItemObject['PHOTO_압축'] = archiveName;
     }
