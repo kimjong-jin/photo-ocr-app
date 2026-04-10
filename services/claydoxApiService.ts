@@ -321,9 +321,15 @@ const constructPhotoLogKtlJsonObject = (payload: ClaydoxPayload, selectedItem: s
     labviewItemObject[`${keyBase}_사진`] = filename;
   });
 
-  if (compositeFiles[0]) labviewItemObject['PHOTO_사진'] = compositeFiles[0];
-  if (zipPhotoFileName) labviewItemObject['PHOTO_압축'] = zipPhotoFileName;
-  if (dataTableFileName) labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName;
+  if (payload.pageType === 'FieldCount') {
+    if (compositeFiles[0]) labviewItemObject['PHOTO_현장_사진'] = compositeFiles[0];
+    if (zipPhotoFileName) labviewItemObject['PHOTO_현장_압축'] = zipPhotoFileName;
+    if (dataTableFileName) labviewItemObject['PHOTO_현장_데이터테이블'] = dataTableFileName;
+  } else {
+    if (compositeFiles[0]) labviewItemObject['PHOTO_사진'] = compositeFiles[0];
+    if (zipPhotoFileName) labviewItemObject['PHOTO_압축'] = zipPhotoFileName;
+    if (dataTableFileName) labviewItemObject['PHOTO_데이터테이블'] = dataTableFileName;
+  }
 
   if (payload.identifierSequence) labviewItemObject['sequence_code'] = payload.identifierSequence;
   if (typeof payload.maxDecimalPlaces === 'number') labviewItemObject['소수점'] = String(payload.maxDecimalPlaces);
