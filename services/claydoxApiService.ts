@@ -1412,8 +1412,9 @@ export const sendCsvGraphToKtlApi = async (
     // ✅ 검사시작일, 검사종료일 추출 (CSV 데이터 기준)
     if (job.parsedData && job.parsedData.data && job.parsedData.data.length > 0) {
       const data = job.parsedData.data;
-      const firstDate = new Date(data[0].timestamp);
-      const lastDate = new Date(data[data.length - 1].timestamp);
+      // timestamp는 공백이 압축된 가짜 시간이므로, 원래 시간인 realTimestamp를 우선 사용합니다.
+      const firstDate = new Date(data[0].realTimestamp || data[0].timestamp);
+      const lastDate = new Date(data[data.length - 1].realTimestamp || data[data.length - 1].timestamp);
       
       const formatDate = (date: Date) => {
         const yyyy = date.getFullYear();
