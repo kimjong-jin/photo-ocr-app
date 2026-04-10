@@ -1056,7 +1056,7 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
     setIsDownloadingStamped(true);
 
     try {
-      const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
+      const pageIdentifier = pageType === 'PhotoLog' ? '수질' : pageType === 'FieldCount' ? '현장계수' : '현장';
       const sanitizedSite = sanitizeFilenameComponent(siteName);
       const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
       const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
@@ -1129,7 +1129,7 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
             inspectionEndDate: activeJob.inspectionEndDate,
         };
 
-        const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
+        const pageIdentifier = pageType === 'PhotoLog' ? '수질' : pageType === 'FieldCount' ? '현장계수' : '현장';
         const sanitizedSite = sanitizeFilenameComponent(siteName);
         const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
         const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
