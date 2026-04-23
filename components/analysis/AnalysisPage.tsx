@@ -311,7 +311,13 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
 
   const availableTnIdentifiers = pageType === 'FieldCount' ? P3_TN_IDENTIFIERS : TN_IDENTIFIERS;
   const availableTpIdentifiers = pageType === 'FieldCount' ? P3_TP_IDENTIFIERS : TP_IDENTIFIERS;
-  const availableIdentifiers = pageType === 'FieldCount' ? P3_SINGLE_ITEM_IDENTIFIERS : IDENTIFIER_OPTIONS;
+  
+  const availableIdentifiers = useMemo(() => {
+    if (pageType === 'FieldCount') {
+      return activeJob?.selectedItem === 'TP' ? P3_TP_IDENTIFIERS : P3_TN_IDENTIFIERS;
+    }
+    return IDENTIFIER_OPTIONS;
+  }, [pageType, activeJob?.selectedItem]);
 
   const ocrControlsKtlStatus = useMemo<KtlApiCallStatus>(() => {
     if (!activeJob) return 'idle';
