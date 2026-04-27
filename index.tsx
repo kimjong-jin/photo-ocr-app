@@ -8,7 +8,7 @@ import {
   ANALYSIS_ITEM_GROUPS,
   P3_TN_IDENTIFIERS,
   P3_TP_IDENTIFIERS,
-} from '../shared/constants';
+} from './shared/constants';
 import {
   MainStructuralItemKey,
   ChecklistStatus,
