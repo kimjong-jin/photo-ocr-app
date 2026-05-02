@@ -107,6 +107,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [siteName, setSiteName] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingAll, setIsSavingAll] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [draftMessage, setDraftMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const draftTimerRef = useRef<number | null>(null);
@@ -300,6 +301,116 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     csvGraphJobs, activeCsvGraphJobId
   ]);
 
+  /** 특정 접수번호에 해당하는 모든 job 데이터를 API payload로 조합 */
+  const buildPayloadForReceipt = useCallback((receiptToSave: string) => {
+    const jobsToSaveP2 = photoLogJobs.filter(j => j.receiptNumber === receiptToSave);
+    const jobsToSaveP3 = fieldCountJobs.filter(j => j.receiptNumber === receiptToSave);
+    const jobsToSaveP4 = drinkingWaterJobs.filter(j => j.receiptNumber === receiptToSave);
+    const jobsToSaveP1 = structuralCheckJobs.filter(j => j.receiptNumber === receiptToSave);
+    const jobsToSaveP6 = csvGraphJobs.filter(j => j.receiptNumber === receiptToSave);
+
+    const allP1P2JobsForDate = [...photoLogJobs, ...fieldCountJobs].filter(j => j.receiptNumber === receiptToSave);
+    const firstJobWithDates = allP1P2JobsForDate.find(j => j.inspectionStartDate);
+    const inspectionStartDateToSave = firstJobWithDates?.inspectionStartDate;
+    const inspectionEndDateToSave = firstJobWithDates?.inspectionEndDate;
+
+    const allItems = new Set<string>();
+    const apiPayload: SaveDataPayload['values'] = {};
+
+    const globalMetadata = {
+      site: siteName,
+      gps_address: currentGpsAddress.trim() || undefined,
+      inspectionStartDate: inspectionStartDateToSave,
+      inspectionEndDate: inspectionEndDateToSave,
+    };
+    apiPayload['_global_metadata'] = {
+      data: { val: JSON.stringify(globalMetadata), time: new Date().toISOString() }
+    };
+    allItems.add('_global_metadata');
+
+    const p2p3Jobs = [...jobsToSaveP2, ...jobsToSaveP3];
+    p2p3Jobs.forEach(job => {
+      if (job.selectedItem === 'TN/TP') {
+        allItems.add('TN');
+        allItems.add('TP');
+      } else {
+        allItems.add(job.selectedItem);
+      }
+      if (job.selectedItem === 'TN/TP') {
+        const tnData: Record<string, SavedValueEntry> = {};
+        const tpData: Record<string, SavedValueEntry> = {};
+        (job.processedOcrData || []).forEach(entry => {
+          if (entry.identifier && entry.value.trim()) tnData[entry.identifier] = { val: entry.value, time: entry.time };
+          if (entry.identifierTP && entry.valueTP?.trim()) tpData[entry.identifierTP] = { val: entry.valueTP, time: entry.time };
+        });
+        if (Object.keys(tnData).length > 0) apiPayload['TN'] = { ...(apiPayload['TN'] || {}), ...tnData };
+        if (Object.keys(tpData).length > 0) apiPayload['TP'] = { ...(apiPayload['TP'] || {}), ...tpData };
+      } else {
+        const itemData: Record<string, SavedValueEntry> = {};
+        (job.processedOcrData || []).forEach(entry => {
+          if (entry.identifier && entry.value.trim()) itemData[entry.identifier] = { val: entry.value, time: entry.time };
+        });
+        if (Object.keys(itemData).length > 0) apiPayload[job.selectedItem] = { ...(apiPayload[job.selectedItem] || {}), ...itemData };
+      }
+    });
+
+    jobsToSaveP4.forEach(job => {
+      const itemsToProcess = job.selectedItem === 'TU/CL' ? ['TU', 'Cl'] : [job.selectedItem];
+      allItems.add(job.selectedItem);
+      itemsToProcess.forEach(item => allItems.add(item));
+      const p3Metadata = { details: job.details, decimalPlaces: job.decimalPlaces, decimalPlacesCl: job.decimalPlacesCl };
+      if (!apiPayload[job.selectedItem]) apiPayload[job.selectedItem] = {};
+      apiPayload[job.selectedItem]['_p3_metadata'] = { val: JSON.stringify(p3Metadata), time: new Date().toISOString() };
+      itemsToProcess.forEach(subItem => {
+        if (!apiPayload[subItem]) apiPayload[subItem] = {};
+        (job.processedOcrData || []).forEach(entry => {
+          if (!entry.identifier || entry.identifier.includes('시작') || entry.identifier.includes('완료')) return;
+          let valueSource: string | undefined;
+          if (job.selectedItem === 'TU/CL') {
+            valueSource = (subItem === 'TU') ? entry.value : entry.valueTP;
+          } else {
+            valueSource = entry.value;
+          }
+          if (entry.identifier && valueSource && valueSource.trim()) {
+            let key = entry.identifier;
+            if (subItem === 'Cl' && key === '응답시간_Cl') key = '응답시간';
+            apiPayload[subItem]![key] = { val: valueSource.trim(), time: entry.time };
+          }
+        });
+      });
+    });
+
+    jobsToSaveP1.forEach(job => {
+      allItems.add(job.mainItemKey);
+      const timestamp = new Date().toISOString();
+      const currentItemData = apiPayload[job.mainItemKey] || {};
+      apiPayload[job.mainItemKey] = {
+        ...currentItemData,
+        '_checklistData': { val: JSON.stringify(job.checklistData), time: timestamp },
+        '_postInspectionDate': { val: job.postInspectionDate, time: timestamp }
+      };
+    });
+
+    jobsToSaveP6.forEach(job => {
+      const key = `_csv_${job.id}`;
+      allItems.add(key);
+      const dataToSave = {
+        fileName: job.fileName,
+        channelAnalysis: job.channelAnalysis,
+        selectedChannelId: job.selectedChannelId,
+        timeRangeInMs: job.timeRangeInMs,
+        viewEndTimestamp: job.viewEndTimestamp,
+        sensorType: job.sensorType,
+      };
+      apiPayload[key] = { '_data': { val: JSON.stringify(dataToSave), time: new Date().toISOString() } };
+    });
+
+    return { allItems, apiPayload };
+  }, [
+    photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs,
+    siteName, currentGpsAddress
+  ]);
+
   const handleSaveDraft = useCallback(async () => {
     const receiptToSave = getReceiptNumberForSaveLoad();
     if (!receiptToSave || !receiptToSave.trim()) {
@@ -311,118 +422,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setDraftMessage(null);
 
     try {
-      const jobsToSaveP2 = photoLogJobs.filter(j => j.receiptNumber === receiptToSave);
-      const jobsToSaveP3 = fieldCountJobs.filter(j => j.receiptNumber === receiptToSave);
-      const jobsToSaveP4 = drinkingWaterJobs.filter(j => j.receiptNumber === receiptToSave);
-      const jobsToSaveP1 = structuralCheckJobs.filter(j => j.receiptNumber === receiptToSave);
-      const jobsToSaveP6 = csvGraphJobs.filter(j => j.receiptNumber === receiptToSave);
-
-      const allP1P2JobsForDate = [...photoLogJobs, ...fieldCountJobs].filter(j => j.receiptNumber === receiptToSave);
-      const firstJobWithDates = allP1P2JobsForDate.find(j => j.inspectionStartDate);
-
-      const inspectionStartDateToSave = firstJobWithDates?.inspectionStartDate;
-      const inspectionEndDateToSave = firstJobWithDates?.inspectionEndDate;
-
-      const allItems = new Set<string>();
-      const apiPayload: SaveDataPayload['values'] = {};
-
-      const globalMetadata = {
-        site: siteName,
-        gps_address: currentGpsAddress.trim() || undefined,
-        inspectionStartDate: inspectionStartDateToSave,
-        inspectionEndDate: inspectionEndDateToSave,
-      };
-      apiPayload['_global_metadata'] = {
-        data: { val: JSON.stringify(globalMetadata), time: new Date().toISOString() }
-      };
-      allItems.add('_global_metadata');
-
-      const p2p3Jobs = [...jobsToSaveP2, ...jobsToSaveP3];
-      p2p3Jobs.forEach(job => {
-        if (job.selectedItem === 'TN/TP') {
-          allItems.add('TN');
-          allItems.add('TP');
-        } else {
-          allItems.add(job.selectedItem);
-        }
-
-        if (job.selectedItem === 'TN/TP') {
-          const tnData: Record<string, SavedValueEntry> = {};
-          const tpData: Record<string, SavedValueEntry> = {};
-          (job.processedOcrData || []).forEach(entry => {
-            if (entry.identifier && entry.value.trim()) tnData[entry.identifier] = { val: entry.value, time: entry.time };
-            if (entry.identifierTP && entry.valueTP?.trim()) tpData[entry.identifierTP] = { val: entry.valueTP, time: entry.time };
-          });
-          if (Object.keys(tnData).length > 0) apiPayload['TN'] = { ...(apiPayload['TN'] || {}), ...tnData };
-          if (Object.keys(tpData).length > 0) apiPayload['TP'] = { ...(apiPayload['TP'] || {}), ...tpData };
-        } else {
-          const itemData: Record<string, SavedValueEntry> = {};
-          (job.processedOcrData || []).forEach(entry => {
-            if (entry.identifier && entry.value.trim()) itemData[entry.identifier] = { val: entry.value, time: entry.time };
-          });
-          if (Object.keys(itemData).length > 0) apiPayload[job.selectedItem] = { ...(apiPayload[job.selectedItem] || {}), ...itemData };
-        }
-      });
-
-      jobsToSaveP4.forEach(job => {
-        const itemsToProcess = job.selectedItem === 'TU/CL' ? ['TU', 'Cl'] : [job.selectedItem];
-        allItems.add(job.selectedItem);
-        itemsToProcess.forEach(item => allItems.add(item));
-
-        const p3Metadata = {
-          details: job.details,
-          decimalPlaces: job.decimalPlaces,
-          decimalPlacesCl: job.decimalPlacesCl,
-        };
-
-        if (!apiPayload[job.selectedItem]) apiPayload[job.selectedItem] = {};
-        apiPayload[job.selectedItem]['_p3_metadata'] = { val: JSON.stringify(p3Metadata), time: new Date().toISOString() };
-
-        itemsToProcess.forEach(subItem => {
-          if (!apiPayload[subItem]) apiPayload[subItem] = {};
-          (job.processedOcrData || []).forEach(entry => {
-            if (!entry.identifier || entry.identifier.includes('시작') || entry.identifier.includes('완료')) return;
-
-            let valueSource: string | undefined;
-            if (job.selectedItem === 'TU/CL') {
-              valueSource = (subItem === 'TU') ? entry.value : entry.valueTP;
-            } else {
-              valueSource = entry.value;
-            }
-
-            if (entry.identifier && valueSource && valueSource.trim()) {
-              let key = entry.identifier;
-              if (subItem === 'Cl' && key === '응답시간_Cl') key = '응답시간';
-              apiPayload[subItem]![key] = { val: valueSource.trim(), time: entry.time };
-            }
-          });
-        });
-      });
-
-      jobsToSaveP1.forEach(job => {
-        allItems.add(job.mainItemKey);
-        const timestamp = new Date().toISOString();
-        const currentItemData = apiPayload[job.mainItemKey] || {};
-        apiPayload[job.mainItemKey] = {
-          ...currentItemData,
-          '_checklistData': { val: JSON.stringify(job.checklistData), time: timestamp },
-          '_postInspectionDate': { val: job.postInspectionDate, time: timestamp }
-        };
-      });
-
-      jobsToSaveP6.forEach(job => {
-        const key = `_csv_${job.id}`;
-        allItems.add(key);
-        const dataToSave = {
-          fileName: job.fileName,
-          channelAnalysis: job.channelAnalysis,
-          selectedChannelId: job.selectedChannelId,
-          timeRangeInMs: job.timeRangeInMs,
-          viewEndTimestamp: job.viewEndTimestamp,
-          sensorType: job.sensorType,
-        };
-        apiPayload[key] = { '_data': { val: JSON.stringify(dataToSave), time: new Date().toISOString() } };
-      });
+      const { allItems, apiPayload } = buildPayloadForReceipt(receiptToSave);
 
       if (allItems.size === 0) {
         setDraftMessage({ type: 'error', text: '저장할 데이터가 없습니다.' });
@@ -446,9 +446,63 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       setIsSaving(false);
     }
   }, [
-    getReceiptNumberForSaveLoad, userName,
-    photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs,
+    getReceiptNumberForSaveLoad, buildPayloadForReceipt, userName,
     siteName, currentGpsAddress
+  ]);
+
+  /** 현재 메모리에 있는 모든 접수번호를 한 번에 일괄 저장 */
+  const handleSaveAllDrafts = useCallback(async () => {
+    const allJobs = [
+      ...photoLogJobs,
+      ...fieldCountJobs,
+      ...drinkingWaterJobs,
+      ...structuralCheckJobs,
+      ...csvGraphJobs,
+    ];
+
+    const uniqueReceipts = Array.from(
+      new Set(allJobs.map(j => ('receiptNumber' in j ? j.receiptNumber : (j as any).receiptNumber)).filter(Boolean))
+    ) as string[];
+
+    if (uniqueReceipts.length === 0) {
+      setDraftMessage({ type: 'error', text: '저장할 작업이 없습니다.' });
+      return;
+    }
+
+    setIsSavingAll(true);
+    setDraftMessage(null);
+
+    const succeeded: string[] = [];
+    const failed: string[] = [];
+
+    for (const receipt of uniqueReceipts) {
+      try {
+        const { allItems, apiPayload } = buildPayloadForReceipt(receipt);
+        if (allItems.size === 0) continue;
+        await callSaveTempApi({
+          receipt_no: receipt,
+          site: siteName,
+          gps_address: currentGpsAddress.trim() || undefined,
+          item: Array.from(allItems),
+          user_name: userName,
+          values: apiPayload,
+        });
+        succeeded.push(receipt);
+      } catch {
+        failed.push(receipt);
+      }
+    }
+
+    if (failed.length === 0) {
+      setDraftMessage({ type: 'success', text: `전체 ${succeeded.length}건 저장 완료 (${succeeded.join(', ')})` });
+    } else {
+      setDraftMessage({ type: 'error', text: `${succeeded.length}건 성공, ${failed.length}건 실패 (실패: ${failed.join(', ')})` });
+    }
+
+    setIsSavingAll(false);
+  }, [
+    photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs,
+    buildPayloadForReceipt, userName, siteName, currentGpsAddress
   ]);
 
   const handleLoadDraft = useCallback(async () => {
@@ -1271,7 +1325,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       onClick={handleSaveDraft}
                       variant="secondary"
                       icon={isSaving ? <Spinner size="sm" /> : <SaveIcon />}
-                      disabled={isSaving || isLoading}
+                      disabled={isSaving || isSavingAll || isLoading}
                     >
                       {isSaving ? '저장 중...' : '임시 저장'}
                     </ActionButton>
@@ -1279,11 +1333,21 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       onClick={handleLoadDraft}
                       variant="secondary"
                       icon={isLoading ? <Spinner size="sm" /> : <LoadIcon />}
-                      disabled={isSaving || isLoading}
+                      disabled={isSaving || isSavingAll || isLoading}
                     >
                       {isLoading ? '로딩 중...' : '불러오기'}
                     </ActionButton>
                   </div>
+
+                  {/* 전체 저장 버튼 */}
+                  <ActionButton
+                    onClick={handleSaveAllDrafts}
+                    variant="secondary"
+                    icon={isSavingAll ? <Spinner size="sm" /> : <SaveIcon />}
+                    disabled={isSaving || isSavingAll || isLoading}
+                  >
+                    {isSavingAll ? '전체 저장 중...' : '📋 전체 저장 (모든 접수번호)'}
+                  </ActionButton>
 
                   {draftMessage && (
                     <p className={`text-xs text-center ${draftMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`} role="status">
@@ -1292,7 +1356,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                   )}
 
                   <p className="text-xs text-slate-500 text-center">
-                    임시 저장은 현재 활성 작업의 접수번호와 동일한 모든 작업을 함께 저장/불러오기 합니다.
+                    임시 저장: 현재 선택된 접수번호만 저장<br/>
+                    전체 저장: 모든 접수번호 한 번에 저장
                   </p>
                 </div>
               </div>
