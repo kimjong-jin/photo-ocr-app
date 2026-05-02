@@ -1471,12 +1471,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('data') ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}
               >
                 <div className="pt-4 px-2 space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* 1행: 임시 저장 / 불러오기 */}
+                  <div className="grid grid-cols-2 gap-3">
                     <ActionButton
                       onClick={handleSaveDraft}
                       variant="secondary"
                       icon={isSaving ? <Spinner size="sm" /> : <SaveIcon />}
-                      disabled={isSaving || isSavingAll || isLoading}
+                      disabled={isSaving || isSavingAll || isLoading || isLoadingAll}
                     >
                       {isSaving ? '저장 중...' : '임시 저장'}
                     </ActionButton>
@@ -1484,29 +1485,31 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       onClick={handleLoadDraft}
                       variant="secondary"
                       icon={isLoading ? <Spinner size="sm" /> : <LoadIcon />}
-                      disabled={isSaving || isSavingAll || isLoading}
+                      disabled={isSaving || isSavingAll || isLoading || isLoadingAll}
                     >
                       {isLoading ? '로딩 중...' : '불러오기'}
                     </ActionButton>
                   </div>
 
-                  {/* 전체 저장 / 전체 불러오기 버튼 */}
-                  <ActionButton
-                    onClick={handleSaveAllDrafts}
-                    variant="secondary"
-                    icon={isSavingAll ? <Spinner size="sm" /> : <SaveIcon />}
-                    disabled={isSaving || isSavingAll || isLoading || isLoadingAll}
-                  >
-                    {isSavingAll ? '전체 저장 중...' : '📋 전체 저장 (모든 접수번호)'}
-                  </ActionButton>
-                  <ActionButton
-                    onClick={handleLoadAllDrafts}
-                    variant="secondary"
-                    icon={isLoadingAll ? <Spinner size="sm" /> : <LoadIcon />}
-                    disabled={isSaving || isSavingAll || isLoading || isLoadingAll}
-                  >
-                    {isLoadingAll ? '전체 불러오는 중...' : '📥 전체 불러오기 (공통번호 기준)'}
-                  </ActionButton>
+                  {/* 2행: 전체 저장 / 전체 불러오기 */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <ActionButton
+                      onClick={handleSaveAllDrafts}
+                      variant="secondary"
+                      icon={isSavingAll ? <Spinner size="sm" /> : <SaveIcon />}
+                      disabled={isSaving || isSavingAll || isLoading || isLoadingAll}
+                    >
+                      {isSavingAll ? '저장 중...' : '📋 전체 저장'}
+                    </ActionButton>
+                    <ActionButton
+                      onClick={handleLoadAllDrafts}
+                      variant="secondary"
+                      icon={isLoadingAll ? <Spinner size="sm" /> : <LoadIcon />}
+                      disabled={isSaving || isSavingAll || isLoading || isLoadingAll}
+                    >
+                      {isLoadingAll ? '로딩 중...' : '📥 전체 불러오기'}
+                    </ActionButton>
+                  </div>
 
                   {draftMessage && (
                     <p className={`text-xs text-center ${draftMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`} role="status">
@@ -1515,9 +1518,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                   )}
 
                   <p className="text-xs text-slate-500 text-center">
-                    임시 저장/불러오기: 현재 선택된 접수번호<br/>
-                    전체 저장: 모든 접수번호 한 번에 저장<br/>
-                    전체 불러오기: 공통번호(예: 25-000000-01) 기준으로 -1,-2,-3... 전체 로드
+                    위: 현재 접수번호 &nbsp;|&nbsp; 아래: 전체 일괄 처리
                   </p>
                 </div>
               </div>
