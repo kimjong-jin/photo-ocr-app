@@ -473,7 +473,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setDraftMessage(null);
 
     const succeeded: string[] = [];
-    const failed: string[] = [];
+    const failed: { receipt: string; reason: string }[] = [];
 
     for (const receipt of uniqueReceipts) {
       try {
@@ -488,15 +488,21 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           values: apiPayload,
         });
         succeeded.push(receipt);
-      } catch {
-        failed.push(receipt);
+      } catch (err: any) {
+        const reason = err?.message || '알 수 없는 오류';
+        console.error(`[전체저장] 실패 (${receipt}):`, reason);
+        failed.push({ receipt, reason });
       }
     }
 
     if (failed.length === 0) {
       setDraftMessage({ type: 'success', text: `전체 ${succeeded.length}건 저장 완료 (${succeeded.join(', ')})` });
     } else {
-      setDraftMessage({ type: 'error', text: `${succeeded.length}건 성공, ${failed.length}건 실패 (실패: ${failed.join(', ')})` });
+      const firstReason = failed[0].reason;
+      setDraftMessage({
+        type: 'error',
+        text: `${succeeded.length}건 성공, ${failed.length}건 실패 — 원인: ${firstReason}`
+      });
     }
 
     setIsSavingAll(false);
