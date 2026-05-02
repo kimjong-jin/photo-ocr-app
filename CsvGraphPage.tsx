@@ -102,14 +102,26 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
 
         let combinedData: DataPoint[] = [];
         let lastContinuousTs = 0;
-        let medianInterval = 1000; // 기본 1초
-
+        
         // 파일들을 첫 데이터의 시간 순으로 정렬
         parsedResults.sort((a, b) => {
             const aTs = a.data[0]?.timestamp.getTime() || 0;
             const bTs = b.data[0]?.timestamp.getTime() || 0;
             return aTs - bTs;
         });
+
+        // ✅ 파일 내 간격 계산 전에 데이터 전체의 medianInterval(평균 주기) 먼저 파악
+        let medianInterval = 1000; // 기본 1초
+        const allIntervals: number[] = [];
+        parsedResults.forEach(p => {
+            for(let i=1; i<p.data.length; i++) {
+                allIntervals.push(p.data[i].timestamp.getTime() - p.data[i-1].timestamp.getTime());
+            }
+        });
+        if (allIntervals.length > 0) {
+            allIntervals.sort((a, b) => a - b);
+            medianInterval = allIntervals[Math.floor(allIntervals.length / 2)] || 1000;
+        }
 
         parsedResults.forEach((p, pIdx) => {
             if (p.data.length === 0) return;
@@ -139,16 +151,6 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
                     timestamp: new Date(lastContinuousTs)
                 });
             });
-            
-            // 다음 파일을 위해 현재 파일의 중간 간격 계산
-            if (p.data.length > 1) {
-                const intervals = [];
-                for(let i=1; i<p.data.length; i++) {
-                    intervals.push(p.data[i].timestamp.getTime() - p.data[i-1].timestamp.getTime());
-                }
-                intervals.sort((a,b) => a-b);
-                medianInterval = intervals[Math.floor(intervals.length / 2)] || 1000;
-            }
         });
 
         const firstParsed = parsedResults[0];
