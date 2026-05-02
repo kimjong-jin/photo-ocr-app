@@ -1,5 +1,5 @@
 import axios, { AxiosError } from "axios";
-import {
+import type {
   GenerateContentParameters,
 } from "@google/genai";
 import { callVllmApi } from "./vllmService";

@@ -4,7 +4,8 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const ALLOWED_ORIGIN = process.env.CORS_ORIGIN ?? '*';
+// ✅ CORS: www.parser.work 도메인만 허용 (해킹 방지)
+const ALLOWED_ORIGIN = process.env.CORS_ORIGIN ?? 'https://www.parser.work';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS 헤더
