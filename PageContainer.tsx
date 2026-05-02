@@ -109,6 +109,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingAll, setIsLoadingAll] = useState(false);
   const [draftMessage, setDraftMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const draftTimerRef = useRef<number | null>(null);
 
@@ -767,6 +768,150 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   }, [receiptNumber, activePage]);
 
+  /** 공통 접수번호(base)로 -1, -2, -3... 순서로 전체 불러오기 */
+  const handleLoadAllDrafts = useCallback(async () => {
+    const base = receiptNumberCommon.trim();
+    if (!base) {
+      setDraftMessage({ type: 'error', text: '접수번호(공통)를 먼저 입력하세요. 예: 25-000000-01' });
+      return;
+    }
+
+    setIsLoadingAll(true);
+    setDraftMessage(null);
+
+    const accP2: PhotoLogJob[] = [];
+    const accP3: PhotoLogJob[] = [];
+    const accP4: DrinkingWaterJob[] = [];
+    const accP1: StructuralJob[] = [];
+    const loadedReceipts: string[] = [];
+    let firstSite = '';
+    let firstGps = '';
+
+    const p1Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '수질')?.items || [];
+    const p2Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '현장 계수')?.items || [];
+    const p3Items = ANALYSIS_ITEM_GROUPS.find(g => g.label === '먹는물')?.items || [];
+    const p4Keys = MAIN_STRUCTURAL_ITEMS.map(i => i.key);
+
+    for (let i = 1; i <= 30; i++) {
+      const receipt = `${base}-${i}`;
+      try {
+        const data = await callLoadTempApi(receipt);
+        const { receipt_no, site, item: loadedItems, values, gps_address } = data;
+
+        // 첫 번째 항목에서 현장명/GPS 설정
+        if (i === 1) {
+          firstSite = site;
+          firstGps = gps_address || '';
+          try {
+            const m = JSON.parse(values?._global_metadata?.['data']?.val || '{}');
+            if (m.site) firstSite = m.site;
+            if (m.gps_address) firstGps = m.gps_address;
+          } catch {}
+        }
+
+        let inspStart: string | undefined;
+        let inspEnd: string | undefined;
+        try {
+          const m = JSON.parse(values?._global_metadata?.['data']?.val || '{}');
+          if (m.inspectionStartDate) inspStart = m.inspectionStartDate;
+          if (m.inspectionEndDate) inspEnd = m.inspectionEndDate;
+        } catch {}
+
+        const avail = { p2: new Set<string>(), p3: new Set<string>(), p4: new Set<string>(), p1: new Set<string>() };
+        if (data.values.TN && data.values.TP) {
+          if (p1Items.includes('TN/TP')) avail.p2.add('TN/TP');
+          if (p2Items.includes('TN/TP')) avail.p3.add('TN/TP');
+        }
+        loadedItems.forEach(item => {
+          if (p1Items.includes(item)) avail.p2.add(item);
+          if (p2Items.includes(item)) avail.p3.add(item);
+          if (p3Items.includes(item)) avail.p4.add(item);
+          if (p4Keys.includes(item as any)) avail.p1.add(item);
+        });
+        if (data.values.TU && data.values.Cl && p3Items.includes('TU/CL')) {
+          avail.p4.add('TU/CL'); avail.p4.delete('TU'); avail.p4.delete('Cl');
+        }
+
+        const makeP1P2Job = (itemName: string): PhotoLogJob => {
+          const ocrData: PhotoLogJob['processedOcrData'] = [];
+          if (itemName === 'TN/TP') {
+            const map: Record<string, any> = {};
+            Object.entries(values.TN || {}).forEach(([id, d]) => {
+              if (id.startsWith('_')) return;
+              const k = (d as any).time || id;
+              if (!map[k]) map[k] = { id: self.crypto.randomUUID(), time: (d as any).time };
+              map[k].value = (d as any).val; map[k].identifier = id;
+            });
+            Object.entries(values.TP || {}).forEach(([id, d]) => {
+              if (id.startsWith('_')) return;
+              const k = (d as any).time || id;
+              if (!map[k]) map[k] = { id: self.crypto.randomUUID(), time: (d as any).time };
+              map[k].valueTP = (d as any).val; map[k].identifierTP = id;
+            });
+            Object.values(map).sort((a,b) => (a.time||'').localeCompare(b.time||'')).forEach((e: any) =>
+              ocrData.push({ id: e.id, time: e.time||'', value: e.value||'', valueTP: e.valueTP, identifier: e.identifier, identifierTP: e.identifierTP })
+            );
+          } else {
+            Object.entries((values as any)[itemName] || {}).sort(([,a],[,b]) => ((a as any)?.time||'').localeCompare((b as any)?.time||'')).forEach(([id, d]) => {
+              if (id.startsWith('_')) return;
+              ocrData.push({ id: self.crypto.randomUUID(), time: String((d as any).time), value: String((d as any).val), identifier: id });
+            });
+          }
+          return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, siteLocation: site, selectedItem: itemName, photos: [], photoComments: {}, processedOcrData: ocrData, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0, details: '', decimalPlacesCl: undefined, ktlJsonPreview: null, draftJsonPreview: null, submissionStatus: 'idle', submissionMessage: undefined, inspectionStartDate: inspStart, inspectionEndDate: inspEnd };
+        };
+
+        const makeDWJob = (itemName: string): DrinkingWaterJob => {
+          let details = '', dp = 2, dpCl: number | undefined;
+          try { const m = JSON.parse(values[itemName]?._p3_metadata?.val || '{}'); details = m.details||''; dp = m.decimalPlaces??2; if (itemName==='TU/CL') dpCl = m.decimalPlacesCl??2; } catch {}
+          const ocrData = DRINKING_WATER_IDENTIFIERS.map(identifier => {
+            const entry: any = { id: self.crypto.randomUUID(), time: '', value: '', identifier };
+            if (itemName === 'TU/CL') entry.valueTP = '';
+            const tu = data.values.TU || {}, cl = data.values.Cl || {};
+            if (itemName==='TU') { entry.value=tu[identifier]?.val||''; entry.time=tu[identifier]?.time||''; }
+            else if (itemName==='Cl') { entry.value=cl[identifier]?.val||''; entry.time=cl[identifier]?.time||''; }
+            else if (itemName==='TU/CL') { entry.value=tu[identifier]?.val||''; entry.valueTP=cl[identifier]?.val||''; entry.time=tu[identifier]?.time||cl[identifier]?.time||''; }
+            return entry;
+          });
+          return { id: self.crypto.randomUUID(), receiptNumber: receipt_no, selectedItem: itemName, details, processedOcrData: ocrData, decimalPlaces: dp, photos: [], submissionStatus: 'idle', submissionMessage: undefined, ...(itemName==='TU/CL' && { decimalPlacesCl: dpCl }) };
+        };
+
+        Array.from(avail.p2).forEach(item => accP2.push(makeP1P2Job(item)));
+        Array.from(avail.p3).forEach(item => accP3.push(makeP1P2Job(item)));
+        Array.from(avail.p4).forEach(item => accP4.push(makeDWJob(item)));
+        Array.from(avail.p1).forEach(itemName => {
+          const d = (values as any)[itemName];
+          if (!d?.['_checklistData']) return;
+          accP1.push({ id: self.crypto.randomUUID(), receiptNumber: receipt_no, mainItemKey: itemName as MainStructuralItemKey, checklistData: JSON.parse(d['_checklistData'].val), postInspectionDate: d['_postInspectionDate']?.val||'선택 안됨', postInspectionDateConfirmedAt: null, photos: [], photoComments: {}, submissionStatus: 'idle', submissionMessage: undefined } as StructuralJob);
+        });
+
+        loadedReceipts.push(receipt_no);
+      } catch (err: any) {
+        const msg = err?.message || '';
+        if (msg.includes('찾을 수 없습니다') || msg.includes('not found') || msg.includes('404')) break;
+        console.warn(`[전체불러오기] ${receipt} 오류:`, msg);
+      }
+    }
+
+    if (loadedReceipts.length === 0) {
+      setDraftMessage({ type: 'error', text: `저장된 데이터 없음: '${base}-1'부터 찾을 수 없습니다.` });
+      setIsLoadingAll(false);
+      return;
+    }
+
+    const loaded = new Set(loadedReceipts);
+    setSiteName(firstSite);
+    setCurrentGpsAddress(firstGps);
+    setReceiptNumberCommon(base);
+    setReceiptNumberDetail('');
+    if (accP2.length > 0) setPhotoLogJobs(prev => [...prev.filter(j => !loaded.has(j.receiptNumber)), ...accP2]);
+    if (accP3.length > 0) setFieldCountJobs(prev => [...prev.filter(j => !loaded.has(j.receiptNumber)), ...accP3]);
+    if (accP4.length > 0) setDrinkingWaterJobs(prev => [...prev.filter(j => !loaded.has(j.receiptNumber)), ...accP4]);
+    if (accP1.length > 0) setStructuralCheckJobs(prev => [...prev.filter(j => !loaded.has(j.receiptNumber)), ...accP1]);
+
+    setDraftMessage({ type: 'success', text: `전체 ${loadedReceipts.length}건 불러오기 완료 (${loadedReceipts.join(', ')})` });
+    setIsLoadingAll(false);
+  }, [receiptNumberCommon]);
+
   const handleAddTask = useCallback(() => {
     const isCsvPage = activePage === 'csvGraph';
 
@@ -1345,14 +1490,22 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     </ActionButton>
                   </div>
 
-                  {/* 전체 저장 버튼 */}
+                  {/* 전체 저장 / 전체 불러오기 버튼 */}
                   <ActionButton
                     onClick={handleSaveAllDrafts}
                     variant="secondary"
                     icon={isSavingAll ? <Spinner size="sm" /> : <SaveIcon />}
-                    disabled={isSaving || isSavingAll || isLoading}
+                    disabled={isSaving || isSavingAll || isLoading || isLoadingAll}
                   >
                     {isSavingAll ? '전체 저장 중...' : '📋 전체 저장 (모든 접수번호)'}
+                  </ActionButton>
+                  <ActionButton
+                    onClick={handleLoadAllDrafts}
+                    variant="secondary"
+                    icon={isLoadingAll ? <Spinner size="sm" /> : <LoadIcon />}
+                    disabled={isSaving || isSavingAll || isLoading || isLoadingAll}
+                  >
+                    {isLoadingAll ? '전체 불러오는 중...' : '📥 전체 불러오기 (공통번호 기준)'}
                   </ActionButton>
 
                   {draftMessage && (
@@ -1362,8 +1515,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                   )}
 
                   <p className="text-xs text-slate-500 text-center">
-                    임시 저장: 현재 선택된 접수번호만 저장<br/>
-                    전체 저장: 모든 접수번호 한 번에 저장
+                    임시 저장/불러오기: 현재 선택된 접수번호<br/>
+                    전체 저장: 모든 접수번호 한 번에 저장<br/>
+                    전체 불러오기: 공통번호(예: 25-000000-01) 기준으로 -1,-2,-3... 전체 로드
                   </p>
                 </div>
               </div>
