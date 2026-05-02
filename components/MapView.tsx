@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { getKakaoAddress, searchAddressByKeyword } from "../services/kakaoService";
+import { getKakaoAddress, searchAddressByKeyword, enforceFullRegionPrefix } from "../services/kakaoService";
 
 interface MapViewProps {
   latitude: number;
@@ -176,8 +176,9 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     marker.setPosition(coords);
 
     if (addr) {
-      setCurrentGpsAddress(addr);
-      onSelectRef.current?.(addr, Number(y), Number(x));
+      const normalizedAddr = enforceFullRegionPrefix(addr);
+      setCurrentGpsAddress(normalizedAddr);
+      onSelectRef.current?.(normalizedAddr, Number(y), Number(x));
     }
     setSearchResults([]);
   };
@@ -207,6 +208,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
           placeholder="주소 또는 명칭 검색"
           style={{
             flex: 1,
@@ -234,9 +236,9 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
         </button>
       </div>
 
-      <div style={{ position: "absolute", top: "420px", left: "50%", transform: "translateX(-50%)" }}>
-        <strong>현재 주소 (GPS):</strong>
-        <div>{currentGpsAddress || "주소를 찾을 수 없습니다."}</div>
+      {/* 현재 주소 표시 - 지도 아래 일반 흐름으로 배치 */}
+      <div style={{ padding: "8px 12px", background: "#f8f9fa", borderTop: "1px solid #e9ecef", fontSize: "13px", color: "#333" }}>
+        <strong>현재 주소:</strong> {currentGpsAddress || "지도를 클릭하면 주소가 표시됩니다."}
       </div>
 
       {searchResults.length > 0 && (

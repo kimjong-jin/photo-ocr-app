@@ -26,7 +26,7 @@ import {
   PREFERRED_MEASUREMENT_METHODS
 } from './shared/StructuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
-import { getKakaoAddress, searchAddressByKeyword } from './services/kakaoService';
+import { getKakaoAddress, searchAddressByKeyword, enforceFullRegionPrefix } from './services/kakaoService';
 import ApplicationOcrSection, { type Application } from './components/ApplicationOcrSection';
 import { supabase } from './services/supabaseClient';
 
@@ -1088,7 +1088,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
         if (!isNaN(newLat) && !isNaN(newLng)) {
           setCoords({ lat: newLat, lng: newLng });
-          setCurrentGpsAddress(firstResult.road_address_name || firstResult.address_name);
+          setCurrentGpsAddress(enforceFullRegionPrefix(firstResult.road_address_name || firstResult.address_name));
         } else {
           throw new Error("검색 결과에서 유효한 좌표를 받지 못했습니다.");
         }
