@@ -1,0 +1,587 @@
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { ActionButton } from './components/ActionButton';
+import { Spinner } from './components/Spinner';
+import { CsvDisplay } from './components/csv/CsvDisplay';
+import { parseGraphtecCsv } from './utils/parseGraphtecCsv';
+import { sendCsvGraphToKtlApi } from './services/claydoxApiService';
+import * as XLSX from 'xlsx';
+import type { 
+    CsvGraphJob, 
+    SensorType,
+    AiAnalysisPoint,
+    DataPoint,
+    ParsedCsvData
+} from './types/csvGraph';
+
+interface CsvGraphPageProps {
+  userName: string;
+  jobs: CsvGraphJob[];
+  setJobs: React.Dispatch<React.SetStateAction<CsvGraphJob[]>>;
+  activeJobId: string | null;
+  setActiveJobId: (id: string | null) => void;
+  siteLocation: string;
+  onDeleteJob: (jobId: string) => void;
+}
+
+const TrashIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
+    </svg>
+);
+
+const ONE_MINUTE_MS = 60 * 1000;
+
+const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob }) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [placingAiPointLabel, setPlacingAiPointLabel] = useState<string | null>(null);
+  const [isFullScreenGraph, setIsFullScreenGraph] = useState(false);
+  const [sequentialPlacementState, setSequentialPlacementState] = useState({ isActive: false, currentIndex: 0 });
+  
+  const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
+
+  const updateActiveJob = useCallback((updater: (job: CsvGraphJob) => CsvGraphJob) => {
+    if (!activeJobId) return;
+    setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
+  }, [activeJobId, setJobs]);
+
+  const { fullTimeRange } = useMemo(() => {
+    if (!activeJob?.parsedData?.data || activeJob.parsedData.data.length < 2) {
+      return { fullTimeRange: null };
+    }
+    const minTimestamp = activeJob.parsedData.data[0].timestamp.getTime();
+    const maxTimestamp = activeJob.parsedData.data[activeJob.parsedData.data.length - 1].timestamp.getTime();
+    return { fullTimeRange: { min: minTimestamp, max: maxTimestamp } };
+  }, [activeJob?.parsedData]);
+
+  useEffect(() => {
+    if (fullTimeRange && activeJob && activeJob.viewEndTimestamp === null) {
+        updateActiveJob(j => ({ ...j, viewEndTimestamp: fullTimeRange.max }));
+    }
+  }, [fullTimeRange, activeJob, updateActiveJob]);
+
+  useEffect(() => {
+    setSequentialPlacementState({ isActive: false, currentIndex: 0 });
+  }, [activeJobId, activeJob?.fileName]);
+
+  const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!activeJob) {
+        alert("파일을 업로드할 작업을 먼저 선택하거나 추가해주세요.");
+        return;
+    }
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+        const fileArray = Array.from(files) as File[];
+        const parsedResults: ParsedCsvData[] = [];
+        let combinedRawContent = "";
+
+        for (const file of fileArray) {
+            let content = "";
+            let parsed: ParsedCsvData;
+            
+            if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
+                const data = await file.arrayBuffer();
+                const workbook = XLSX.read(data);
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                content = XLSX.utils.sheet_to_csv(worksheet);
+                parsed = parseGraphtecCsv(content, file.name);
+            } else {
+                content = await file.text();
+                parsed = parseGraphtecCsv(content, file.name);
+            }
+            combinedRawContent += (combinedRawContent ? "\n" : "") + content;
+            parsedResults.push(parsed);
+        }
+
+        let combinedData: DataPoint[] = [];
+        let lastContinuousTs = 0;
+        let medianInterval = 1000; // 기본 1초
+
+        // 파일들을 첫 데이터의 시간 순으로 정렬
+        parsedResults.sort((a, b) => {
+            const aTs = a.data[0]?.timestamp.getTime() || 0;
+            const bTs = b.data[0]?.timestamp.getTime() || 0;
+            return aTs - bTs;
+        });
+
+        parsedResults.forEach((p, pIdx) => {
+            if (p.data.length === 0) return;
+            
+            const firstTs = p.data[0].timestamp.getTime();
+            
+            if (pIdx === 0) {
+                lastContinuousTs = firstTs;
+            } else {
+                // 이전 파일의 마지막 지점 바로 뒤에 붙임 (사용자 요청: 절단된 데이터 연계)
+                lastContinuousTs += medianInterval; 
+            }
+
+            p.data.forEach((d, dIdx) => {
+                const actualGap = dIdx === 0 ? 0 : d.timestamp.getTime() - p.data[dIdx-1].timestamp.getTime();
+                
+                // 파일 내부의 큰 공백도 메움 (사용자 요청: "절단된 11:00+13:00 바로 붙어야한다")
+                const effectiveGap = (actualGap > medianInterval * 5) ? medianInterval : actualGap;
+                
+                if (dIdx > 0) {
+                    lastContinuousTs += effectiveGap;
+                }
+                
+                combinedData.push({
+                    ...d,
+                    realTimestamp: d.timestamp,
+                    timestamp: new Date(lastContinuousTs)
+                });
+            });
+            
+            // 다음 파일을 위해 현재 파일의 중간 간격 계산
+            if (p.data.length > 1) {
+                const intervals = [];
+                for(let i=1; i<p.data.length; i++) {
+                    intervals.push(p.data[i].timestamp.getTime() - p.data[i-1].timestamp.getTime());
+                }
+                intervals.sort((a,b) => a-b);
+                medianInterval = intervals[Math.floor(intervals.length / 2)] || 1000;
+            }
+        });
+
+        const firstParsed = parsedResults[0];
+        const fileNames = fileArray.map(f => (f as File).name).join(', ');
+
+        updateActiveJob(job => ({
+            ...job,
+            fileName: fileNames,
+            csvRawContent: combinedRawContent, // 원본 내용 저장
+            parsedData: {
+                channels: firstParsed.channels,
+                data: combinedData,
+                fileName: fileNames,
+                measurementRange: firstParsed.measurementRange
+            },
+            channelAnalysis: job.fileName === fileNames ? job.channelAnalysis : {},
+            autoMinMaxResults: null,
+            selectedChannelId: job.fileName === fileNames ? job.selectedChannelId : (firstParsed.channels[0]?.id || null),
+            timeRangeInMs: job.fileName === fileNames ? job.timeRangeInMs : 'all',
+            viewEndTimestamp: null,
+            isRangeSelecting: false,
+            isMaxMinMode: false,
+            rangeSelection: null,
+        }));
+
+    } catch (err: any) {
+        setError(err?.message || '파일 처리 중 오류가 발생했습니다.');
+        updateActiveJob(j => ({...j, parsedData: null, fileName: '오류'}));
+    } finally {
+        setIsLoading(false);
+    }
+  }, [activeJob, updateActiveJob]);
+
+  const handleClear = () => {
+    if (!activeJob) return;
+    updateActiveJob(job => ({
+        ...job,
+        fileName: null,
+        csvRawContent: undefined,
+        parsedData: null,
+        details: '',
+        channelAnalysis: {},
+        autoMinMaxResults: null,
+        selectedChannelId: null,
+        timeRangeInMs: 'all',
+        viewEndTimestamp: null,
+        isRangeSelecting: false,
+        isMaxMinMode: false,
+        rangeSelection: null,
+    }));
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+  
+  const { yMinMaxPerChannel } = useMemo(() => {
+    if (!activeJob?.parsedData?.data || activeJob.parsedData.data.length === 0) {
+      return { yMinMaxPerChannel: [] };
+    }
+    const minMax: ({ yMin: number; yMax: number } | null)[] = activeJob.parsedData.channels.map((_, channelIndex) => {
+      const yValues = activeJob.parsedData!.data.map(d => d.values[channelIndex]).filter(v => v !== null) as number[];
+      if (yValues.length === 0) return null;
+      let yMin = Math.min(...yValues);
+      let yMax = Math.max(...yValues);
+      if (yMin === yMax) { yMin -= 1; yMax += 1; }
+      const yRange = yMax - yMin;
+      return { yMin: yMin - yRange * 0.1, yMax: yMax + yRange * 0.1 };
+    });
+    return { yMinMaxPerChannel: minMax };
+  }, [activeJob?.parsedData]);
+  
+  const viewMemo = useMemo(() => {
+    if (!activeJob?.parsedData?.data || activeJob.parsedData.data.length === 0 || activeJob.timeRangeInMs === 'all' || activeJob.viewEndTimestamp === null) {
+      return { filteredData: activeJob?.parsedData?.data || [], currentWindowDisplay: "전체 기간" };
+    }
+    const endTime = activeJob.viewEndTimestamp;
+    const startTime = endTime - activeJob.timeRangeInMs;
+    const dataInWindow = activeJob.parsedData.data.filter(d => {
+        const time = d.timestamp.getTime();
+        return time >= startTime && time <= endTime;
+    });
+    const windowDisplay = `${new Date(startTime).toLocaleString()} ~ ${new Date(endTime).toLocaleString()}`;
+    return { filteredData: dataInWindow, currentWindowDisplay: windowDisplay };
+  }, [activeJob]);
+
+  const { isAtStart, isAtEnd } = useMemo(() => {
+    if (!fullTimeRange || !activeJob || activeJob.viewEndTimestamp === null || activeJob.timeRangeInMs === 'all' || typeof activeJob.timeRangeInMs !== 'number') {
+      return { isAtStart: true, isAtEnd: true };
+    }
+    const startTime = activeJob.viewEndTimestamp - activeJob.timeRangeInMs;
+    return {
+      isAtStart: startTime <= fullTimeRange.min,
+      isAtEnd: activeJob.viewEndTimestamp >= fullTimeRange.max
+    };
+  }, [fullTimeRange, activeJob]);
+  
+  const { selectedChannel, selectedChannelIndex } = useMemo(() => {
+    if (!activeJob?.parsedData || !activeJob.selectedChannelId) return { selectedChannel: null, selectedChannelIndex: -1 };
+    const index = activeJob.parsedData.channels.findIndex(c => c.id === activeJob.selectedChannelId);
+    return { selectedChannel: index > -1 ? activeJob.parsedData.channels[index] : null, selectedChannelIndex: index };
+  }, [activeJob]);
+
+
+  const handleTimeRangeChange = (newTimeRange: 'all' | number) => {
+    if (!fullTimeRange || !activeJob) return;
+    const oldTimeRangeNum = typeof activeJob.timeRangeInMs === 'number' ? activeJob.timeRangeInMs : (fullTimeRange.max - fullTimeRange.min);
+    let currentCenterTimestamp = (activeJob.timeRangeInMs === 'all' || activeJob.viewEndTimestamp === null) 
+        ? (fullTimeRange.min + fullTimeRange.max) / 2 
+        : activeJob.viewEndTimestamp - (oldTimeRangeNum / 2);
+
+    if (newTimeRange === 'all') {
+        updateActiveJob(j => ({...j, timeRangeInMs: 'all', viewEndTimestamp: null }));
+    } else {
+        const newRangeNum = newTimeRange as number;
+        let newEndTimestamp = currentCenterTimestamp + (newRangeNum / 2);
+        newEndTimestamp = Math.max(fullTimeRange.min + newRangeNum, Math.min(newEndTimestamp, fullTimeRange.max));
+        updateActiveJob(j => ({...j, timeRangeInMs: newRangeNum, viewEndTimestamp: newEndTimestamp }));
+    }
+  };
+  
+  const handlePan = useCallback((panAmountMs: number) => {
+    if (!activeJob || activeJob.timeRangeInMs === 'all' || !fullTimeRange || typeof activeJob.timeRangeInMs !== 'number') return;
+    const timeRangeNumber = activeJob.timeRangeInMs;
+    updateActiveJob(job => {
+        if (job.viewEndTimestamp === null) return job;
+        const newEnd = job.viewEndTimestamp + panAmountMs;
+        return {...job, viewEndTimestamp: Math.max(fullTimeRange.min + timeRangeNumber, Math.min(newEnd, fullTimeRange.max))};
+    });
+  }, [activeJob, fullTimeRange, updateActiveJob]);
+
+  const handleZoom = useCallback((zoomFactor: number, centerTimestamp: number) => {
+    if (!activeJob || !fullTimeRange || typeof activeJob.timeRangeInMs !== 'number') return;
+    const timeRangeNumber = activeJob.timeRangeInMs;
+    const newTimeRangeInMs = Math.max(60 * 1000, Math.min(fullTimeRange.max - fullTimeRange.min, timeRangeNumber / zoomFactor));
+    if (Math.abs(newTimeRangeInMs - timeRangeNumber) < 1) return;
+    updateActiveJob(job => {
+        if (job.viewEndTimestamp === null || typeof job.timeRangeInMs !== 'number') return job;
+        const oldDistanceFromEnd = job.viewEndTimestamp - centerTimestamp;
+        const newDistanceFromEnd = oldDistanceFromEnd * (newTimeRangeInMs / job.timeRangeInMs);
+        let newViewEndTimestamp = Math.max(fullTimeRange.min + newTimeRangeInMs, Math.min(centerTimestamp + newDistanceFromEnd, fullTimeRange.max));
+        return { ...job, timeRangeInMs: newTimeRangeInMs, viewEndTimestamp: newViewEndTimestamp };
+    });
+  }, [activeJob, fullTimeRange, updateActiveJob]);
+  
+  const handleNavigate = (newEndTimestamp: number) => {
+    if (!activeJob || !fullTimeRange) return;
+    const range = typeof activeJob.timeRangeInMs === 'number' ? activeJob.timeRangeInMs : (fullTimeRange.max - fullTimeRange.min);
+    const clampedTimestamp = Math.max(fullTimeRange.min + range, Math.min(newEndTimestamp, fullTimeRange.max));
+    updateActiveJob(j => ({...j, viewEndTimestamp: clampedTimestamp}));
+  };
+
+  const handleFinePan = (direction: number) => handlePan(direction * ONE_MINUTE_MS);
+
+  const toggleAnalysisMode = (channelId: string) => {
+    updateActiveJob(job => {
+        const current = job.channelAnalysis[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
+        return { ...job, isMaxMinMode: false, isRangeSelecting: false, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...current, isAnalyzing: !current.isAnalyzing, selection: { start: null, end: null } } } };
+    });
+  };
+
+  const toggleMaxMinMode = () => {
+    updateActiveJob(job => {
+        const currentMode = !job.isMaxMinMode;
+        const newChannelAnalysis = { ...job.channelAnalysis };
+        Object.keys(newChannelAnalysis).forEach(cid => {
+            newChannelAnalysis[cid] = { ...newChannelAnalysis[cid], selection: { start: null, end: null } };
+        });
+        return { ...job, isMaxMinMode: currentMode, isRangeSelecting: false, channelAnalysis: newChannelAnalysis, rangeSelection: null };
+    });
+  };
+  
+  const handleClearAnalysis = useCallback(() => {
+    if (!activeJob) return;
+    updateActiveJob(job => ({ ...job, channelAnalysis: {}, autoMinMaxResults: null, aiAnalysisResult: null, isRangeSelecting: false, isMaxMinMode: false, rangeSelection: null }));
+  }, [activeJob, updateActiveJob]);
+
+  const handleCancelSelection = (channelId: string) => {
+    updateActiveJob(job => {
+        const current = job.channelAnalysis[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
+        return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...current, selection: { start: null, end: null } }}};
+    });
+  };
+
+  const handleUndoLastResult = (channelId: string) => {
+      updateActiveJob(job => {
+          const current = job.channelAnalysis[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
+          if (current.results.length === 0) return job;
+          return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...current, results: current.results.slice(0, -1) }}};
+      });
+  };
+
+  const handleDeleteManualResult = useCallback((channelId: string, resultId: string) => {
+      updateActiveJob(job => {
+          const current = job.channelAnalysis[channelId];
+          if (!current) return job;
+          return {
+              ...job,
+              channelAnalysis: {
+                  ...job.channelAnalysis,
+                  [job.selectedChannelId!]: { ...current, results: current.results.filter(r => r.id !== resultId) }
+              }
+          };
+      });
+  }, [updateActiveJob]);
+
+  const handlePointSelect = useCallback((channelId: string, point: { timestamp: Date; value: number; realTimestamp?: Date }) => {
+    if (!activeJob?.parsedData) return;
+    const channelIndex = activeJob.parsedData.channels.findIndex(c => c.id === channelId);
+    if (channelIndex === -1) return;
+
+    updateActiveJob(job => {
+      const state = job.channelAnalysis[channelId] || { isAnalyzing: false, selection: { start: null, end: null }, results: [] };
+      if (job.isMaxMinMode) {
+          if (!state.selection.start) {
+              return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...state, selection: { start: point, end: null } } }};
+          }
+          const [startTime, endTime] = [state.selection.start.timestamp, point.timestamp].sort((a, b) => a.getTime() - b.getTime());
+          const [realStartTime, realEndTime] = [state.selection.start.realTimestamp, point.realTimestamp].sort((a, b) => (a?.getTime() || 0) - (b?.getTime() || 0));
+          
+          const valuesInRange = (job.parsedData?.data || []).filter(d => d.timestamp >= startTime && d.timestamp <= endTime).map(d => d.values[channelIndex]).filter(v => v !== null) as number[];
+          
+          if (valuesInRange.length < 1) {
+              return { ...job, channelAnalysis: {...job.channelAnalysis, [channelId]: { ...state, selection: { start: null, end: null } } }};
+          }
+          
+          const min = Math.min(...valuesInRange);
+          const max = Math.max(...valuesInRange);
+          return { 
+              ...job, 
+              channelAnalysis: { 
+                  ...job.channelAnalysis, 
+                  [channelId]: { 
+                      ...state, 
+                      selection: { start: null, end: null }, 
+                      results: [...state.results, { id: self.crypto.randomUUID(), min, max, diff: max - min, startTime, endTime, realStartTime, realEndTime }] 
+                  }
+              }
+          };
+      }
+      return job;
+    });
+  }, [activeJob?.parsedData, updateActiveJob]);
+
+    const handleManualAiPointPlacement = useCallback((label: string, point: { timestamp: Date; value: number; realTimestamp?: Date }) => {
+        updateActiveJob(job => ({
+            ...job,
+            aiAnalysisResult: {
+                ...(job.aiAnalysisResult || {}),
+                [label.toLowerCase()]: { 
+                    timestamp: point.timestamp.toISOString(), 
+                    realTimestamp: point.realTimestamp?.toISOString(),
+                    value: point.value 
+                }
+            }
+        }));
+        setPlacingAiPointLabel(null);
+    }, [updateActiveJob]);
+
+    const SEQUENTIAL_POINT_ORDER = useMemo(() => {
+        const type = activeJob?.sensorType;
+        switch (type) {
+            case 'PH':
+                return [
+                    '(A)_4_1', '(A)_4_2', '(A)_4_3', '(A)_7_1', '(A)_7_2', '(A)_7_3', '(A)_10_1', '(A)_10_2', '(A)_10_3',
+                    '(B)_7_1', '(B)_4_1', '(B)_7_2', '(B)_4_2', '(B)_7_3', '(B)_4_3',
+                    '(C)_4_1', '(C)_4_2', '(C)_4_3', '(C)_7_1', '(C)_7_2', '(C)_7_3', '(C)_4_4', '(C)_4_5', '(C)_4_6', '(C)_7_4', '(C)_7_5', '(C)_7_6',
+                    '4_10', '4_15', '4_20', '4_25', '4_30', 'ST', 'EN', '현장1', '현장2'
+                ];
+            case 'SS':
+                return ['M1', 'M2', 'M3', 'Z1', 'Z2', 'S1', 'S2', 'Z3', 'Z4', 'S3', 'S4', 'Z5', 'S5', 'Z6', 'S6', 'Z7', 'S7', '현장1', '현장2'];
+            case 'DO':
+                return ['(A)_S1', '(A)_S2', '(A)_S3', 'S_1', 'S_2', 'S_3', 'Z_1', 'Z_2', 'Z_3', 'Z_4', 'Z_5', 'Z_6', 'S_4', 'S_5', 'S_6', '20_S_1', '20_S_2', '20_S_3', '30_S_1', '30_S_2', '30_S_3', 'ST', 'EN'];
+            default:
+                return ['Z1', 'Z2', 'S1', 'S2', 'Z3', 'Z4', 'S3', 'S4', 'Z5', 'S5', 'M1', 'ST', 'EN'];
+        }
+    }, [activeJob?.sensorType]);
+
+    const handleToggleSequentialPlacement = useCallback(() => {
+        setPlacingAiPointLabel(null);
+        setSequentialPlacementState(prev => ({ isActive: !prev.isActive, currentIndex: 0 }));
+    }, []);
+
+    const handleUndoSequentialPlacement = useCallback(() => {
+        if (!sequentialPlacementState.isActive || sequentialPlacementState.currentIndex === 0) return;
+
+        const prevIndex = sequentialPlacementState.currentIndex - 1;
+        const prevLabel = SEQUENTIAL_POINT_ORDER[prevIndex];
+
+        if (prevLabel) {
+            updateActiveJob(job => {
+                const newAiResult = { ...(job.aiAnalysisResult || {}) };
+                delete (newAiResult as any)[prevLabel.toLowerCase()];
+                return { ...job, aiAnalysisResult: newAiResult };
+            });
+        }
+
+        setSequentialPlacementState(prev => ({ ...prev, currentIndex: prevIndex }));
+    }, [sequentialPlacementState, SEQUENTIAL_POINT_ORDER, updateActiveJob]);
+    
+    const handleSetIndividualPointMode = useCallback((label: string | null) => {
+        setSequentialPlacementState({ isActive: false, currentIndex: 0 });
+        setPlacingAiPointLabel(label);
+    }, []);
+
+    const handleSequentialPointPlacement = useCallback((point: { timestamp: Date; value: number; realTimestamp?: Date }) => {
+        if (!sequentialPlacementState.isActive) return;
+        const pointLabel = SEQUENTIAL_POINT_ORDER[sequentialPlacementState.currentIndex];
+        if (!pointLabel) {
+            setSequentialPlacementState({ isActive: false, currentIndex: 0 });
+            return;
+        }
+        
+        updateActiveJob(job => ({
+            ...job,
+            aiAnalysisResult: {
+                ...(job.aiAnalysisResult || {}),
+                [pointLabel.toLowerCase()]: { 
+                    timestamp: point.timestamp.toISOString(), 
+                    realTimestamp: point.realTimestamp?.toISOString(),
+                    value: point.value 
+                }
+            }
+        }));
+
+        const nextIndex = sequentialPlacementState.currentIndex + 1;
+        if (nextIndex >= SEQUENTIAL_POINT_ORDER.length) {
+            setSequentialPlacementState({ isActive: false, currentIndex: 0 });
+            alert("순차 지정이 완료되었습니다.");
+        } else {
+            setSequentialPlacementState(prev => ({ ...prev, currentIndex: nextIndex }));
+        }
+    }, [sequentialPlacementState, SEQUENTIAL_POINT_ORDER, updateActiveJob]);
+
+    const handleSendToKtl = async (graphBlob: Blob, tableBlob: Blob, results: any[]) => {
+      if (!activeJob) return;
+      
+      const graphFile = new File([graphBlob], `${activeJob.receiptNumber}_graph.png`, { type: 'image/png' });
+      const tableFile = new File([tableBlob], `${activeJob.receiptNumber}_table.png`, { type: 'image/png' });
+
+      try {
+        updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: 'KTL API로 전송 중...' }));
+        const response = await sendCsvGraphToKtlApi(
+          activeJob,
+          graphFile,
+          tableFile,
+          results,
+          userName,
+          siteLocation,
+          activeJob.csvRawContent, // 원본 내용 전달
+          'p6_check'
+        );
+        updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
+      } catch (err: any) {
+        updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${err.message}` }));
+      }
+    };
+
+  return (
+    <div className={`w-full max-w-7xl bg-slate-800 shadow-2xl space-y-6 ${isFullScreenGraph ? '' : 'sm:rounded-xl sm:p-6 lg:p-8'}`}>
+      <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">CSV 그래프 (P6)</h2>
+      
+      {jobs.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
+          <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
+            {jobs.map(job => (
+              <div key={job.id} onClick={() => setActiveJobId(job.id)} className={`p-2.5 rounded-md cursor-pointer transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}>
+                <div className="flex justify-between items-center">
+                  <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>{job.receiptNumber || `작업 (${job.sensorType})`} {job.fileName && `/ ${job.fileName}`}</span>
+                  <button onClick={(e) => { e.stopPropagation(); onDeleteJob(job.id); }} className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0"><TrashIcon /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {activeJob && !activeJob.parsedData && (
+          <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 flex flex-col sm:flex-row gap-4 items-center">
+              <div className="flex-grow text-center sm:text-left">
+                  <input ref={fileInputRef} id="csv-upload-prompt" type="file" multiple onChange={handleFileChange} className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-500 file:text-white hover:file:bg-sky-600" disabled={isLoading} />
+                  <p className="mt-2 text-xs text-slate-400">※ 끊긴 파일이 있다면 여러 장을 동시에 선택하여 업로드하세요. 자동으로 연결됩니다.</p>
+              </div>
+              <ActionButton onClick={handleClear} variant="secondary" disabled={isLoading}>초기화</ActionButton>
+          </div>
+      )}
+      
+      {isLoading && (<div className="flex justify-center items-center py-10"><Spinner /><span className="ml-3 text-slate-300">파일을 분석 중입니다...</span></div>)}
+      {error && <p className="text-red-400 text-center p-4 bg-red-900/30 rounded-md">{error}</p>}
+
+      {activeJob && activeJob.parsedData && (
+        <CsvDisplay
+          activeJob={activeJob}
+          yMinMaxPerChannel={yMinMaxPerChannel}
+          viewMemo={viewMemo}
+          fullTimeRange={fullTimeRange}
+          isAtStart={isAtStart}
+          isAtEnd={isAtEnd}
+          selectedChannel={selectedChannel}
+          selectedChannelIndex={selectedChannelIndex}
+          updateActiveJob={updateActiveJob}
+          handleTimeRangeChange={handleTimeRangeChange}
+          handleFinePan={handleFinePan}
+          handlePan={handlePan}
+          handleZoom={handleZoom}
+          handleNavigate={handleNavigate}
+          toggleAnalysisMode={toggleAnalysisMode}
+          toggleMaxMinMode={toggleMaxMinMode}
+          handleUndoLastResult={handleUndoLastResult}
+          handleDeleteManualResult={handleDeleteManualResult}
+          handleResetAnalysis={handleClearAnalysis}
+          handleCancelSelection={handleCancelSelection}
+          handlePointSelect={handlePointSelect}
+          handlePhaseTimeChange={() => {}}
+          placingAiPointLabel={placingAiPointLabel}
+          setPlacingAiPointLabel={handleSetIndividualPointMode}
+          handleManualAiPointPlacement={handleManualAiPointPlacement}
+          handleAutoMinMaxResultChange={() => {}}
+          handleManualAnalysisResultChange={() => {}}
+          isPhaseAnalysisModified={false}
+          handleReapplyAnalysis={async () => {}}
+          isFullScreenGraph={isFullScreenGraph}
+          setIsFullScreenGraph={setIsFullScreenGraph}
+          sequentialPlacementState={sequentialPlacementState}
+          handleToggleSequentialPlacement={handleToggleSequentialPlacement}
+          handleUndoSequentialPlacement={handleUndoSequentialPlacement}
+          handleSequentialPointPlacement={handleSequentialPointPlacement}
+          sensorType={activeJob.sensorType}
+          SEQUENTIAL_POINT_ORDER={SEQUENTIAL_POINT_ORDER}
+          onSendToKtl={handleSendToKtl}
+        />
+      )}
+    </div>
+  );
+};
+
+export default CsvGraphPage;

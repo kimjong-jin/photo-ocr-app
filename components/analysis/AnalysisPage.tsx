@@ -1,0 +1,1510 @@
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { ImageInput, ImageInfo as BaseImageInfo } from '../ImageInput';
+import { CameraView } from '../CameraView';
+import { ImagePreview } from '../ImagePreview';
+import { OcrControls } from '../OcrControls';
+import { OcrResultDisplay } from '../OcrResultDisplay';
+import {
+  RangeDifferenceDisplay,
+  RangeResults as DisplayRangeResults,
+  RangeStat,
+} from '../RangeDifferenceDisplay';
+import { extractTextFromImage } from '../../services/geminiService';
+import {
+  sendToClaydoxApi,
+  ClaydoxPayload,
+  generateKtlJsonForPreview,
+} from '../../services/claydoxApiService';
+import JSZip from 'jszip';
+// ✅ constants에서 alias 포함해서 import
+import { IDENTIFIER_OPTIONS, TN_IDENTIFIERS, TP_IDENTIFIERS, P3_TN_IDENTIFIERS, P3_TP_IDENTIFIERS, P3_SINGLE_ITEM_IDENTIFIERS } from '../../shared/constants';
+import KtlPreflightModal, { KtlPreflightData } from '../KtlPreflightModal';
+import { ThumbnailGallery } from '../ThumbnailGallery';
+import { Type } from '@google/genai';
+import { ActionButton } from '../ActionButton';
+import { Spinner } from '../Spinner';
+import {
+  generateA4CompositeJPEGPages,
+  dataURLtoBlob,
+  generateStampedImage,
+  CompositeImageInput,
+  compressImage,
+} from '../../services/imageStampingService';
+import { autoAssignIdentifiersByConcentration } from '../../services/identifierAutomationService';
+import type {
+  PhotoLogJob,
+  JobPhoto,
+  ExtractedEntry,
+  ConcentrationBoundaries,
+} from '../../shared/types';
+
+const genUUID = (): string => {
+  if (typeof self !== 'undefined' && self.crypto?.randomUUID) {
+    return self.crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+};
+
+type AppRangeResults = DisplayRangeResults;
+type KtlApiCallStatus = 'idle' | 'success' | 'error';
+
+interface RawEntryBase {
+  time: string;
+}
+interface RawEntryTnTp extends RawEntryBase {
+  value_tn?: string;
+  value_tp?: string;
+}
+interface RawEntrySingle extends RawEntryBase {
+  value: string;
+}
+type RawEntryUnion = RawEntryTnTp | RawEntrySingle;
+
+const TrashIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
+    </svg>
+);
+
+const getNumericValueFromString = (valueStr: string): number | null => {
+  const numericValueString = String(valueStr).match(/^-?\d+(\.\d+)?/)?.[0];
+  if (!numericValueString) return null;
+  const numericValue = parseFloat(numericValueString);
+  return isNaN(numericValue) ? null : numericValue;
+};
+
+const getConcentrationCategory = (valueStr: string, boundaries: ConcentrationBoundaries | null): 'low' | 'medium' | 'high' | 'unknown' => {
+  const fullValueStr = String(valueStr).trim();
+  const numericValueString = fullValueStr.match(/^-?\d+(\.\d+)?/)?.[0];
+  const textPart = numericValueString ? fullValueStr.substring(numericValueString.length).trim() : fullValueStr;
+
+  if (textPart.includes("고")) return 'high';
+  if (textPart.includes("중")) return 'medium';
+  if (textPart.includes("저")) return 'low';
+
+  if (!boundaries) return 'unknown';
+  const numericValue = getNumericValueFromString(valueStr);
+  if (numericValue === null) return 'unknown';
+
+  if (numericValue <= boundaries.boundary1) return 'low';
+  if (numericValue <= boundaries.boundary2) return 'medium';
+  return 'high';
+};
+
+const calculateConcentrationBoundariesInternal = (
+  data: ExtractedEntry[] | null
+): ConcentrationBoundaries | null => {
+  if (!data || data.length === 0) {
+    return null;
+  }
+
+  const allNumericValuesForBoundaryCalc: number[] = [];
+  data.forEach(entry => {
+    const numericValue = getNumericValueFromString(entry.value);
+    if (numericValue !== null) {
+      allNumericValuesForBoundaryCalc.push(numericValue);
+    }
+  });
+
+  const uniqueNumericValues = Array.from(new Set(allNumericValuesForBoundaryCalc)).sort((a, b) => a - b);
+
+  if (uniqueNumericValues.length === 0) {
+    return null;
+  }
+
+  const overallMin = uniqueNumericValues[0];
+  const overallMax = uniqueNumericValues[uniqueNumericValues.length - 1];
+  const span = overallMax - overallMin;
+  let b1: number;
+  let b2: number;
+
+  if (uniqueNumericValues.length < 2) {
+    b1 = overallMin;
+    b2 = overallMax;
+  } else if (uniqueNumericValues.length === 2) {
+    b1 = uniqueNumericValues[0];
+    b2 = uniqueNumericValues[0];
+  } else if (uniqueNumericValues.length === 3) {
+    b1 = uniqueNumericValues[0];
+    b2 = uniqueNumericValues[1];
+  } else { // N > 3
+    if (span > 0) {
+      b1 = overallMin + span / 3;
+      b2 = overallMin + (2 * span) / 3;
+
+      if (b1 >= b2) {
+        const N_unique = uniqueNumericValues.length;
+        let idx1 = Math.max(0, Math.floor(N_unique / 3) - 1);
+        let idx2 = Math.max(idx1 + 1, Math.floor(2 * N_unique / 3) - 1);
+        idx2 = Math.min(N_unique - 2, idx2);
+        idx1 = Math.min(idx1, Math.max(0, idx2 - 1));
+
+        if (idx1 >= 0 && idx1 < idx2 && idx2 < N_unique && uniqueNumericValues[idx1] < uniqueNumericValues[idx2]) {
+          b1 = uniqueNumericValues[idx1];
+          b2 = uniqueNumericValues[idx2];
+        } else {
+          b1 = overallMin;
+          b2 = (overallMin + overallMax) / 2;
+        }
+      }
+    } else {
+      b1 = overallMin;
+      b2 = overallMax;
+    }
+  }
+
+  if (b1 > b2 && overallMax > overallMin) {
+    [b1, b2] = [b2, b1];
+  }
+
+  if (uniqueNumericValues.length !== 2) {
+    if (b1 === b2 && uniqueNumericValues.length > 1 && overallMin < overallMax) {
+      if (b2 < overallMax) {
+        const nextValIndex = uniqueNumericValues.findIndex(val => val > b2);
+        if (nextValIndex !== -1) {
+          b2 = uniqueNumericValues[nextValIndex];
+        }
+        if (b1 === b2 && b1 > overallMin) {
+          let prevValIndex = -1;
+          for (let i = uniqueNumericValues.length - 1; i >= 0; i--) {
+            if (uniqueNumericValues[i] < b1) {
+              prevValIndex = i;
+              break;
+            }
+          }
+          if (prevValIndex !== -1) {
+            b1 = uniqueNumericValues[prevValIndex];
+          }
+        }
+      }
+    }
+  }
+
+  if (uniqueNumericValues.length === 2) {
+    b1 = uniqueNumericValues[0];
+    b2 = uniqueNumericValues[0];
+  } else if (b1 >= b2 && uniqueNumericValues.length > 2) {
+    b1 = overallMin;
+    b2 = (overallMin + overallMax) / 2;
+    if (b1 >= b2 && overallMin < overallMax) b2 = overallMax;
+  }
+
+  return { overallMin, overallMax, span, boundary1: b1, boundary2: b2 };
+};
+
+const sanitizeFilenameComponent = (component: string): string => {
+  if (!component) return 'untitled';
+  // 점(.) 허용
+  let s = component
+    .replace(/[^\w.\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3040-\u30FF\u3200-\u32FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\-]+/g, '_');
+
+  // 중복 언더스코어/점 정리 + 앞/뒤 점 제거(숨김파일 방지)
+  s = s
+    .replace(/__+/g, '_')
+    .replace(/\.{2,}/g, '.')  // ..... → .
+    .replace(/^\.+/, '')      // 앞쪽 점 제거
+    .replace(/\.+$/, '');     // 뒤쪽 점 제거
+
+  return s || 'untitled';
+};
+
+
+const generateIdentifierSequence = (
+    ocrData: ExtractedEntry[] | null,
+    currentSelectedItem: string
+  ): string => {
+    if (!ocrData) return "";
+    let sequence = "";
+    const excludedBases = ["현장"]; 
+  
+    const processSingleIdentifier = (idVal: string | undefined): string | null => {
+      if (!idVal) return null;
+      let base = idVal.replace(/[0-9]/g, ''); 
+      if (base.endsWith('P')) {
+        base = base.slice(0, -1);
+      }
+      if (excludedBases.includes(base)) return null;
+      return base.length > 0 ? base : null;
+    };
+  
+    for (const entry of ocrData) {
+      if (currentSelectedItem === "TN/TP") {
+        const tnPart = processSingleIdentifier(entry.identifier);
+        if (tnPart) sequence += tnPart;
+        const tpPart = processSingleIdentifier(entry.identifierTP);
+        if (tpPart) sequence += tpPart;
+      } else {
+        const part = processSingleIdentifier(entry.identifier);
+        if (part) sequence += part;
+      }
+    }
+    return sequence;
+  };
+
+const countDecimalPlaces = (valueStr: string | undefined): number => {
+  if (typeof valueStr !== 'string' || valueStr.trim() === '') {
+    return 0;
+  }
+  const numericStrMatch = String(valueStr).match(/^-?\d+(\.\d+)?/);
+  if (!numericStrMatch || !numericStrMatch[0]) {
+    return 0;
+  }
+  const numericStr = numericStrMatch[0];
+  const decimalPart = numericStr.split('.')[1];
+  return decimalPart ? decimalPart.length : 0;
+};
+
+const calculateMaxDecimalPlaces = (
+  ocrData: ExtractedEntry[] | null,
+  selectedItem: string
+): number => {
+  if (!ocrData || ocrData.length === 0) {
+    return 0;
+  }
+  let maxPlaces = 0;
+  ocrData.forEach(entry => {
+    const placesValue = countDecimalPlaces(entry.value);
+    if (placesValue > maxPlaces) maxPlaces = placesValue;
+    if (selectedItem === "TN/TP" && entry.valueTP) {
+      const placesValueTP = countDecimalPlaces(entry.valueTP);
+      if (placesValueTP > maxPlaces) maxPlaces = placesValueTP;
+    }
+  });
+  return maxPlaces;
+};
+
+interface AnalysisPageProps {
+  pageTitle: string;
+  pageType: 'PhotoLog' | 'FieldCount';
+  showRangeDifferenceDisplay: boolean;
+  showAutoAssignIdentifiers: boolean;
+  userName: string;
+  jobs: PhotoLogJob[];
+  setJobs: React.Dispatch<React.SetStateAction<PhotoLogJob[]>>;
+  activeJobId: string | null;
+  setActiveJobId: (id: string | null) => void;
+  siteName: string;
+  siteLocation: string;
+  onDeleteJob: (jobId: string) => void;
+}
+
+const AnalysisPage: React.FC<AnalysisPageProps> = ({
+  pageTitle, pageType, showRangeDifferenceDisplay, showAutoAssignIdentifiers,
+  userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob
+}) => {
+  const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
+
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isDownloadingStamped, setIsDownloadingStamped] = useState<boolean>(false);
+  const [processingError, setProcessingError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
+  const [isSendingToClaydox, setIsSendingToClaydox] = useState<boolean>(false);
+  const [isKtlPreflightModalOpen, setIsKtlPreflightModalOpen] = useState<boolean>(false);
+  const [ktlPreflightData, setKtlPreflightData] = useState<KtlPreflightData | null>(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState<number>(-1);
+  const [batchSendProgress, setBatchSendProgress] = useState<string | null>(null);
+  const [singleAnalysisDate, setSingleAnalysisDate] = useState<string>('');
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const availableTnIdentifiers = pageType === 'FieldCount' ? P3_TN_IDENTIFIERS : TN_IDENTIFIERS;
+  const availableTpIdentifiers = pageType === 'FieldCount' ? P3_TP_IDENTIFIERS : TP_IDENTIFIERS;
+  
+  const availableIdentifiers = useMemo(() => {
+    if (pageType === 'FieldCount') {
+      return activeJob?.selectedItem === 'TP' ? P3_TP_IDENTIFIERS : P3_TN_IDENTIFIERS;
+    }
+    return IDENTIFIER_OPTIONS;
+  }, [pageType, activeJob?.selectedItem]);
+
+  const ocrControlsKtlStatus = useMemo<KtlApiCallStatus>(() => {
+    if (!activeJob) return 'idle';
+    if (activeJob.submissionStatus === 'success' || activeJob.submissionStatus === 'error') {
+        return activeJob.submissionStatus;
+    }
+    return 'idle';
+  }, [activeJob]);
+
+  useEffect(() => {
+    setSingleAnalysisDate('');
+    setSuccessMessage(null);
+    setProcessingError(null);
+  }, [activeJobId]);
+
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+
+  useEffect(() => {
+    if (activeJob) {
+        const numPhotos = activeJob.photos.length;
+        if (numPhotos > 0) {
+            if (currentImageIndex < 0 || currentImageIndex >= numPhotos) {
+                setCurrentImageIndex(0);
+            }
+        } else if (currentImageIndex !== -1) {
+            setCurrentImageIndex(-1);
+        }
+    }
+  }, [activeJob, currentImageIndex]);
+
+  const updateActiveJob = useCallback((updater: (job: PhotoLogJob) => PhotoLogJob) => {
+    if (!activeJobId) return;
+    setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
+  }, [activeJobId, setJobs]);
+  
+  const resetActiveJobData = useCallback(() => {
+    updateActiveJob(job => ({
+        ...job,
+        photos: [],
+        photoComments: {},
+        processedOcrData: null,
+        rangeDifferenceResults: null,
+        concentrationBoundaries: null,
+        decimalPlaces: 0,
+        submissionStatus: 'idle',
+        submissionMessage: undefined,
+    }));
+    setCurrentImageIndex(-1);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setProcessingError(null);
+  }, [updateActiveJob]);
+
+
+  const hypotheticalKtlFileNamesForPreview = useMemo(() => {
+    if (!activeJob || activeJob.photos.length === 0) return [];
+    const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
+    const sanitizedSite = sanitizeFilenameComponent(siteName);
+    const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem === "TN/TP" ? "TN_TP" : activeJob.selectedItem);
+    const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
+    
+    const pageCount = Math.ceil(activeJob.photos.length / 4);
+    const compositeNames = Array.from({ length: pageCount }, (_, i) => {
+        const pageNum = (i + 1).toString().padStart(2, '0');
+        return `${baseName}_composite_${pageNum}.jpg`;
+    });
+
+    return [ ...compositeNames, `${baseName}_Compression.zip` ];
+  }, [activeJob, siteName, pageType]);
+
+  const ktlJsonPreview = useMemo(() => {
+    if (!activeJob || !userName) return null;
+    const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
+    const payload: ClaydoxPayload = {
+      receiptNumber: activeJob.receiptNumber,
+      siteLocation: siteLocation,
+      siteNameOnly: siteName,
+      item: activeJob.selectedItem,
+      ocrData: activeJob.processedOcrData || [],
+      updateUser: userName,
+      identifierSequence: identifierSequence,
+      pageType: pageType,
+      maxDecimalPlaces: activeJob.decimalPlaces,
+      inspectionStartDate: activeJob.inspectionStartDate,
+      inspectionEndDate: activeJob.inspectionEndDate,
+    };
+    return generateKtlJsonForPreview(payload, activeJob.selectedItem, hypotheticalKtlFileNamesForPreview);
+  }, [activeJob, userName, siteName, siteLocation, pageType, hypotheticalKtlFileNamesForPreview]);
+
+
+  useEffect(() => {
+    if (!activeJob) return;
+
+    if (!activeJob.processedOcrData) {
+        if (activeJob.rangeDifferenceResults !== null || activeJob.concentrationBoundaries !== null || activeJob.decimalPlaces !== 0) {
+            updateActiveJob(j => ({ ...j, rangeDifferenceResults: null, concentrationBoundaries: null, decimalPlaces: 0 }));
+        }
+        return;
+    }
+    const boundaries = calculateConcentrationBoundariesInternal(activeJob.processedOcrData);
+    const newMaxDecimalPlaces = calculateMaxDecimalPlaces(activeJob.processedOcrData, activeJob.selectedItem);
+    
+    let newRangeResults: AppRangeResults | null = null;
+    if (boundaries) {
+        const lowValues: number[] = []; const mediumValues: number[] = []; const highValues: number[] = [];
+        activeJob.processedOcrData.forEach(entry => {
+            const category = getConcentrationCategory(entry.value, boundaries);
+            const numericVal = getNumericValueFromString(entry.value);
+            if (numericVal === null) return;
+            if (category === 'low') lowValues.push(numericVal);
+            else if (category === 'medium') mediumValues.push(numericVal);
+            else if (category === 'high') highValues.push(numericVal);
+        });
+        const calculateRangeDetails = (values: number[]): RangeStat | null => {
+            if (values.length < 2) return null;
+            const min = Math.min(...values); const max = Math.max(...values);
+            return { min, max, diff: max - min };
+        };
+        newRangeResults = { low: calculateRangeDetails(lowValues), medium: calculateRangeDetails(mediumValues), high: calculateRangeDetails(highValues) };
+    }
+    
+    if (
+        JSON.stringify(activeJob.concentrationBoundaries) !== JSON.stringify(boundaries) ||
+        JSON.stringify(activeJob.rangeDifferenceResults) !== JSON.stringify(newRangeResults) ||
+        activeJob.decimalPlaces !== newMaxDecimalPlaces
+    ) {
+        updateActiveJob(j => ({ ...j, concentrationBoundaries: boundaries, rangeDifferenceResults: newRangeResults, decimalPlaces: newMaxDecimalPlaces }));
+    }
+  }, [activeJob?.processedOcrData, activeJob?.selectedItem, updateActiveJob, activeJob]);
+
+
+  const handleImagesSet = useCallback((newlySelectedImages: BaseImageInfo[]) => {
+    if (newlySelectedImages.length === 0 && activeJob?.photos && activeJob.photos.length > 0) return;
+    
+    const photosWithUids: JobPhoto[] = newlySelectedImages.map(img => ({
+        ...img,
+        uid: genUUID()
+    }));
+
+    updateActiveJob(job => {
+        const existingPhotos = job.photos || [];
+        const combined = [...existingPhotos, ...photosWithUids];
+        const uniqueImageMap = new Map<string, JobPhoto>();
+        combined.forEach(img => {
+            const key = `${img.file.name}-${img.file.size}-${img.file.lastModified}`;
+            if (!uniqueImageMap.has(key)) {
+                uniqueImageMap.set(key, img);
+            }
+        });
+        const finalPhotos = Array.from(uniqueImageMap.values());
+        
+        return { ...job, photos: finalPhotos, submissionStatus: 'idle', submissionMessage: undefined };
+    });
+    setProcessingError(null);
+  }, [activeJob, updateActiveJob]);
+
+  const handleOpenCamera = useCallback(() => setIsCameraOpen(true), []);
+  const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
+
+  const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
+    const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: genUUID() };
+    updateActiveJob(job => {
+        const newPhotos = [...(job.photos || []), capturedImageInfo];
+        setCurrentImageIndex(newPhotos.length - 1);
+        return { ...job, photos: newPhotos, submissionStatus: 'idle', submissionMessage: undefined };
+    });
+    setIsCameraOpen(false);
+    setProcessingError(null);
+  }, [updateActiveJob]);
+
+  const handleDeleteImage = useCallback((indexToDelete: number) => {
+    if (!activeJob || indexToDelete < 0 || indexToDelete >= activeJob.photos.length) return;
+    const deletedPhotoUid = activeJob.photos[indexToDelete].uid;
+    updateActiveJob(job => {
+        const newPhotos = job.photos.filter((_, index) => index !== indexToDelete);
+        const newComments = { ...job.photoComments };
+        delete newComments[deletedPhotoUid];
+        return { ...job, photos: newPhotos, photoComments: newComments, processedOcrData: null, rangeDifferenceResults: null, submissionStatus: 'idle', submissionMessage: undefined };
+    });
+    setProcessingError(null);
+  }, [activeJob, updateActiveJob]);
+
+  const generatePromptForProAnalysis = (
+    receiptNum: string,
+    siteLoc: string,
+    item: string,
+    inspectionStartDate?: string,
+    inspectionEndDate?: string
+  ): string => {
+    
+    const timeRules = `시간 규칙:
+- 표 상단 등 한 날짜가 전체에 적용되면 그 날짜 + 각 행의 시간(HH:MM 또는 HH:MM:SS)을 합쳐
+  최종 "YYYY/MM/DD HH:MM(:SS)"로 만듭니다(분이 없으면 00). 2자리 연도는 20xx로 확장.
+- 개별 행에 날짜가 이미 있으면 그대로 사용.
+- 날짜가 전혀 없고 시간만 있는 경우 시간만 사용(추출 가능 시).`;
+
+    if (item === "TN/TP") {
+        let context = `컨텍스트:\n- 접수번호: ${receiptNum}\n- 현장/위치: ${siteLoc}`;
+        if (inspectionStartDate && inspectionEndDate) {
+            context += `\n- 검사 기간(선택): ${inspectionStartDate} ~ ${inspectionEndDate} (기간이 있으면 자정 넘어가면 날짜 증가)`;
+        }
+        
+        return `제공된 측정 장비의 이미지를 분석해주세요.
+${context}
+- 항목/파라미터: TN 및 TP. 이미지에서 TN과 TP 각각의 시간 및 값 쌍을 추출해야 합니다.
+- 각 시간(time) 항목에 대해 TN 값은 "value_tn", TP 값은 "value_tp"에 넣습니다.
+
+중요 규칙:
+1) 같은 시간대에 TN/TP가 둘 다 있으면 두 키를 모두 포함합니다.
+   예: { "time": "...", "value_tn": "1.23", "value_tp": "0.45" }
+2) 한 값만 명확하면 그 값만 포함하고, 없는 키는 생략합니다.
+   예: { "time": "...", "value_tn": "1.23" }  또는  { "time": "...", "value_tp": "0.45" }
+3) 값 필드는 숫자만. 단위/접두사/주석(예: mg/L, mgN/L, N, P, [M_], 저/중/고)은 제외합니다.
+
+작업:
+- 장치 화면에서 보이는 모든 “Time(시각)”과 관련 값(TN/TP)을 찾아 JSON 배열로만 반환하세요.
+
+${timeRules}
+
+반드시 지킬 출력 형식:
+- 응답 전체는 유효한 JSON **배열 하나**여야 하며, 그 밖의 텍스트/마크다운은 절대 포함하지 마세요.
+- 예: 
+[
+  { "time": "2025/04/23 05:00", "value_tn": "46.2", "value_tp": "1.2" },
+  { "time": "2025/04/23 06:00", "value_tn": "5.388", "value_tp": "0.1" },
+  { "time": "2025/05/21 09:38", "value_tn": "89.629" },
+  { "time": "2025/05/21 10:25", "value_tp": "2.5" }
+]
+
+추출 불가하면 [] 를 반환.`;
+    } else { // Single item
+        let context = `컨텍스트:\n- 접수번호: ${receiptNum}\n- 현장/위치: ${siteLoc}`;
+        if (inspectionStartDate) {
+            context += `\n- 검사 시작일(선택): ${inspectionStartDate}  (시간과 조합)`;
+        }
+        if (inspectionEndDate) {
+            context += `\n- 검사 종료일(선택): ${inspectionEndDate}    (자정 넘어가면 날짜 증가)`;
+        }
+
+        return `제공된 측정 장비의 이미지를 분석해주세요.
+${context}
+
+- 항목/파라미터: ${item} (예: TN, TP, TOC 등)
+- "value"에는 **숫자만** 넣고, 단위/접두사/주석(N, P, mg/L, mgN/L, [M_], (A), 저/중/고 등)은 제외하세요.
+
+작업:
+- 장치 화면에서 보이는 모든 “Time(시각)”과 해당 항목의 값을 찾아 JSON 배열만 반환.
+
+${timeRules}
+
+반드시 지킬 출력 형식:
+- 응답 전체는 유효한 JSON **배열 하나**만.
+- 예:
+[
+  { "time": "2025/05/21 09:38", "value": "89.629" },
+  { "time": "2025/05/21 10:25", "value": "44.978" }
+]
+
+추출 불가하면 [].`;
+    }
+  };
+  const handleExtractText = useCallback(async () => {
+    if (!activeJob || activeJob.photos.length === 0) {
+      setProcessingError("먼저 이미지를 선택하거나 촬영해주세요.");
+      return;
+    }
+    setIsLoading(true); setProcessingError(null);
+    updateActiveJob(j => ({ ...j, processedOcrData: null, decimalPlaces: 0, submissionStatus: 'idle', submissionMessage: undefined }));
+
+    let allRawExtractedEntries: RawEntryUnion[] = [];
+    let batchHadError = false;
+    let criticalErrorOccurred: string | null = null;
+    
+    try {
+        let responseSchema;
+        if (activeJob.selectedItem === "TN/TP") {
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING } }, required: ["time"] } };
+        } else {
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value: { type: Type.STRING } }, required: ["time", "value"] } };
+        }
+
+        const imageProcessingPromises = activeJob.photos.map(async (image) => {
+            let jsonStr: string = "";
+            try {
+                const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, activeJob.inspectionStartDate, activeJob.inspectionEndDate);
+                const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
+                
+                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
+                
+                const jsonDataFromImage = JSON.parse(jsonStr) as RawEntryUnion[];
+                if (Array.isArray(jsonDataFromImage)) {
+                    return { status: 'fulfilled', value: jsonDataFromImage };
+                }
+                return { status: 'rejected', reason: `Image ${image.file.name} did not return a valid JSON array.` };
+            } catch (imgErr: any) {
+                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) {
+                    criticalErrorOccurred = imgErr.message;
+                }
+                let reason = (imgErr instanceof SyntaxError) ? `JSON parsing failed: ${imgErr.message}. AI response: ${jsonStr}` : imgErr.message;
+                return { status: 'rejected', reason };
+            }
+        });
+
+        const results = await Promise.all(imageProcessingPromises);
+        results.forEach(result => {
+            if (result.status === 'fulfilled' && result.value) {
+                if (Array.isArray(result.value)) allRawExtractedEntries.push(...result.value);
+            } else if (result.status === 'rejected') {
+                batchHadError = true;
+            }
+        });
+
+        if (criticalErrorOccurred) throw new Error(criticalErrorOccurred);
+        
+        if (allRawExtractedEntries.length > 0) {
+            
+            allRawExtractedEntries.sort((a, b) => {
+                const getTimePart = (timeStr: string) => {
+                    const match = timeStr.match(/(\d{4}[/-]\d{2}[/-]\d{2}\s*)?(\d{2}:\d{2}(:\d{2})?)/);
+                    return match ? (match[1] || '') + match[2] : timeStr;
+                };
+                return getTimePart(a.time).localeCompare(getTimePart(b.time));
+            });
+
+            const uniqueEntriesMap = new Map<string, RawEntryUnion>();
+
+            let currentDate: Date | null = null;
+            if (activeJob.inspectionStartDate) {
+                currentDate = new Date(activeJob.inspectionStartDate + "T00:00:00Z"); // Use UTC to avoid timezone issues
+            }
+            const endDate: Date | null = activeJob.inspectionEndDate ? new Date(activeJob.inspectionEndDate + "T23:59:59Z") : null;
+            
+            let lastTime: string | null = null;
+
+            allRawExtractedEntries.forEach(entry => {
+                let finalTimestamp = entry.time.replace(/-/g, '/').trim();
+                const timeMatch = finalTimestamp.match(/(\d{2}:\d{2})(?::\d{2})?$/);
+                const currentTime = timeMatch ? timeMatch[1] : null;
+
+                if (currentDate && currentTime) {
+                    if (endDate && lastTime && currentTime < lastTime) {
+                        const nextDay = new Date(currentDate);
+                        nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+                        if (nextDay <= endDate) {
+                            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+                        }
+                    }
+                    const year = currentDate.getUTCFullYear();
+                    const month = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
+                    const day = String(currentDate.getUTCDate()).padStart(2, '0');
+                    finalTimestamp = `${year}/${month}/${day} ${timeMatch![0]}`;
+                }
+                
+                if (currentTime) {
+                    lastTime = currentTime;
+                }
+                
+                if (!uniqueEntriesMap.has(finalTimestamp)) {
+                    uniqueEntriesMap.set(finalTimestamp, { ...entry, time: finalTimestamp });
+                } else {
+                    const existing = uniqueEntriesMap.get(finalTimestamp)!;
+                    if (activeJob.selectedItem === "TN/TP") {
+                        const existingTnTp = existing as RawEntryTnTp;
+                        const currentTnTp = entry as RawEntryTnTp;
+                        if (currentTnTp.value_tn && !existingTnTp.value_tn) existingTnTp.value_tn = currentTnTp.value_tn;
+                        if (currentTnTp.value_tp && !existingTnTp.value_tp) existingTnTp.value_tp = currentTnTp.value_tp;
+                    } else {
+                        const existingSingle = existing as RawEntrySingle;
+                        const currentSingle = entry as RawEntrySingle;
+                        if (currentSingle.value && !existingSingle.value) {
+                            existingSingle.value = currentSingle.value;
+                        }
+                    }
+                }
+            });
+
+            const finalOcrData = Array.from(uniqueEntriesMap.values()).sort((a,b) => a.time.localeCompare(b.time)).map((rawEntry: RawEntryUnion) => {
+                let primaryValue = '', tpValue: string | undefined = undefined;
+                if (activeJob.selectedItem === "TN/TP") {
+                    const tnTpEntry = rawEntry as RawEntryTnTp;
+                    primaryValue = tnTpEntry.value_tn || '';
+                    tpValue = tnTpEntry.value_tp;
+                } else {
+                    primaryValue = (rawEntry as RawEntrySingle).value || '';
+                }
+                return { id: genUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
+            });
+
+            updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
+            if (batchHadError) setProcessingError("일부 이미지를 처리하지 못했습니다.");
+        } else {
+            setProcessingError("AI가 이미지에서 유효한 데이터를 추출하지 못했습니다.");
+        }
+    } catch (e: any) {
+        setProcessingError(e.message || "데이터 추출 중 알 수 없는 오류가 발생했습니다.");
+    } finally {
+        setIsLoading(false);
+    }
+  }, [activeJob, siteLocation, updateActiveJob]);
+
+  const handleAnalyzeSinglePhoto = useCallback(async () => {
+    if (!activeJob || currentImageIndex < 0) {
+      setProcessingError("먼저 분석할 사진을 선택해주세요.");
+      return;
+    }
+    if (!singleAnalysisDate) {
+      setProcessingError("분석 기준 날짜를 입력해주세요.");
+      return;
+    }
+
+    setIsLoading(true);
+    setProcessingError(null);
+    setSuccessMessage(null);
+
+    const photoToAnalyze = activeJob.photos[currentImageIndex];
+    let newRawEntries: RawEntryUnion[] = [];
+
+    try {
+        let responseSchema;
+        if (activeJob.selectedItem === "TN/TP") {
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value_tn: { type: Type.STRING }, value_tp: { type: Type.STRING } }, required: ["time"] } };
+        } else {
+            responseSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, value: { type: Type.STRING } }, required: ["time", "value"] } };
+        }
+        
+        const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, singleAnalysisDate);
+        const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
+        const jsonStr = await extractTextFromImage(photoToAnalyze.base64, photoToAnalyze.mimeType, prompt, modelConfig);
+        const jsonData = JSON.parse(jsonStr) as RawEntryUnion[];
+        
+        if (Array.isArray(jsonData)) {
+            newRawEntries.push(...jsonData);
+        } else {
+            throw new Error(`AI가 유효한 배열을 반환하지 않았습니다.`);
+        }
+        
+        if (newRawEntries.length > 0) {
+            const newExtractedEntries: ExtractedEntry[] = newRawEntries.map((rawEntry: RawEntryUnion) => {
+                let primaryValue = '', tpValue: string | undefined = undefined;
+                if (activeJob.selectedItem === "TN/TP") {
+                    primaryValue = (rawEntry as RawEntryTnTp).value_tn || '';
+                    tpValue = (rawEntry as RawEntryTnTp).value_tp;
+                } else {
+                    primaryValue = (rawEntry as RawEntrySingle).value || '';
+                }
+
+                const aiTime = rawEntry.time;
+                let timePart = "00:00"; // Default
+                // Robustly find HH:MM:SS or HH:MM, not matching parts of dates like '24' in '2024'.
+                // Looks for a time pattern preceded by a space, 'T', or the start of the string.
+                const timeMatch = aiTime.match(/(?:\s|T|^)(\d{1,2}:\d{2}(?::\d{2})?)/);
+                if (timeMatch && timeMatch[1]) {
+                    timePart = timeMatch[1];
+                } else {
+                    console.warn(`AI response "${aiTime}" did not contain a recognizable time component. Defaulting to '00:00'.`);
+                }
+
+                const finalTimestamp = `${singleAnalysisDate} ${timePart}`;
+                
+                return { id: genUUID(), time: finalTimestamp.replace(/-/g, '/'), value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
+            });
+
+            const combinedData = [...(activeJob.processedOcrData || []), ...newExtractedEntries];
+
+            combinedData.sort((a, b) => {
+                try {
+                    const dateA = new Date(a.time.replace(/\//g, '-').replace(' ', 'T')).getTime();
+                    const dateB = new Date(b.time.replace(/\//g, '-').replace(' ', 'T')).getTime();
+                    if (isNaN(dateA) || isNaN(dateB)) return a.time.localeCompare(b.time);
+                    return dateA - dateB;
+                } catch {
+                    return a.time.localeCompare(b.time);
+                }
+            });
+
+            updateActiveJob(j => ({ ...j, processedOcrData: combinedData }));
+            setSuccessMessage("현재 사진 분석이 완료되었습니다.");
+
+        } else {
+            setProcessingError("AI가 현재 사진에서 유효한 데이터를 추출하지 못했습니다.");
+        }
+    } catch (e: any) {
+        setProcessingError(e.message || "데이터 추출 중 알 수 없는 오류가 발생했습니다.");
+    } finally {
+        setIsLoading(false);
+    }
+  }, [activeJob, currentImageIndex, singleAnalysisDate, siteLocation, updateActiveJob]);
+
+  const generatePromptForLogFileAnalysis = (): string => {
+    return `You are an expert data extraction assistant. Analyze an image of a data log screen titled "FrmViewLog".
+
+CRITICAL:
+1) On the right, find the list of dates and identify the single selected/highlighted date. This date applies to ALL rows.
+2) For each row in the left table:
+   a) Build timestamp: take the first-column time like "[06:02:24]" and combine with the selected date → "YYYY-MM-DD HH:MM:SS".
+   b) Extract ALL numeric values after the time column as strings. Remove commas (e.g., "2,611.27800" → "2611.27800").
+
+OUTPUT (JSON array only):
+[
+  { "time": "YYYY-MM-DD HH:MM:SS", "values": ["<num1>", "<num2>", ...] }
+]
+
+Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].`;
+  };
+
+  const handleExtractFromLogFile = useCallback(async () => {
+    if (!activeJob || activeJob.photos.length === 0) {
+      setProcessingError("먼저 이미지를 선택하거나 촬영해주세요.");
+      return;
+    }
+    setIsLoading(true); setProcessingError(null);
+    updateActiveJob(j => ({ ...j, processedOcrData: null, decimalPlaces: 0, submissionStatus: 'idle', submissionMessage: undefined }));
+
+    interface RawLogEntry {
+      time: string;
+      values: string[];
+    }
+    
+    let allRawExtractedEntries: RawLogEntry[] = [];
+    let batchHadError = false;
+    let criticalErrorOccurred: string | null = null;
+    
+    try {
+        const prompt = generatePromptForLogFileAnalysis();
+        const responseSchema = {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    time: { type: Type.STRING },
+                    values: { type: Type.ARRAY, items: { type: Type.STRING } }
+                },
+                required: ["time", "values"]
+            }
+        };
+        const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
+
+        const imageProcessingPromises = activeJob.photos.map(async (image) => {
+            let jsonStr: string = "";
+            try {
+                jsonStr = await extractTextFromImage(image.base64, image.mimeType, prompt, modelConfig);
+                const jsonDataFromImage = JSON.parse(jsonStr) as RawLogEntry[];
+                if (Array.isArray(jsonDataFromImage)) {
+                    return { status: 'fulfilled', value: jsonDataFromImage };
+                }
+                return { status: 'rejected', reason: `Image ${image.file.name} did not return a valid JSON array.` };
+            } catch (imgErr: any) {
+                if (imgErr.message?.includes("API_KEY") || imgErr.message?.includes("Quota exceeded")) {
+                    criticalErrorOccurred = imgErr.message;
+                }
+                let reason = (imgErr instanceof SyntaxError) ? `JSON parsing failed: ${imgErr.message}. AI response: ${jsonStr}` : imgErr.message;
+                return { status: 'rejected', reason };
+            }
+        });
+
+        const results = await Promise.all(imageProcessingPromises);
+        results.forEach(result => {
+            if (result.status === 'fulfilled' && result.value) {
+                if (Array.isArray(result.value)) allRawExtractedEntries.push(...result.value);
+            } else if (result.status === 'rejected') {
+                batchHadError = true;
+            }
+        });
+
+        if (criticalErrorOccurred) throw new Error(criticalErrorOccurred);
+        
+        if (allRawExtractedEntries.length > 0) {
+            const uniqueEntriesMap = new Map<string, RawLogEntry>();
+            allRawExtractedEntries.forEach(entry => {
+                if (!uniqueEntriesMap.has(entry.time)) {
+                    uniqueEntriesMap.set(entry.time, entry);
+                }
+            });
+
+            const isTnTpMode = activeJob.selectedItem === "TN/TP";
+            
+            const finalOcrData = Array.from(uniqueEntriesMap.values())
+              .sort((a,b) => (a.time || '').localeCompare(b.time || ''))
+              .map((rawEntry: RawLogEntry) => {
+                const primaryValue = rawEntry.values?.[0] || '';
+                const tpValue = isTnTpMode ? (rawEntry.values?.[1] || '') : undefined;
+                return {
+                  id: genUUID(),
+                  time: rawEntry.time,
+                  value: primaryValue,
+                  valueTP: tpValue,
+                  identifier: undefined,
+                  identifierTP: undefined,
+                  isRuleMatched: false
+                };
+              });
+
+            updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
+            if (batchHadError) setProcessingError("일부 이미지를 처리하지 못했습니다.");
+        } else {
+            setProcessingError("AI가 이미지에서 유효한 데이터를 추출하지 못했습니다.");
+        }
+    } catch (e: any) {
+        setProcessingError(e.message || "데이터 추출 중 알 수 없는 오류가 발생했습니다.");
+    } finally {
+        setIsLoading(false);
+    }
+  }, [activeJob, updateActiveJob]);
+
+  const handleEntryChange = useCallback((entryId: string, field: keyof ExtractedEntry, value: string | undefined) => {
+    updateActiveJob(job => {
+        if (!job.processedOcrData) return job;
+        const updatedData = job.processedOcrData.map(entry =>
+            entry.id === entryId ? { ...entry, [field]: value } : entry
+        );
+        return { ...job, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined };
+    });
+  }, [updateActiveJob]);
+
+  const handleAddEntry = useCallback(() => {
+    updateActiveJob(job => {
+        if (!job) return job;
+        const newEntry: ExtractedEntry = {
+            id: genUUID(),
+            time: '',
+            value: '',
+            valueTP: job.selectedItem === "TN/TP" ? '' : undefined,
+            identifier: undefined,
+            identifierTP: undefined,
+            isRuleMatched: false
+        };
+        const updatedData = [...(job.processedOcrData || []), newEntry];
+        return { ...job, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined };
+    });
+  }, [updateActiveJob]);
+
+  const handleDeleteEntry = useCallback((entryId: string) => {
+    updateActiveJob(job => {
+        if (!job.processedOcrData) return job;
+        const updatedData = job.processedOcrData.filter(entry => entry.id !== entryId);
+        return { ...job, processedOcrData: updatedData, submissionStatus: 'idle', submissionMessage: undefined };
+    });
+  }, [updateActiveJob]);
+
+  const handleReorderRows = useCallback((sourceRowStr: string, targetRowStr?: string) => {
+    if (!activeJob || !activeJob.processedOcrData) return;
+
+    const data = [...activeJob.processedOcrData];
+    const sourceIndices: number[] = [];
+
+    if (sourceRowStr.includes('-')) {
+        const [start, end] = sourceRowStr.split('-').map(s => parseInt(s.trim(), 10) - 1);
+        if (!isNaN(start) && !isNaN(end) && start <= end) {
+            for (let i = start; i <= end; i++) sourceIndices.push(i);
+        }
+    } else {
+        const index = parseInt(sourceRowStr.trim(), 10) - 1;
+        if (!isNaN(index)) sourceIndices.push(index);
+    }
+    
+    const uniqueSourceIndices = [...new Set(sourceIndices)].sort((a, b) => b - a);
+
+    if (uniqueSourceIndices.length === 0 || uniqueSourceIndices.some(i => i < 0 || i >= data.length)) {
+      alert("유효하지 않은 행 번호입니다. 데이터 범위 내의 숫자나 '시작-끝' 형식으로 입력해주세요.");
+      return;
+    }
+    
+    const elementsToMove = uniqueSourceIndices.map(i => data[i]).reverse();
+    uniqueSourceIndices.forEach(i => data.splice(i, 1));
+    
+    let targetIndex = data.length;
+    if (targetRowStr && targetRowStr.trim()) {
+        const target = parseInt(targetRowStr.trim(), 10) - 1;
+        if (!isNaN(target) && target >= 0 && target <= data.length) {
+            targetIndex = target;
+        } else {
+            alert(`새 위치 번호가 잘못되었습니다. 1부터 ${data.length + 1} 사이의 숫자를 입력해주세요.`);
+            return;
+        }
+    }
+    
+    data.splice(targetIndex, 0, ...elementsToMove);
+
+    updateActiveJob(job => ({
+        ...job,
+        processedOcrData: data,
+        submissionStatus: 'idle',
+        submissionMessage: undefined,
+    }));
+  }, [activeJob, updateActiveJob]);
+
+  const handleAutoAssignIdentifiers = useCallback((startRowStr?: string, endRowStr?: string) => {
+    if (!activeJob || !activeJob.processedOcrData || !activeJob.concentrationBoundaries) {
+      setProcessingError("자동 할당을 위해선 추출된 데이터와 농도 분석이 필요합니다.");
+      return;
+    }
+
+    const totalRows = activeJob.processedOcrData.length;
+    const startIndex = startRowStr && startRowStr.trim() ? parseInt(startRowStr, 10) - 1 : 0;
+    const endIndex = endRowStr && endRowStr.trim() ? parseInt(endRowStr, 10) - 1 : totalRows - 1;
+
+    if (isNaN(startIndex) || isNaN(endIndex) || startIndex < 0 || endIndex >= totalRows || startIndex > endIndex) {
+        setProcessingError("자동 할당을 위한 행 범위가 잘못되었습니다. 데이터 범위를 확인해주세요.");
+        return;
+    }
+
+    const dataSlice = activeJob.processedOcrData.slice(startIndex, endIndex + 1);
+
+    const isTpMode = activeJob.selectedItem === "TN/TP";
+    const assignments = autoAssignIdentifiersByConcentration(
+        dataSlice,
+        activeJob.concentrationBoundaries,
+        isTpMode
+    );
+
+    const updatedOcrData = [...activeJob.processedOcrData];
+    assignments.forEach((assignment, index) => {
+        const originalIndex = startIndex + index;
+        const newIdentifier = assignment.tn !== undefined ? assignment.tn : updatedOcrData[originalIndex].identifier;
+        const newIdentifierTP = assignment.tp !== undefined ? assignment.tp : updatedOcrData[originalIndex].identifierTP;
+
+        updatedOcrData[originalIndex] = {
+            ...updatedOcrData[originalIndex],
+            identifier: newIdentifier,
+            identifierTP: isTpMode ? newIdentifierTP : undefined,
+        };
+    });
+
+    updateActiveJob(j => ({
+        ...j,
+        processedOcrData: updatedOcrData,
+        submissionStatus: 'idle',
+        submissionMessage: undefined
+    }));
+    setProcessingError(null);
+  }, [activeJob, updateActiveJob]);
+
+  const handleDownloadStampedImages = useCallback(async () => {
+    if (!activeJob || activeJob.photos.length === 0) {
+      alert("스탬프를 적용할 사진이 없습니다.");
+      return;
+    }
+    setIsDownloadingStamped(true);
+
+    try {
+      const pageIdentifier = pageType === 'PhotoLog' ? '수질' : pageType === 'FieldCount' ? '현장계수' : '현장';
+      const sanitizedSite = sanitizeFilenameComponent(siteName);
+      const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
+      const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
+      
+      const zip = new JSZip();
+
+      for (let i = 0; i < activeJob.photos.length; i++) {
+        const imageInfo = activeJob.photos[i];
+        const stampedDataUrl = await generateStampedImage(
+          imageInfo.base64,
+          imageInfo.mimeType,
+          activeJob.receiptNumber,
+          siteLocation,
+          activeJob.inspectionStartDate || '',
+          activeJob.selectedItem,
+          activeJob.photoComments[imageInfo.uid]
+        );
+        const stampedBlob = dataURLtoBlob(stampedDataUrl);
+        const fileNameInZip = `${baseName}_${i + 1}_${sanitizeFilenameComponent(imageInfo.file.name)}.png`;
+        zip.file(fileNameInZip, stampedBlob);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(zipBlob);
+      link.download = `${baseName}_Stamped_Images.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+
+    } catch (error: any) {
+      console.error("Error creating stamped image zip:", error);
+      alert(`스탬프 이미지 ZIP 파일 생성 중 오류 발생: ${error.message}`);
+    } finally {
+      setIsDownloadingStamped(false);
+    }
+  }, [activeJob, siteName, siteLocation, pageType]);
+
+  const handleInitiateSendToKtl = useCallback(() => {
+    if (!activeJob || !ktlJsonPreview) {
+        alert("KTL 전송을 위한 모든 조건(작업 선택, 데이터, 사진, 필수정보)이 충족되지 않았습니다.");
+        return;
+    }
+    setKtlPreflightData({
+        jsonPayload: ktlJsonPreview, 
+        fileNames: hypotheticalKtlFileNamesForPreview,
+        context: { receiptNumber: activeJob.receiptNumber, siteLocation: siteLocation, selectedItem: activeJob.selectedItem, userName, inspectionStartDate: activeJob.inspectionStartDate }
+    });
+    setIsKtlPreflightModalOpen(true);
+  }, [activeJob, userName, siteLocation, ktlJsonPreview, hypotheticalKtlFileNamesForPreview]);
+
+  const handleSendToClaydoxConfirmed = useCallback(async () => {
+    setIsKtlPreflightModalOpen(false);
+    if (!activeJob || !activeJob.processedOcrData || !userName || activeJob.photos.length === 0) {
+      updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: "KTL 전송을 위한 필수 데이터가 누락되었습니다." }));
+      return;
+    }
+    updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(1/4) 전송 준비 중..."}));
+
+    try {
+        const identifierSequence = generateIdentifierSequence(activeJob.processedOcrData, activeJob.selectedItem);
+        const payload: ClaydoxPayload = {
+            receiptNumber: activeJob.receiptNumber, siteLocation, siteNameOnly: siteName, item: activeJob.selectedItem, updateUser: userName,
+            ocrData: activeJob.processedOcrData,
+            identifierSequence: identifierSequence,
+            maxDecimalPlaces: activeJob.decimalPlaces,
+            pageType: pageType,
+            inspectionStartDate: activeJob.inspectionStartDate,
+            inspectionEndDate: activeJob.inspectionEndDate,
+        };
+
+        const pageIdentifier = pageType === 'PhotoLog' ? '수질' : pageType === 'FieldCount' ? '현장계수' : '현장';
+        const sanitizedSite = sanitizeFilenameComponent(siteName);
+        const sanitizedItemName = sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'));
+        const baseName = `${activeJob.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
+        
+        const compositeFiles: File[] = [];
+        const compositeFileNames: string[] = [];
+
+        if (activeJob.photos.length > 0) {
+            updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(2/4) 보고서용 이미지 생성 중..."}));
+            const imagesForA4: CompositeImageInput[] = activeJob.photos.map(p => ({
+                base64: p.base64,
+                mimeType: p.mimeType,
+                comment: activeJob.photoComments[p.uid]
+            }));
+
+            const stampDetails = {
+                receiptNumber: activeJob.receiptNumber,
+                siteLocation: siteLocation,
+                item: activeJob.selectedItem,
+                inspectionStartDate: activeJob.inspectionStartDate || ''
+            };
+            const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails, { quality: 0.7 });
+
+
+            a4PageDataUrls.forEach((dataUrl, index) => {
+                const pageNum = (index + 1).toString().padStart(2, '0');
+                const fileName = `${baseName}_composite_${pageNum}.jpg`;
+                const file = new File([dataURLtoBlob(dataUrl)], fileName, { type: 'image/jpeg' });
+                compositeFiles.push(file);
+                compositeFileNames.push(fileName);
+            });
+        }
+        
+        updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(3/4) 원본 사진 압축 중..."}));
+        const zip = new JSZip();
+        for (let i = 0; i < activeJob.photos.length; i++) {
+            const imageInfo = activeJob.photos[i];
+            const compressedDataUrl = await compressImage(imageInfo.base64, imageInfo.mimeType);
+            const fileNameInZip = `${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.jpg`;
+            zip.file(fileNameInZip, dataURLtoBlob(compressedDataUrl));
+        }
+        const zipBlob = await zip.generateAsync({ type: "blob" });
+        const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
+        
+        const filesToUpload = [...compositeFiles, zipFile];
+        const fileNamesForKtlJson = [...compositeFileNames, zipFile.name];
+
+        updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(4/4) KTL 서버로 업로드 중..."}));
+        const p_key = pageType === 'PhotoLog' ? 'p2_check' : 'p3_check';
+        const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, fileNamesForKtlJson, p_key);
+        updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
+
+    } catch (error: any) {
+        updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
+    }
+  }, [activeJob, siteName, siteLocation, userName, updateActiveJob, pageType]);
+
+
+  const handleBatchSendToKtl = async () => {
+    const jobsToSend = jobs.filter(j => j.processedOcrData && j.processedOcrData.length > 0 && j.photos.length > 0);
+    if (jobsToSend.length === 0) {
+        alert("전송할 데이터가 있는 작업이 없습니다. 각 작업에 사진과 추출된 데이터가 있는지 확인하세요.");
+        return;
+    }
+
+    setIsSendingToClaydox(true);
+    setBatchSendProgress(`(0/${jobsToSend.length}) 작업 처리 시작...`);
+    setJobs(prev => prev.map(j => jobsToSend.find(jts => jts.id === j.id) ? { ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' } : j));
+
+    for (let i = 0; i < jobsToSend.length; i++) {
+        const job = jobsToSend[i];
+        setBatchSendProgress(`(${(i + 1)}/${jobsToSend.length}) '${job.receiptNumber}' 전송 중...`);
+        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionMessage: '파일 생성 및 전송 중...' } : j));
+        
+        try {
+            const identifierSequence = generateIdentifierSequence(job.processedOcrData, job.selectedItem);
+            const payload: ClaydoxPayload = {
+                receiptNumber: job.receiptNumber, siteLocation, siteNameOnly: siteName, item: job.selectedItem, updateUser: userName, ocrData: job.processedOcrData!,
+                identifierSequence, maxDecimalPlaces: job.decimalPlaces, pageType: pageType, inspectionStartDate: job.inspectionStartDate, inspectionEndDate: job.inspectionEndDate,
+            };
+            const pageIdentifier = pageType === 'PhotoLog' ? '수질' : '현장';
+            const sanitizedSite = sanitizeFilenameComponent(siteName);
+            const sanitizedItemName = sanitizeFilenameComponent(job.selectedItem.replace('/', '_'));
+            const baseName = `${job.receiptNumber}_${sanitizedSite}_${pageIdentifier}_${sanitizedItemName}`;
+            
+            const compositeFiles: File[] = [];
+            const compositeFileNames: string[] = [];
+
+            if (job.photos.length > 0) {
+                const imagesForA4: CompositeImageInput[] = job.photos.map(p => ({
+                    base64: p.base64,
+                    mimeType: p.mimeType,
+                    comment: job.photoComments[p.uid]
+                }));
+                
+                const stampDetails = {
+                    receiptNumber: job.receiptNumber,
+                    siteLocation: siteLocation,
+                    item: job.selectedItem,
+                    inspectionStartDate: job.inspectionStartDate || ''
+                };
+                const a4PageDataUrls = await generateA4CompositeJPEGPages(imagesForA4, stampDetails, { quality: 0.7 });
+    
+                a4PageDataUrls.forEach((dataUrl, index) => {
+                    const pageNum = (index + 1).toString().padStart(2, '0');
+                    const fileName = `${baseName}_composite_${pageNum}.jpg`;
+                    const file = new File([dataURLtoBlob(dataUrl)], fileName, { type: 'image/jpeg' });
+                    compositeFiles.push(file);
+                    compositeFileNames.push(fileName);
+                });
+            }
+            const zip = new JSZip();
+            for (let i = 0; i < job.photos.length; i++) {
+                const imageInfo = job.photos[i];
+                const compressedDataUrl = await compressImage(imageInfo.base64, imageInfo.mimeType);
+                const fileNameInZip = `${baseName}_${sanitizeFilenameComponent(imageInfo.file.name)}.jpg`;
+                zip.file(fileNameInZip, dataURLtoBlob(compressedDataUrl));
+            }
+            const zipBlob = await zip.generateAsync({ type: "blob" });
+            const zipFile = new File([zipBlob], `${baseName}_Compression.zip`, { type: 'application/zip' });
+            
+            const filesToUpload = [...compositeFiles, zipFile];
+            const fileNamesForKtlJson = [...compositeFileNames, zipFile.name];
+
+            const p_key = pageType === 'PhotoLog' ? 'p2_check' : 'p3_check';
+            const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, fileNamesForKtlJson, p_key);
+            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message } : j));
+        } catch (error: any) {
+            setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
+        }
+    }
+    setBatchSendProgress('일괄 전송 완료.');
+    setIsSendingToClaydox(false);
+    setTimeout(() => setBatchSendProgress(null), 5000);
+  };
+
+  const isControlsDisabled = isLoading || isDownloadingStamped || isSendingToClaydox || !!batchSendProgress || activeJob?.submissionStatus === 'sending';
+
+  const StatusIndicator: React.FC<{ status: PhotoLogJob['submissionStatus'], message?: string }> = ({ status, message }) => {
+    if (status === 'idle' || !message) return null;
+    if (status === 'sending') return <span className="text-xs text-sky-400 animate-pulse">{message}</span>;
+    if (status === 'success') return <span className="text-xs text-green-400">✅ {message}</span>;
+    if (status === 'error') return <span className="text-xs text-red-400" title={message}>❌ {message.length > 30 ? message.substring(0, 27) + '...' : message}</span>;
+    return null;
+  };
+
+  return (
+    <div className="w-full max-w-3xl bg-slate-800 shadow-2xl rounded-xl p-6 sm:p-8 space-y-6">
+      <h2 className="text-2xl font-bold text-sky-400 border-b border-slate-700 pb-3">{pageTitle}</h2>
+  
+      {jobs.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-md font-semibold text-slate-200">작업 목록 ({jobs.length}개):</h3>
+          <div className="max-h-48 overflow-y-auto bg-slate-700/20 p-2 rounded-md border border-slate-600/40 space-y-1.5">
+            {jobs.map(job => (
+              <div
+                key={job.id}
+                className={`p-2.5 rounded-md transition-all ${activeJobId === job.id ? 'bg-sky-600 shadow-md ring-2 ring-sky-400' : 'bg-slate-600 hover:bg-slate-500'}`}
+              >
+                <div className="flex justify-between items-center">
+                    <div className="flex-grow cursor-pointer" onClick={() => setActiveJobId(job.id)}>
+                        <span className={`text-sm font-medium ${activeJobId === job.id ? 'text-white' : 'text-slate-200'}`}>
+                            {job.receiptNumber} / {job.selectedItem}
+                        </span>
+                    </div>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onDeleteJob(job.id); }}
+                        className="ml-2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0"
+                        aria-label={`${job.receiptNumber} 작업 삭제`}
+                        disabled={isControlsDisabled}
+                    >
+                        <TrashIcon />
+                    </button>
+                </div>
+                <div className="mt-1 text-right cursor-pointer" onClick={() => setActiveJobId(job.id)}>
+                    <StatusIndicator status={job.submissionStatus} message={job.submissionMessage} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+  
+      {!activeJob && jobs.length > 0 && <p className="text-center text-slate-400 p-4">계속하려면 위 목록에서 작업을 선택하세요.</p>}
+      {!activeJob && jobs.length === 0 && <p className="text-center text-slate-400 p-4">시작하려면 '공통 정보 및 작업 관리' 섹션에서 작업을 추가하세요.</p>}
+  
+      {activeJob && (
+        <div className="space-y-4 pt-4 border-t border-slate-700">
+          <h3 className="text-lg font-semibold text-slate-100">활성 작업: {activeJob.receiptNumber} / {activeJob.selectedItem}</h3>
+          
+          <div className="p-4 bg-slate-700/40 rounded-lg border border-slate-600/50 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                      <label htmlFor="inspection-start-date" className="block text-sm font-medium text-slate-300 mb-1">검사 시작일 (선택)</label>
+                      <div className="relative">
+                          <input type="date" id="inspection-start-date" value={activeJob.inspectionStartDate || ''}
+                                 onChange={(e) => updateActiveJob(j => ({ ...j, inspectionStartDate: e.target.value }))}
+                                 className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm pr-9" />
+                          {activeJob.inspectionStartDate && (
+                              <button
+                                  type="button"
+                                  onClick={() => updateActiveJob(j => ({ ...j, inspectionStartDate: '' }))}
+                                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white"
+                                  aria-label="검사 시작일 지우기"
+                              >
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                  </svg>
+                              </button>
+                          )}
+                      </div>
+                  </div>
+                  <div>
+                      <label htmlFor="inspection-end-date" className="block text-sm font-medium text-slate-300 mb-1">검사 종료일 (선택)</label>
+                      <div className="relative">
+                          <input type="date" id="inspection-end-date" value={activeJob.inspectionEndDate || ''}
+                                 onChange={(e) => updateActiveJob(j => ({ ...j, inspectionEndDate: e.target.value }))}
+                                 className="block w-full p-2.5 bg-slate-700 border border-slate-500 rounded-md shadow-sm text-sm pr-9" />
+                          {activeJob.inspectionEndDate && (
+                              <button
+                                  type="button"
+                                  onClick={() => updateActiveJob(j => ({ ...j, inspectionEndDate: '' }))}
+                                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white"
+                                  aria-label="검사 종료일 지우기"
+                              >
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                  </svg>
+                              </button>
+                          )}
+                      </div>
+                  </div>
+              </div>
+               <p className="text-xs text-slate-400">검사 시작/종료일은 AI 분석 시 시간(Time) 값의 날짜 부분을 완성하는 데 사용됩니다.</p>
+          </div>
+  
+          <div className="mt-4 pt-4 border-t border-slate-600 space-y-3">
+              <h4 className="text-md font-semibold text-slate-200">참고 사진 ({activeJob.photos.length}개)</h4>
+              {isCameraOpen ? (
+                  <CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} />
+              ) : (
+                  <>
+                      <ImageInput
+                          onImagesSet={handleImagesSet}
+                          onOpenCamera={handleOpenCamera}
+                          isLoading={isLoading}
+                          ref={fileInputRef}
+                          selectedImageCount={activeJob.photos.length}
+                      />
+                      {currentImageIndex !== -1 && activeJob.photos[currentImageIndex] && (
+                          <ImagePreview
+                              imageBase64={activeJob.photos[currentImageIndex].base64}
+                              fileName={activeJob.photos[currentImageIndex].file.name}
+                              mimeType={activeJob.photos[currentImageIndex].mimeType}
+                              receiptNumber={activeJob.receiptNumber}
+                              item={activeJob.selectedItem}
+                              showOverlay={true}
+                              totalSelectedImages={activeJob.photos.length}
+                              currentImageIndex={currentImageIndex}
+                              onDelete={() => handleDeleteImage(currentImageIndex)}
+                              siteName={siteName}
+                              comment={activeJob.photoComments[activeJob.photos[currentImageIndex].uid]}
+                              gpsAddress={siteLocation.replace(siteName, '').replace('()','').trim()}
+                          />
+                      )}
+                      <ThumbnailGallery
+                          images={activeJob.photos}
+                          currentIndex={currentImageIndex}
+                          onSelectImage={setCurrentImageIndex}
+                          onDeleteImage={handleDeleteImage}
+                          disabled={isLoading}
+                      />
+                  </>
+              )}
+          </div>
+          
+          <OcrControls
+            onExtract={handleExtractText}
+            isExtractDisabled={isControlsDisabled || activeJob.photos.length === 0}
+            onExtractLogFile={handleExtractFromLogFile}
+            isExtractLogFileDisabled={isControlsDisabled || activeJob.photos.length === 0}
+            onClear={resetActiveJobData}
+            isClearDisabled={isControlsDisabled || (activeJob.photos.length === 0 && !activeJob.processedOcrData)}
+            onDownloadStampedImages={handleDownloadStampedImages}
+            isDownloadStampedDisabled={isControlsDisabled || activeJob.photos.length === 0}
+            isDownloadingStamped={isDownloadingStamped}
+            onInitiateSendToKtl={handleInitiateSendToKtl}
+            isClaydoxDisabled={isControlsDisabled || !activeJob.processedOcrData || activeJob.photos.length === 0 || !siteLocation.trim()}
+            isSendingToClaydox={isSendingToClaydox || activeJob.submissionStatus === 'sending'}
+            sendingMessage={activeJob.submissionMessage}
+            ktlApiCallStatus={ocrControlsKtlStatus}
+            onAutoAssignIdentifiers={showAutoAssignIdentifiers ? handleAutoAssignIdentifiers : undefined}
+            isAutoAssignDisabled={isControlsDisabled || !activeJob.processedOcrData}
+            onAnalyzeSinglePhoto={handleAnalyzeSinglePhoto}
+            isAnalyzeSingleDisabled={isControlsDisabled || currentImageIndex === -1 || !singleAnalysisDate}
+            singleAnalysisDate={singleAnalysisDate}
+            onSingleAnalysisDateChange={setSingleAnalysisDate}
+          />
+  
+          {showRangeDifferenceDisplay && (
+            <RangeDifferenceDisplay results={activeJob.rangeDifferenceResults} />
+          )}
+          
+          <OcrResultDisplay
+            ocrData={activeJob.processedOcrData}
+            error={processingError}
+            successMessage={successMessage}
+            isLoading={isLoading}
+            contextProvided={!!(activeJob.receiptNumber && siteLocation)}
+            hasImage={activeJob.photos.length > 0}
+            selectedItem={activeJob.selectedItem}
+            onEntryIdentifierChange={(id, val) => handleEntryChange(id, 'identifier', val)}
+            onEntryIdentifierTPChange={(id, val) => handleEntryChange(id, 'identifierTP', val)}
+            onEntryTimeChange={(id, val) => handleEntryChange(id, 'time', val)}
+            onEntryPrimaryValueChange={(id, val) => handleEntryChange(id, 'value', val)}
+            onEntryValueTPChange={(id, val) => handleEntryChange(id, 'valueTP', val)}
+            onAddEntry={handleAddEntry}
+            onDeleteEntry={handleDeleteEntry}
+            onReorderRows={handleReorderRows}
+            availableIdentifiers={availableIdentifiers}
+            tnIdentifiers={availableTnIdentifiers}
+            tpIdentifiers={availableTpIdentifiers}
+            rawJsonForCopy={
+              activeJob.processedOcrData
+                ? JSON.stringify(
+                    activeJob.processedOcrData.filter(e => e.value.trim() || (e.valueTP && e.valueTP.trim())),
+                    null, 2
+                  )
+                : null
+            }
+            ktlJsonToPreview={ktlJsonPreview}
+          />
+        </div>
+      )}
+  
+      {jobs.length > 0 && (
+      <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
+          <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
+          <p className="text-sm text-slate-400">
+              이 페이지의 모든 작업을 KTL로 전송합니다. 각 작업에 사진과 추출된 데이터가 있어야 합니다.
+          </p>
+          {batchSendProgress && (
+              <div className="p-3 bg-slate-700/50 rounded-md text-sky-300 text-sm flex items-center gap-2">
+                  <Spinner size="sm" />
+                  <span>{batchSendProgress}</span>
+              </div>
+          )}
+          <ActionButton
+              onClick={handleBatchSendToKtl}
+              disabled={isControlsDisabled}
+              fullWidth
+              variant="secondary"
+              className="bg-teal-600 hover:bg-teal-500"
+          >
+              {batchSendProgress ? '전송 중...' : `이 페이지의 모든 작업 전송 (${jobs.length}건)`}
+          </ActionButton>
+      </div>
+      )}
+  
+      {isKtlPreflightModalOpen && ktlPreflightData && (
+        <KtlPreflightModal
+          isOpen={isKtlPreflightModalOpen}
+          onClose={() => setIsKtlPreflightModalOpen(false)}
+          onConfirm={handleSendToClaydoxConfirmed}
+          preflightData={ktlPreflightData}
+        />
+      )}
+    </div>
+  );
+};
+
+export default AnalysisPage;
