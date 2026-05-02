@@ -971,30 +971,10 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
   const graphRef = useRef<HTMLDivElement>(null);
   const [isKtlCapturing, setIsKtlCapturing] = useState(false); // KTL 캡처 중 상태
 
-  // ✅ 데이터 측정 주기에 따른 동적 보기 범위(시간) 버튼 생성
+  // ✅ 시간 범위 버튼 목록 (사용자 요청에 따라 10분, 30분 항상 포함)
   const dynamicTimeOptions = useMemo(() => {
-    if (!fullTimeRange || !activeJob?.parsedData?.data || activeJob.parsedData.data.length < 2) {
-      return [10, 30, 60, 180, 'all'];
-    }
-    
-    // 평균 측정 주기(interval) 계산 (밀리초)
-    const intervalMs = (fullTimeRange.max - fullTimeRange.min) / activeJob.parsedData.data.length;
-    
-    // 주기에 따른 화면 최적화 분(minute) 단위 추천 (화면에 적절한 점 개수가 들어오도록)
-    if (intervalMs < 2000) {
-      // 1초 단위: 기존 유지
-      return [10, 30, 60, 180, 'all'];
-    } else if (intervalMs < 8000) {
-      // 5초 단위: 30분부터 시작
-      return [30, 60, 180, 360, 'all'];
-    } else if (intervalMs <= 20000) {
-      // 10초 단위: 1시간부터 시작
-      return [60, 180, 360, 720, 'all'];
-    } else {
-      // 1분 이상: 3시간부터 시작
-      return [180, 360, 720, 1440, 'all'];
-    }
-  }, [fullTimeRange, activeJob?.parsedData]);
+    return [10, 30, 60, 180, 360, 'all'];
+  }, []);
 
   const formatTimeOption = (m: number | string) => {
     if (m === 'all') return '전체';
