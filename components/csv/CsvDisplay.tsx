@@ -115,8 +115,24 @@ const MiniMap: React.FC<MiniMapProps> = ({ fullData, channelIndex, viewEndTimest
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
-    const channelData = fullData.map(d => ({ ts: d.timestamp.getTime(), v: d.values[channelIndex] })).filter(d => d.v !== null);
-    if (channelData.length < 2) return;
+    const rawChannelData = fullData.map(d => ({ ts: d.timestamp.getTime(), v: d.values[channelIndex] })).filter(d => d.v !== null);
+    if (rawChannelData.length < 2) return;
+
+    // ✅ 미니맵 다운샘플링 (성능 최적화: 픽셀 당 1개 포인트로 제한)
+    const channelData = [];
+    const pixels = width;
+    if (rawChannelData.length > pixels * 2) {
+      const step = Math.floor(rawChannelData.length / pixels);
+      for (let i = 0; i < rawChannelData.length; i += step) {
+        channelData.push(rawChannelData[i]);
+      }
+      // 마지막 점 포함
+      if (channelData[channelData.length - 1] !== rawChannelData[rawChannelData.length - 1]) {
+        channelData.push(rawChannelData[rawChannelData.length - 1]);
+      }
+    } else {
+      channelData.push(...rawChannelData);
+    }
 
     const yMin = Math.min(...channelData.map(d => d.v!));
     const yMax = Math.max(...channelData.map(d => d.v!));
@@ -275,10 +291,29 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
   }, [viewportMax, timeRangeInMs, fullTimeRange]);
 
   const getChannelData = useMemo(() => {
-    return fullData
+    const rawData = fullData
       .map(d => ({ ...d, value: d.values[channelIndex] }))
       .filter(d => d.value !== null && typeof d.value === 'number') as (DataPoint & { value: number })[];
-  }, [fullData, channelIndex]);
+      
+    // ✅ 메인 그래프 다운샘플링 (성능 최적화)
+    // 뷰포트 안에 있는 데이터만 필터링한 후, 픽셀 수에 맞춰 샘플링
+    const visibleData = rawData.filter(d => d.timestamp.getTime() >= viewportMin && d.timestamp.getTime() <= viewportMax);
+    if (width > 0 && visibleData.length > width * 3) {
+      const sampled = [];
+      const step = Math.floor(visibleData.length / width);
+      for (let i = 0; i < visibleData.length; i += step) {
+        sampled.push(visibleData[i]);
+      }
+      // 마지막 점 포함
+      if (sampled[sampled.length - 1] !== visibleData[visibleData.length - 1]) {
+        sampled.push(visibleData[visibleData.length - 1]);
+      }
+      return sampled;
+    }
+    
+    // 전체 데이터를 반환하되, 실제 그릴 때는 mapX 범위 내인지 확인됨
+    return visibleData.length > 0 ? visibleData : rawData; // 뷰포트 내 데이터가 없으면 일단 원본 반환 (가이드라인 등 처리용)
+  }, [fullData, channelIndex, viewportMin, viewportMax, width]);
 
   const getYBounds = useMemo(() => {
     if (yMinMaxOverall) return yMinMaxOverall;
@@ -946,7 +981,18 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         const stTs = st.realTimestamp ? new Date(st.realTimestamp) : new Date(st.timestamp);
         const enTs = en.realTimestamp ? new Date(en.realTimestamp) : new Date(en.timestamp);
         const diffSecRaw = (enTs.getTime() - stTs.getTime()) / 1000;
-        const diffSec = Math.round(diffSecRaw / 10) * 10;
+        // ✅ 1분, 10분, 30분 단위에 근접하면 깔끔하게 맞춰주는 로직
+        let diffSec = diffSecRaw;
+        const diffMinutes = Math.round(diffSecRaw / 60);
+        
+        // 사용자가 흔히 사용하는 10분(600초), 30분(1800초), 그 외 분 단위에 대해 오차가 ±30초 이내면 딱 떨어지는 분 단위로 보정
+        if (Math.abs(diffSecRaw - diffMinutes * 60) <= 30) {
+            diffSec = diffMinutes * 60;
+        } else {
+            // 그 외의 경우는 10초 단위로 반올림
+            diffSec = Math.round(diffSecRaw / 10) * 10;
+        }
+        
         results.push({ id: `pt-response-time`, type: '응답', name: 'ST → EN', startTime: stTs, endTime: enTs, diff: diffSec });
       }
 
@@ -1023,20 +1069,38 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       setIsKtlCapturing(true);
       
       // 3. 모바일에서도 크게 보이도록 고정 너비 및 스케일 적용 (사용자 요청)
-      const graphContainer = graphRef.current;
-      const tableContainer = tableRef.current;
+      // ✅ 클론(Clone) 방식을 이용한 캡처 (모바일 세로화면 잘림 문제 해결)
+      // 화면 밖으로 밀어낸 임시 래퍼 생성
+      const cloneWrapper = document.createElement('div');
+      cloneWrapper.style.position = 'fixed';
+      cloneWrapper.style.top = '-9999px';
+      cloneWrapper.style.left = '-9999px';
+      cloneWrapper.style.width = '1200px';
+      cloneWrapper.style.backgroundColor = '#0f172a';
+      cloneWrapper.style.pointerEvents = 'none';
+      document.body.appendChild(cloneWrapper);
+
+      // 그래프 클론
+      const graphClone = graphContainer.cloneNode(true) as HTMLElement;
+      graphClone.style.width = '1200px';
+      graphClone.style.height = '600px';
+      // 캔버스 데이터는 복사되지 않으므로 직접 그려주기
+      const originalCanvas = graphContainer.querySelector('canvas');
+      const clonedCanvas = graphClone.querySelector('canvas');
+      if (originalCanvas && clonedCanvas) {
+        const ctx = clonedCanvas.getContext('2d');
+        if (ctx) ctx.drawImage(originalCanvas, 0, 0);
+      }
+      cloneWrapper.appendChild(graphClone);
+
+      // 테이블 클론
+      const tableClone = tableContainer.cloneNode(true) as HTMLElement;
+      tableClone.style.width = '1200px';
+      tableClone.style.height = 'auto';
+      cloneWrapper.appendChild(tableClone);
       
-      // 캡처용 스타일 임시 적용
-      const originalGraphStyle = graphContainer.getAttribute('style') || '';
-      const originalTableStyle = tableContainer.getAttribute('style') || '';
-      
-      // 데스크탑 수준의 너비 강제 (모바일에서 작게 나오는 문제 해결)
-      graphContainer.style.width = '1200px';
-      graphContainer.style.height = '600px';
-      tableContainer.style.width = '1200px';
-      
-      // 레이아웃 재계산 대기
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // 레이아웃 렌더링 대기
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       const captureOptions = {
         backgroundColor: '#0f172a',
@@ -1044,15 +1108,15 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         logging: false,
         useCORS: true,
         allowTaint: true,
-        ignoreElements: (el: Element) => el.classList.contains('no-capture')
+        windowWidth: 1200,
+        ignoreElements: (el: Element) => el.classList?.contains('no-capture')
       };
 
-      const graphCanvas = await html2canvas(graphContainer, captureOptions);
-      const tableCanvas = await html2canvas(tableContainer, captureOptions);
+      const graphCanvas = await html2canvas(graphClone, captureOptions);
+      const tableCanvas = await html2canvas(tableClone, captureOptions);
 
-      // 스타일 복구
-      graphContainer.setAttribute('style', originalGraphStyle);
-      tableContainer.setAttribute('style', originalTableStyle);
+      // DOM 정리
+      document.body.removeChild(cloneWrapper);
 
       const graphBlob = await new Promise<Blob>((resolve) => graphCanvas.toBlob(b => resolve(b!), 'image/png'));
       const tableBlob = await new Promise<Blob>((resolve) => tableCanvas.toBlob(b => resolve(b!), 'image/png'));
@@ -1401,7 +1465,11 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                 <td className="px-3 py-2">{item.startTime.toLocaleDateString()}</td>
                 <td className="px-3 py-2 text-right font-mono">
                   {item.type === '응답' ? (
-                    <span className="font-bold text-amber-400">{item.diff}s</span>
+                    <span className="font-bold text-amber-400">
+                      {item.diff >= 60 && item.diff % 60 === 0 
+                        ? `${item.diff / 60}분 (${item.diff}s)` 
+                        : `${item.diff}s`}
+                    </span>
                   ) : item.type === '수동 분석' ? (
                     <span className="text-amber-400">{item.diff?.toFixed(3)}</span>
                   ) : (
