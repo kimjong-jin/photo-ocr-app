@@ -394,12 +394,24 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
 
       if (targetValue !== null) {
-        let interpPoint = null;
+        const baseTime = basePoint.timestamp.getTime();
+        const viewportRangeMs = Math.max(1000, viewportMax - viewportMin);
+        const searchBackMs = Math.max(60_000, viewportRangeMs * 0.75);
+        const minAllowedTs = Math.max(stTime + 1000, baseTime - searchBackMs);
+
+        let interpPoint: { timestamp: Date; realTimestamp?: Date; value: number } | null = null;
         let minTimeDiff = Infinity;
+
         for (let i = 0; i < fullChannelData.length - 1; i++) {
           const d1 = fullChannelData[i];
           const d2 = fullChannelData[i + 1];
-          if (d1.timestamp.getTime() <= stTime) continue;
+          const t1 = d1.timestamp.getTime();
+          const t2 = d2.timestamp.getTime();
+
+          // ST 이전 구간, ST와 같은 시점에 붙는 구간, 현재 선택점과 너무 동떨어진 과거 구간은 제외
+          if (t2 <= stTime + 1000) continue;
+          if (t2 < minAllowedTs) continue;
+          if (d1.value === d2.value) continue;
 
           let crossed = false;
           if (sensorType === 'PH') {
@@ -411,23 +423,28 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
           if (crossed) {
             const ratio = (targetValue - d1.value) / (d2.value - d1.value);
-            const interpTs = d1.timestamp.getTime() + ratio * (d2.timestamp.getTime() - d1.timestamp.getTime());
-            const timeDiff = Math.abs(interpTs - basePoint.timestamp.getTime());
+            if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) continue;
+
+            const interpTs = t1 + ratio * (t2 - t1);
+            if (interpTs <= stTime + 1000) continue;
+            if (interpTs < minAllowedTs) continue;
+
+            const timeDiff = Math.abs(interpTs - baseTime);
             if (timeDiff < minTimeDiff) {
               minTimeDiff = timeDiff;
-              // Interpolated point might not have a realTimestamp, but we can approximate it
-              const realTs1 = d1.realTimestamp?.getTime() || d1.timestamp.getTime();
-              const realTs2 = d2.realTimestamp?.getTime() || d2.timestamp.getTime();
+              const realTs1 = d1.realTimestamp?.getTime() ?? t1;
+              const realTs2 = d2.realTimestamp?.getTime() ?? t2;
               const interpRealTs = realTs1 + ratio * (realTs2 - realTs1);
               interpPoint = { timestamp: new Date(interpTs), realTimestamp: new Date(interpRealTs), value: targetValue };
             }
           }
         }
+
         return interpPoint || basePoint;
       }
     }
     return basePoint;
-  }, [sensorType, aiAnalysisResult, fullChannelData]);
+  }, [sensorType, aiAnalysisResult, fullChannelData, viewportMax, viewportMin]);
 
   const confirmPoint = useCallback((point: { timestamp: Date; realTimestamp?: Date; value: number }) => {
     // ✅ [민감도 해결] 500ms 쿨다운 적용하여 중복 클릭 방지
