@@ -290,10 +290,14 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     return viewportMax - range;
   }, [viewportMax, timeRangeInMs, fullTimeRange]);
 
-  const getChannelData = useMemo(() => {
-    const rawData = fullData
+  const fullChannelData = useMemo(() => {
+    return fullData
       .map(d => ({ ...d, value: d.values[channelIndex] }))
       .filter(d => d.value !== null && typeof d.value === 'number') as (DataPoint & { value: number })[];
+  }, [fullData, channelIndex]);
+
+  const getChannelData = useMemo(() => {
+    const rawData = fullChannelData;
       
     // ✅ 메인 그래프 다운샘플링 (성능 최적화)
     // 뷰포트 안에 있는 데이터만 필터링한 후, 픽셀 수에 맞춰 샘플링
@@ -313,7 +317,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
     
     // 전체 데이터를 반환하되, 실제 그릴 때는 mapX 범위 내인지 확인됨
     return visibleData.length > 0 ? visibleData : rawData; // 뷰포트 내 데이터가 없으면 일단 원본 반환 (가이드라인 등 처리용)
-  }, [fullData, channelIndex, viewportMin, viewportMax, width]);
+  }, [fullChannelData, viewportMin, viewportMax, width]);
 
   const getYBounds = useMemo(() => {
     if (yMinMaxOverall) return yMinMaxOverall;
@@ -392,9 +396,9 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       if (targetValue !== null) {
         let interpPoint = null;
         let minTimeDiff = Infinity;
-        for (let i = 0; i < getChannelData.length - 1; i++) {
-          const d1 = getChannelData[i];
-          const d2 = getChannelData[i + 1];
+        for (let i = 0; i < fullChannelData.length - 1; i++) {
+          const d1 = fullChannelData[i];
+          const d2 = fullChannelData[i + 1];
           if (d1.timestamp.getTime() <= stTime) continue;
 
           let crossed = false;
@@ -423,7 +427,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     }
     return basePoint;
-  }, [sensorType, aiAnalysisResult, getChannelData]);
+  }, [sensorType, aiAnalysisResult, fullChannelData]);
 
   const confirmPoint = useCallback((point: { timestamp: Date; realTimestamp?: Date; value: number }) => {
     // ✅ [민감도 해결] 500ms 쿨다운 적용하여 중복 클릭 방지
@@ -1083,6 +1087,13 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
 
       // ✅ 캡처용 상태 활성화 (가이드라인 숨김)
       setIsKtlCapturing(true);
+
+      const graphContainer = graphRef.current;
+      const tableContainer = tableRef.current;
+
+      if (!graphContainer || !tableContainer) {
+        throw new Error('캡처 대상 그래프 또는 테이블을 찾을 수 없습니다.');
+      }
       
       // 3. 모바일에서도 크게 보이도록 고정 너비 및 스케일 적용 (사용자 요청)
       // ✅ 클론(Clone) 방식을 이용한 캡처 (모바일 세로화면 잘림 문제 해결)
