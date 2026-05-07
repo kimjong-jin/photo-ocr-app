@@ -1014,21 +1014,11 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       const st = (activeJob.aiAnalysisResult as any)?.st;
       const en = (activeJob.aiAnalysisResult as any)?.en;
       if (st && en) {
-        // ✅ 응답시간 결과값을 10초 단위로 정확히 반올림 처리 (10, 20, 30... 단위 보장)
+        // ✅ 응답시간은 실제 초 단위 그대로 계산하고, 반올림/분 보정은 하지 않음
         const stTs = st.realTimestamp ? new Date(st.realTimestamp) : new Date(st.timestamp);
         const enTs = en.realTimestamp ? new Date(en.realTimestamp) : new Date(en.timestamp);
         const diffSecRaw = (enTs.getTime() - stTs.getTime()) / 1000;
-        // ✅ 1분, 10분, 30분 단위에 근접하면 깔끔하게 맞춰주는 로직
-        let diffSec = diffSecRaw;
-        const diffMinutes = Math.round(diffSecRaw / 60);
-        
-        // 사용자가 흔히 사용하는 10분(600초), 30분(1800초), 그 외 분 단위에 대해 오차가 ±30초 이내면 딱 떨어지는 분 단위로 보정
-        if (Math.abs(diffSecRaw - diffMinutes * 60) <= 30) {
-            diffSec = diffMinutes * 60;
-        } else {
-            // 그 외의 경우는 10초 단위로 반올림
-            diffSec = Math.round(diffSecRaw / 10) * 10;
-        }
+        const diffSec = Math.round(diffSecRaw);
         
         results.push({ id: `pt-response-time`, type: '응답', name: 'ST → EN', startTime: stTs, endTime: enTs, diff: diffSec });
       }
@@ -1510,9 +1500,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                 <td className="px-3 py-2 text-right font-mono">
                   {item.type === '응답' ? (
                     <span className="font-bold text-amber-400">
-                      {item.diff >= 60 && item.diff % 60 === 0 
-                        ? `${item.diff / 60}분 (${item.diff}s)` 
-                        : `${item.diff}s`}
+                      {`${item.diff}s`}
                     </span>
                   ) : item.type === '수동 분석' ? (
                     <span className="text-amber-400">{item.diff?.toFixed(3)}</span>
