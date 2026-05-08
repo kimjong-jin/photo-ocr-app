@@ -1362,18 +1362,39 @@ export const sendCsvGraphToKtlApi = async (
 ): Promise<{ success: boolean; message: string }> => {
   const logIdentifier = `[ClaydoxAPI - P6 CSV 그래프]`;
   const formData = new FormData();
-  
-  formData.append('files', graphImage, graphImage.name);
-  formData.append('files', tableImage, tableImage.name);
+
+  // ✅ 같은 접수번호의 TU / Cl 그래프 파일명 중복 방지
+  // 예: 접수번호_TU_graph.png / 접수번호_Cl_graph.png
+  const csvGraphFileSuffix =
+    job.sensorType === 'TU' || job.sensorType === 'Cl'
+      ? `_${sanitizeFilename(job.sensorType)}`
+      : '';
+
+  const csvGraphBaseName = `${sanitizeFilename(job.receiptNumber)}${csvGraphFileSuffix}`;
+
+  const graphImageForUpload = new File(
+    [graphImage],
+    `${csvGraphBaseName}_graph.png`,
+    { type: graphImage.type || 'image/png' }
+  );
+
+  const tableImageForUpload = new File(
+    [tableImage],
+    `${csvGraphBaseName}_table.png`,
+    { type: tableImage.type || 'image/png' }
+  );
+
+  formData.append('files', graphImageForUpload, graphImageForUpload.name);
+  formData.append('files', tableImageForUpload, tableImageForUpload.name);
 
   // ✅ 원본 CSV 압축 추가 요청
   let archiveName: string | undefined;
   if (csvRawContent) {
     try {
       const zip = new JSZip();
-      zip.file(`${job.receiptNumber}_original_data.csv`, csvRawContent);
+      zip.file(`${csvGraphBaseName}_original_data.csv`, csvRawContent);
       const zipBlob = await zip.generateAsync({ type: 'blob' });
-      archiveName = `${job.receiptNumber}_CSV.zip`;
+      archiveName = `${csvGraphBaseName}_CSV.zip`;
       formData.append('files', zipBlob, archiveName);
     } catch (zipErr: any) {
       console.error(`${logIdentifier} CSV Compression failed:`, zipErr.message);
@@ -1382,31 +1403,55 @@ export const sendCsvGraphToKtlApi = async (
 
   try {
     // 1. 파일 업로드
-    console.log(`${logIdentifier} Uploading files:`, [graphImage.name, tableImage.name, archiveName].filter(Boolean));
-    await retryKtlApiCall(() =>
-      axios.post(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: KTL_API_TIMEOUT,
-      }),
-      2, 2000, "CSV File Upload"
+    console.log(
+      `${logIdentifier} Uploading files:`,
+      [graphImageForUpload.name, tableImageForUpload.name, archiveName].filter(Boolean)
+    );
+
+    await retryKtlApiCall(
+      () =>
+        axios.post(`${KTL_API_BASE_URL}${UPLOAD_FILES_ENDPOINT}`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: KTL_API_TIMEOUT,
+        }),
+      2,
+      2000,
+      'CSV File Upload'
     );
 
     // ✅ TU/Cl 항목 상세 현장 주소 결합 처리
-    const finalSite = (job.sensorType === 'TU' || job.sensorType === 'Cl') && job.details 
-      ? `${siteLocation}_(${job.details})` 
-      : siteLocation;
+    const finalSite =
+      (job.sensorType === 'TU' || job.sensorType === 'Cl') && job.details
+        ? `${siteLocation}_(${job.details})`
+        : siteLocation;
 
     // ✅ Cl 항목 접미사 'C' 처리
     const suffix = job.sensorType === 'Cl' ? 'C' : '';
-    // ✅ pH 항목 테이블 키 처리
-    const tableKey = job.sensorType === 'PH' ? 'pH_PHOTO_데이터테이블' : 'PHOTO_데이터테이블';
+
+    // ✅ Cl은 JSON 키도 C로 분리해서 같은 접수번호 내 덮어쓰기 방지
+    const graphKey =
+      job.sensorType === 'Cl'
+        ? 'PHOTO_그래프C'
+        : 'PHOTO_그래프';
+
+    const tableKey =
+      job.sensorType === 'PH'
+        ? 'pH_PHOTO_데이터테이블'
+        : job.sensorType === 'Cl'
+          ? 'PHOTO_데이터테이블C'
+          : 'PHOTO_데이터테이블';
+
+    const archiveKey =
+      job.sensorType === 'Cl'
+        ? 'PHOTO_압축C'
+        : 'PHOTO_압축';
 
     // 2. JSON 구성
     const labviewItemObject: any = {
       '시험자': userName,
       '현장': finalSite,
-      'PHOTO_그래프': graphImage.name,
-      [tableKey]: tableImage.name,
+      [graphKey]: graphImageForUpload.name,
+      [tableKey]: tableImageForUpload.name,
     };
 
     // ✅ 검사시작일, 검사종료일 추출 (CSV 데이터 기준)
@@ -1415,20 +1460,20 @@ export const sendCsvGraphToKtlApi = async (
       // timestamp는 공백이 압축된 가짜 시간이므로, 원래 시간인 realTimestamp를 우선 사용합니다.
       const firstDate = new Date(data[0].realTimestamp || data[0].timestamp);
       const lastDate = new Date(data[data.length - 1].realTimestamp || data[data.length - 1].timestamp);
-      
+
       const formatDate = (date: Date) => {
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
         const dd = String(date.getDate()).padStart(2, '0');
         return `${yyyy}-${mm}-${dd}`;
       };
-      
+
       labviewItemObject['검사시작일'] = formatDate(firstDate);
       labviewItemObject['검사종료일'] = formatDate(lastDate);
     }
 
     if (archiveName) {
-      labviewItemObject['PHOTO_압축'] = archiveName;
+      labviewItemObject[archiveKey] = archiveName;
     }
 
     // 지정 포인트 수치 데이터 추가 (Cl인 경우 접미사 C 붙임)
@@ -1442,7 +1487,7 @@ export const sendCsvGraphToKtlApi = async (
     }
 
     // 응답 시간 수치 추가 (ST -> EN) (Cl인 경우 응답시간C)
-    const responseResult = unifiedResults.find(r => r.name === 'ST → EN');
+    const responseResult = unifiedResults.find((r) => r.name === 'ST → EN');
     if (responseResult && responseResult.diff !== undefined) {
       labviewItemObject['응답시간' + suffix] = String(Math.round(responseResult.diff));
     }
@@ -1458,12 +1503,15 @@ export const sendCsvGraphToKtlApi = async (
 
     // 3. JSON 전송
     console.log(`${logIdentifier} Sending JSON data:`, finalKtlJsonObject);
-    const jsonResponse = await retryKtlApiCall(() =>
-      axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, {
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        timeout: KTL_API_TIMEOUT,
-      }),
-      2, 2000, "CSV JSON Data Send"
+    const jsonResponse = await retryKtlApiCall(
+      () =>
+        axios.post<KtlApiResponseData>(`${KTL_API_BASE_URL}${KTL_JSON_ENV_ENDPOINT}`, finalKtlJsonObject, {
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          timeout: KTL_API_TIMEOUT,
+        }),
+      2,
+      2000,
+      'CSV JSON Data Send'
     );
 
     // 4. Supabase 체크리스트 업데이트
@@ -1476,7 +1524,7 @@ export const sendCsvGraphToKtlApi = async (
       else window.dispatchEvent(new CustomEvent('applicationsUpdated'));
     }
 
-    return { success: true, message: jsonResponse.data?.message || "KTL 전송 완료" };
+    return { success: true, message: jsonResponse.data?.message || 'KTL 전송 완료' };
 
   } catch (error: any) {
     console.error(`${logIdentifier} Error:`, error.message);
