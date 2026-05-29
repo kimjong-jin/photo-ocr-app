@@ -1020,20 +1020,26 @@ Required output:
             });
             handleChecklistItemChange(targetChecklistItem, "notes", foundOption || `${OTHER_DIRECT_INPUT_OPTION} (${resultText})`);
         } else if (itemNameForAnalysis === "지시부 번호" || itemNameForAnalysis === "센서부 번호") {
-            const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes || '';
-            const parts = existingNotes.split(',').map(p => p.trim());
-            let indicatorPart = parts[0] || '';
-            let sensorPart = parts.length > 1 ? parts[1] : '';
+            // 일괄 분석 시 지시부/센서부가 연속 실행되어도 서로 덮어쓰지 않도록
+            // stale closure(activeJob) 대신 최신 job 상태를 기준으로 병합한다.
+            const isIndicator = itemNameForAnalysis === "지시부 번호";
+            const trimmedResult = resultText.trim();
+            updateActiveJob(job => {
+                const existingNotes = job.checklistData[targetChecklistItem]?.notes || '';
+                const parts = existingNotes.split(',').map(p => p.trim());
+                let indicatorPart = parts[0] || '';
+                let sensorPart = parts.length > 1 ? parts[1] : '';
 
-            if (itemNameForAnalysis === "지시부 번호") {
-                indicatorPart = resultText.trim();
-            } else {
-                sensorPart = resultText.trim();
-            }
+                if (isIndicator) {
+                    indicatorPart = trimmedResult;
+                } else {
+                    sensorPart = trimmedResult;
+                }
 
-            const newNote = [indicatorPart, sensorPart].filter(Boolean).join(', ');
-
-            handleChecklistItemChange(targetChecklistItem, "notes", newNote);
+                const newNote = [indicatorPart, sensorPart].filter(Boolean).join(', ');
+                const updatedItemData = { ...job.checklistData[targetChecklistItem], notes: newNote };
+                return { ...job, checklistData: { ...job.checklistData, [targetChecklistItem]: updatedItemData }, submissionStatus: 'idle', submissionMessage: undefined };
+            });
         } else {
             handleChecklistItemChange(targetChecklistItem, "notes", resultText);
         }
@@ -1068,7 +1074,7 @@ Required output:
         setIsAnalyzingDetail(false);
         if (isQuickAnalysis) setQuickAnalysisTarget(null);
     }
-  }, [activeJob, activeJobId, currentPhotoIndexOfActiveJob, handleChecklistItemChange, handlePhotoCommentChange, setJobs, getAnalysisTypeDisplayString]);
+  }, [activeJob, activeJobId, currentPhotoIndexOfActiveJob, handleChecklistItemChange, handlePhotoCommentChange, setJobs, getAnalysisTypeDisplayString, updateActiveJob]);
 
   const handleInitiateSendToKtl = async () => {
     if (!activeJob || !siteName.trim()) {
