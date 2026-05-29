@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+  <title>KTL — 시험·검사 분석</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100%;
+      min-height: -webkit-fill-available;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11'; /* Inter optical sizes */
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      background-color: #020617; /* slate-950 */
+    }
+    /* Custom scrollbar for better aesthetics with dark theme */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 99px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #38bdf8;
+    }
+    /* For accessibility: visually hide elements but keep them for screen readers */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border-width: 0;
+    }
+
+    /* ── THEME: indigo ──────────────────────────── */
+    html[data-theme="indigo"] .bg-sky-500 { background-color: #6366f1 !important; }
+    html[data-theme="indigo"] .bg-sky-600 { background-color: #4f46e5 !important; }
+    html[data-theme="indigo"] .hover\:bg-sky-600:hover { background-color: #4f46e5 !important; }
+    html[data-theme="indigo"] .hover\:bg-sky-400:hover { background-color: #818cf8 !important; }
+    html[data-theme="indigo"] .hover\:bg-sky-500:hover { background-color: #6366f1 !important; }
+    html[data-theme="indigo"] .active\:bg-sky-600:active { background-color: #4f46e5 !important; }
+    html[data-theme="indigo"] .text-sky-400 { color: #818cf8 !important; }
+    html[data-theme="indigo"] .text-sky-300 { color: #a5b4fc !important; }
+    html[data-theme="indigo"] .text-sky-500 { color: #6366f1 !important; }
+    html[data-theme="indigo"] .border-sky-500 { border-color: #6366f1 !important; }
+    html[data-theme="indigo"] .focus\:border-sky-500:focus { border-color: #6366f1 !important; }
+    html[data-theme="indigo"] .focus\:ring-sky-500:focus { --tw-ring-color: rgba(99,102,241,0.6) !important; }
+    html[data-theme="indigo"] .ring-sky-500\/60 { --tw-ring-color: rgba(99,102,241,0.6) !important; }
+    html[data-theme="indigo"] .shadow-sky-900\/40 { --tw-shadow-color: rgba(49,46,129,0.4) !important; }
+    html[data-theme="indigo"] .bg-sky-500\/20 { background-color: rgba(99,102,241,0.2) !important; }
+
+    /* ── THEME: violet ──────────────────────────── */
+    html[data-theme="violet"] .bg-sky-500 { background-color: #8b5cf6 !important; }
+    html[data-theme="violet"] .bg-sky-600 { background-color: #7c3aed !important; }
+    html[data-theme="violet"] .hover\:bg-sky-600:hover { background-color: #7c3aed !important; }
+    html[data-theme="violet"] .hover\:bg-sky-400:hover { background-color: #a78bfa !important; }
+    html[data-theme="violet"] .hover\:bg-sky-500:hover { background-color: #8b5cf6 !important; }
+    html[data-theme="violet"] .active\:bg-sky-600:active { background-color: #7c3aed !important; }
+    html[data-theme="violet"] .text-sky-400 { color: #a78bfa !important; }
+    html[data-theme="violet"] .text-sky-300 { color: #c4b5fd !important; }
+    html[data-theme="violet"] .text-sky-500 { color: #8b5cf6 !important; }
+    html[data-theme="violet"] .border-sky-500 { border-color: #8b5cf6 !important; }
+    html[data-theme="violet"] .focus\:border-sky-500:focus { border-color: #8b5cf6 !important; }
+    html[data-theme="violet"] .focus\:ring-sky-500:focus { --tw-ring-color: rgba(139,92,246,0.6) !important; }
+    html[data-theme="violet"] .ring-sky-500\/60 { --tw-ring-color: rgba(139,92,246,0.6) !important; }
+    html[data-theme="violet"] .shadow-sky-900\/40 { --tw-shadow-color: rgba(76,29,149,0.4) !important; }
+    html[data-theme="violet"] .bg-sky-500\/20 { background-color: rgba(139,92,246,0.2) !important; }
+
+    /* ── THEME: emerald ─────────────────────────── */
+    html[data-theme="emerald"] .bg-sky-500 { background-color: #10b981 !important; }
+    html[data-theme="emerald"] .bg-sky-600 { background-color: #059669 !important; }
+    html[data-theme="emerald"] .hover\:bg-sky-600:hover { background-color: #059669 !important; }
+    html[data-theme="emerald"] .hover\:bg-sky-400:hover { background-color: #34d399 !important; }
+    html[data-theme="emerald"] .hover\:bg-sky-500:hover { background-color: #10b981 !important; }
+    html[data-theme="emerald"] .active\:bg-sky-600:active { background-color: #059669 !important; }
+    html[data-theme="emerald"] .text-sky-400 { color: #34d399 !important; }
+    html[data-theme="emerald"] .text-sky-300 { color: #6ee7b7 !important; }
+    html[data-theme="emerald"] .text-sky-500 { color: #10b981 !important; }
+    html[data-theme="emerald"] .border-sky-500 { border-color: #10b981 !important; }
+    html[data-theme="emerald"] .focus\:border-sky-500:focus { border-color: #10b981 !important; }
+    html[data-theme="emerald"] .focus\:ring-sky-500:focus { --tw-ring-color: rgba(16,185,129,0.6) !important; }
+    html[data-theme="emerald"] .ring-sky-500\/60 { --tw-ring-color: rgba(16,185,129,0.6) !important; }
+    html[data-theme="emerald"] .shadow-sky-900\/40 { --tw-shadow-color: rgba(6,78,59,0.4) !important; }
+    html[data-theme="emerald"] .bg-sky-500\/20 { background-color: rgba(16,185,129,0.2) !important; }
+
+    /* 테마 저장 초기화 */
+    html { color-scheme: dark; }
+
+    /* ── BG THEME: midnight ──────────────────────── */
+    html[data-bg="midnight"] { background-color: #000 !important; }
+    html[data-bg="midnight"] .from-slate-950 { --tw-gradient-from: #000 !important; }
+    html[data-bg="midnight"] .via-slate-900  { --tw-gradient-via: #04040a !important; }
+    html[data-bg="midnight"] .to-slate-950   { --tw-gradient-to: #000 !important; }
+    html[data-bg="midnight"] .bg-slate-900\/60 { background-color: rgba(4,4,12,0.75) !important; }
+    html[data-bg="midnight"] .bg-slate-900\/70 { background-color: rgba(4,4,12,0.85) !important; }
+    html[data-bg="midnight"] .bg-slate-900\/80 { background-color: rgba(4,4,12,0.92) !important; }
+    html[data-bg="midnight"] .bg-slate-900\/95 { background-color: rgba(4,4,12,0.98) !important; }
+    html[data-bg="midnight"] .bg-slate-900\/40 { background-color: rgba(4,4,12,0.5) !important; }
+    html[data-bg="midnight"] .bg-slate-800    { background-color: #080810 !important; }
+    html[data-bg="midnight"] .bg-slate-800\/50 { background-color: rgba(8,8,16,0.5) !important; }
+    html[data-bg="midnight"] .bg-slate-800\/60 { background-color: rgba(8,8,16,0.6) !important; }
+    html[data-bg="midnight"] .bg-slate-800\/40 { background-color: rgba(8,8,16,0.4) !important; }
+    html[data-bg="midnight"] .bg-slate-700    { background-color: #0f0f1e !important; }
+    html[data-bg="midnight"] .bg-slate-700\/40 { background-color: rgba(15,15,30,0.4) !important; }
+    html[data-bg="midnight"] .bg-slate-700\/30 { background-color: rgba(15,15,30,0.3) !important; }
+    html[data-bg="midnight"] .bg-slate-950\/60 { background-color: rgba(0,0,0,0.8) !important; }
+    html[data-bg="midnight"] .bg-slate-950\/80 { background-color: rgba(0,0,0,0.9) !important; }
+    html[data-bg="midnight"] .border-slate-700\/60 { border-color: rgba(20,20,35,0.8) !important; }
+    html[data-bg="midnight"] .border-slate-800\/80 { border-color: rgba(10,10,20,0.9) !important; }
+
+    /* ── BG THEME: warm ─────────────────────────── */
+    html[data-bg="warm"] { background-color: #0c0a14 !important; }
+    html[data-bg="warm"] .from-slate-950 { --tw-gradient-from: #0c0a14 !important; }
+    html[data-bg="warm"] .via-slate-900  { --tw-gradient-via: #110e1c !important; }
+    html[data-bg="warm"] .to-slate-950   { --tw-gradient-to: #0c0a14 !important; }
+    html[data-bg="warm"] .bg-slate-900\/60 { background-color: rgba(17,14,28,0.75) !important; }
+    html[data-bg="warm"] .bg-slate-900\/70 { background-color: rgba(17,14,28,0.85) !important; }
+    html[data-bg="warm"] .bg-slate-900\/80 { background-color: rgba(17,14,28,0.92) !important; }
+    html[data-bg="warm"] .bg-slate-900\/95 { background-color: rgba(17,14,28,0.98) !important; }
+    html[data-bg="warm"] .bg-slate-800    { background-color: #1a1624 !important; }
+    html[data-bg="warm"] .bg-slate-700    { background-color: #231e30 !important; }
+    html[data-bg="warm"] .bg-slate-950\/60 { background-color: rgba(8,6,12,0.8) !important; }
+
+    /* ── BG THEME: stone ─────────────────────────── */
+    html[data-bg="stone"] { background-color: #0c0b0a !important; }
+    html[data-bg="stone"] .from-slate-950 { --tw-gradient-from: #0c0b0a !important; }
+    html[data-bg="stone"] .via-slate-900  { --tw-gradient-via: #141210 !important; }
+    html[data-bg="stone"] .to-slate-950   { --tw-gradient-to: #0c0b0a !important; }
+    html[data-bg="stone"] .bg-slate-900\/60 { background-color: rgba(20,18,16,0.75) !important; }
+    html[data-bg="stone"] .bg-slate-900\/70 { background-color: rgba(20,18,16,0.85) !important; }
+    html[data-bg="stone"] .bg-slate-900\/80 { background-color: rgba(20,18,16,0.92) !important; }
+    html[data-bg="stone"] .bg-slate-900\/95 { background-color: rgba(20,18,16,0.98) !important; }
+    html[data-bg="stone"] .bg-slate-800    { background-color: #1e1c1a !important; }
+    html[data-bg="stone"] .bg-slate-700    { background-color: #2a2724 !important; }
+    html[data-bg="stone"] .bg-slate-950\/60 { background-color: rgba(8,7,6,0.8) !important; }
+
+    /* ── TEXT THEME: bright ──────────────────────── */
+    html[data-text="bright"] .text-slate-100 { color: #ffffff !important; }
+    html[data-text="bright"] .text-slate-200 { color: #f1f5f9 !important; }
+    html[data-text="bright"] .text-slate-300 { color: #e2e8f0 !important; }
+    html[data-text="bright"] .text-slate-400 { color: #cbd5e1 !important; }
+
+    /* ── TEXT THEME: soft ────────────────────────── */
+    html[data-text="soft"] .text-slate-100 { color: #cbd5e1 !important; }
+    html[data-text="soft"] .text-slate-200 { color: #94a3b8 !important; }
+    html[data-text="soft"] .text-slate-300 { color: #64748b !important; }
+    html[data-text="soft"] .text-slate-400 { color: #475569 !important; }
+    /* ── BG THEME: light (화이트 모드) ─────────────────────────── */
+    html[data-bg="light"] {
+      background-color: #f8fafc !important;
+      color-scheme: light;
+    }
+    html[data-bg="light"] body { background-color: #f8fafc !important; }
+
+    /* ── 배경 계층 (어두운 → 밝은 회색/흰색) ── */
+    html[data-bg="light"] .bg-slate-950,
+    html[data-bg="light"] .from-slate-950,
+    html[data-bg="light"] .to-slate-950   { background-color: #e2e8f0 !important; }
+    html[data-bg="light"] .via-slate-900  { background-color: #f1f5f9 !important; }
+    html[data-bg="light"] .from-slate-950 { --tw-gradient-from: #e2e8f0 !important; }
+    html[data-bg="light"] .via-slate-900  { --tw-gradient-via: #f1f5f9 !important; }
+    html[data-bg="light"] .to-slate-950   { --tw-gradient-to: #e2e8f0 !important; }
+    html[data-bg="light"] .bg-slate-900,
+    html[data-bg="light"] .bg-slate-900\/95,
+    html[data-bg="light"] .bg-slate-900\/80,
+    html[data-bg="light"] .bg-slate-900\/70,
+    html[data-bg="light"] .bg-slate-900\/60,
+    html[data-bg="light"] .bg-slate-900\/40 { background-color: #f8fafc !important; }
+    html[data-bg="light"] .bg-slate-950\/80,
+    html[data-bg="light"] .bg-slate-950\/60 { background-color: rgba(226,232,240,0.95) !important; }
+    /* 카드/패널 → 흰색 */
+    html[data-bg="light"] .bg-slate-800,
+    html[data-bg="light"] .bg-slate-800\/50,
+    html[data-bg="light"] .bg-slate-800\/60,
+    html[data-bg="light"] .bg-slate-800\/40 { background-color: #ffffff !important; }
+    /* 서브 패널 → 아주 연한 회색 */
+    html[data-bg="light"] .bg-slate-700,
+    html[data-bg="light"] .bg-slate-700\/50,
+    html[data-bg="light"] .bg-slate-700\/40,
+    html[data-bg="light"] .bg-slate-700\/30 { background-color: #f1f5f9 !important; }
+    /* 강조 배경 */
+    html[data-bg="light"] .bg-slate-600    { background-color: #e2e8f0 !important; }
+    html[data-bg="light"] .hover\:bg-slate-700:hover,
+    html[data-bg="light"] .hover\:bg-slate-700\/30:hover { background-color: #e2e8f0 !important; }
+    html[data-bg="light"] .hover\:bg-slate-600:hover { background-color: #cbd5e1 !important; }
+    html[data-bg="light"] .hover\:bg-slate-500:hover { background-color: #94a3b8 !important; }
+
+    /* ── 텍스트 (어두운 색으로) ── */
+    html[data-bg="light"] .text-white      { color: #0f172a !important; }
+    html[data-bg="light"] .text-slate-100  { color: #0f172a !important; }
+    html[data-bg="light"] .text-slate-200  { color: #1e293b !important; }
+    html[data-bg="light"] .text-slate-300  { color: #334155 !important; }
+    html[data-bg="light"] .text-slate-400  { color: #64748b !important; }
+    html[data-bg="light"] .text-slate-500  { color: #64748b !important; }
+    html[data-bg="light"] .text-slate-600  { color: #475569 !important; }
+
+    /* ── 테두리 ── */
+    html[data-bg="light"] .border-slate-900 { border-color: #cbd5e1 !important; }
+    html[data-bg="light"] .border-slate-800,
+    html[data-bg="light"] .border-slate-800\/80 { border-color: #e2e8f0 !important; }
+    html[data-bg="light"] .border-slate-700,
+    html[data-bg="light"] .border-slate-700\/60,
+    html[data-bg="light"] .border-slate-700\/70 { border-color: #cbd5e1 !important; }
+    html[data-bg="light"] .border-slate-600 { border-color: #94a3b8 !important; }
+    html[data-bg="light"] .divide-slate-700 > * + * { border-color: #e2e8f0 !important; }
+    html[data-bg="light"] .divide-slate-600 > * + * { border-color: #cbd5e1 !important; }
+
+    /* ── 헤더 ── */
+    html[data-bg="light"] header {
+      background-color: rgba(248,250,252,0.97) !important;
+      border-color: #e2e8f0 !important;
+    }
+
+    /* ── 입력창 / textarea ── */
+    html[data-bg="light"] input,
+    html[data-bg="light"] textarea,
+    html[data-bg="light"] select {
+      background-color: #ffffff !important;
+      color: #0f172a !important;
+      border-color: #cbd5e1 !important;
+    }
+
+    /* ── 상태 배경 (빨강/초록/노랑/파랑) → 밝은 버전 ── */
+    html[data-bg="light"] .bg-red-900\/30   { background-color: rgba(254,226,226,0.8) !important; }
+    html[data-bg="light"] .bg-green-900\/30 { background-color: rgba(220,252,231,0.8) !important; }
+    html[data-bg="light"] .bg-sky-900\/30   { background-color: rgba(224,242,254,0.8) !important; }
+    html[data-bg="light"] .bg-sky-900\/40   { background-color: rgba(224,242,254,0.9) !important; }
+    html[data-bg="light"] .bg-yellow-900\/30 { background-color: rgba(254,249,195,0.8) !important; }
+    html[data-bg="light"] .bg-amber-900\/30  { background-color: rgba(254,243,199,0.8) !important; }
+    html[data-bg="light"] .bg-sky-600\/30    { background-color: rgba(186,230,253,0.6) !important; }
+
+    /* ── 스크롤바 ── */
+    html[data-bg="light"] ::-webkit-scrollbar-track  { background: #f1f5f9; }
+    html[data-bg="light"] ::-webkit-scrollbar-thumb  { background: #94a3b8; }
+    html[data-bg="light"] ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+    /* ── 라이트 모드: 밝은 텍스트 전부 → 검정 ── */
+    /* amber/yellow */
+    html[data-bg="light"] .text-amber-100,
+    html[data-bg="light"] .text-amber-200,
+    html[data-bg="light"] .text-amber-300,
+    html[data-bg="light"] .text-amber-400,
+    html[data-bg="light"] .text-amber-500,
+    html[data-bg="light"] .text-amber-600,
+    html[data-bg="light"] .text-yellow-300,
+    html[data-bg="light"] .text-yellow-400 { color: #111827 !important; }
+    /* sky/blue/cyan/indigo (네비, 강조 텍스트) */
+    html[data-bg="light"] .text-sky-300,
+    html[data-bg="light"] .text-sky-400,
+    html[data-bg="light"] .text-sky-500,
+    html[data-bg="light"] .text-blue-300,
+    html[data-bg="light"] .text-blue-400,
+    html[data-bg="light"] .text-cyan-400,
+    html[data-bg="light"] .text-cyan-300,
+    html[data-bg="light"] .text-indigo-400,
+    html[data-bg="light"] .text-indigo-300,
+    html[data-bg="light"] .text-violet-400,
+    html[data-bg="light"] .text-violet-300,
+    html[data-bg="light"] .text-emerald-400,
+    html[data-bg="light"] .text-emerald-300,
+    html[data-bg="light"] .text-green-400,
+    html[data-bg="light"] .text-green-300,
+    html[data-bg="light"] .text-teal-400 { color: #111827 !important; }
+    /* red/pink (에러는 붉은 계열 유지 — 가독성 있음) */
+    html[data-bg="light"] .text-red-400   { color: #b91c1c !important; }
+    html[data-bg="light"] .text-red-300   { color: #dc2626 !important; }
+    html[data-bg="light"] .text-pink-400  { color: #9d174d !important; }
+    /* amber 배경 → 밝은 버전 */
+    html[data-bg="light"] .bg-amber-500\/10  { background-color: rgba(251,191,36,0.15) !important; }
+    html[data-bg="light"] .bg-amber-500\/20  { background-color: rgba(251,191,36,0.25) !important; }
+    html[data-bg="light"] .bg-amber-900\/60  { background-color: rgba(254,243,199,0.9) !important; }
+    html[data-bg="light"] .border-amber-700\/50 { border-color: rgba(217,119,6,0.4) !important; }
+    html[data-bg="light"] .border-amber-600\/50 { border-color: rgba(217,119,6,0.3) !important; }
+    html[data-bg="light"] .border-amber-500\/80 { border-color: rgba(245,158,11,0.6) !important; }
+
+    /* ── KTL 상태 도트: 라이트 모드에서도 색상 유지 ── */
+    /* 노랑(조회중) → 주황으로 (흰 배경에서도 잘 보임) */
+    html[data-bg="light"] .bg-yellow-400 { background-color: #f97316 !important; }
+    /* 초록(등록됨) / 빨강(미등록) → 그대로 유지 */
+    html[data-bg="light"] .bg-green-400  { background-color: #22c55e !important; }
+    html[data-bg="light"] .bg-red-500    { background-color: #ef4444 !important; }
+
+    /* ── 그래프 canvas: 덮어쓰지 않음 ── */
+    html[data-bg="light"] canvas { filter: none !important; }
+
+    /* ── 라이트 모드: 전송 버튼 색상 (흰 배경에서 잘 보이도록) ── */
+    /* 카카오톡 전송 버튼 (▷): 진한 amber로 */
+    html[data-bg="light"] button.text-yellow-400 { color: #92400e !important; }
+    html[data-bg="light"] button.text-yellow-400:hover { color: #78350f !important; background-color: rgba(180,83,9,0.12) !important; }
+    /* 이메일 전송 버튼 (✉): 진한 파랑으로 */
+    html[data-bg="light"] button.text-cyan-400 { color: #0369a1 !important; }
+    html[data-bg="light"] button.text-cyan-400:hover { color: #075985 !important; background-color: rgba(3,105,161,0.12) !important; }
+  </style>
+  <script>
+    (function() {
+      var t = localStorage.getItem('parser-theme') || 'sky';
+      var bg = localStorage.getItem('parser-bg') || '';
+      var tx = localStorage.getItem('parser-text') || '';
+      var fsMap = { xs: '13px', sm: '14px', md: '16px', lg: '18px', xl: '20px' };
+      var fs = localStorage.getItem('parser-font-size') || 'md';
+      if (t !== 'sky') document.documentElement.setAttribute('data-theme', t);
+      if (bg) document.documentElement.setAttribute('data-bg', bg);
+      if (tx) document.documentElement.setAttribute('data-text', tx);
+      document.documentElement.style.fontSize = fsMap[fs] || '16px';
+      // 라이트 모드: body 배경도 즉시 변경 (FOUC 방지)
+      if (bg === 'light') document.documentElement.style.backgroundColor = '#f1f5f9';
+    })();
+  </script>
+
+  <!-- zip.js (브라우저 ZIP 생성/암호화용) -->
+  <script src="https://cdn.jsdelivr.net/npm/@zip.js/zip.js/dist/zip.min.js"></script>
+
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.0.1",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.45.0",
+    "jszip": "https://esm.sh/jszip@3.10.1",
+    "axios": "https://esm.sh/axios@1.6.8",
+    "html2canvas": "https://esm.sh/html2canvas@1.4.1",
+    "xlsx": "https://esm.sh/xlsx@0.18.5",
+    "vite": "https://aistudiocdn.com/vite@^7.1.11",
+    "process": "https://aistudiocdn.com/process@^0.11.10",
+    "@vercel/node": "https://esm.sh/@vercel/node@^5.5.27"
+  }
+}
+</script>
+</head>
+<body class="bg-slate-900">
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+  <div id="root"></div>
+
+  <!-- Inter font for better typography -->
+  <link rel="preconnect" href="https://rsms.me/">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+
+  <script type="module" src="./index.tsx"></script>
+</body>
+</html>

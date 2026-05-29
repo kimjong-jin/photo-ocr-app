@@ -1,0 +1,29 @@
+{
+  "functions": {
+    "api/gemini-ocr.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "api/send-photos.ts": {
+      "maxDuration": 30,
+      "memory": 512
+    },
+    "api/kakao.ts": {
+      "maxDuration": 30
+    },
+    "api/photos.ts": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    { "source": "/api/photos/(.*)", "destination": "/api/photos?path=$1" },
+    { "source": "/api/sessions/ping",   "destination": "/api/sessions" },
+    { "source": "/api/sessions/logout", "destination": "/api/sessions" },
+    { "source": "/api/sessions/(.*)",   "destination": "/api/sessions" },
+    { "source": "/api/sessions",        "destination": "/api/sessions" },
+    { "source": "/api/users-auth",      "destination": "/api/users-auth" },
+    { "source": "/api/change-password", "destination": "/api/change-password" },
+    { "source": "/api/locations",       "destination": "/api/locations" }
+  ]
+}
+

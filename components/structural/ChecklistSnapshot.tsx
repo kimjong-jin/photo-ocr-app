@@ -1,0 +1,296 @@
+import React from 'react';
+import { CHECKLIST_DEFINITIONS, MAIN_STRUCTURAL_ITEMS, CertificateDetails, EMISSION_STANDARD_ITEM_NAME, RESPONSE_TIME_ITEM_NAME } from '../../shared/StructuralChecklists';
+// FIX: Import StructuralJob from shared types instead of StructuralCheckPage.
+import type { StructuralJob } from '../../shared/types';
+
+interface ChecklistSnapshotProps {
+  job: StructuralJob;
+}
+
+const getNotePrefix = (itemName: string): string | null => {
+    if (itemName === EMISSION_STANDARD_ITEM_NAME) return "기준";
+    if (itemName === RESPONSE_TIME_ITEM_NAME) return "시간";
+    switch (itemName) {
+        case "측정범위확인": return "범위";
+        case "측정방법확인": return "방법";
+        case "기기번호 확인": return "기기번호";
+        default: return null;
+    }
+};
+
+const formatCertificateNotes = (notes: string): string => {
+    try {
+        const details: CertificateDetails = JSON.parse(notes);
+        if (details.presence !== 'present') {
+            return details.presence === 'initial_new' ? '최초정도검사' : details.presence === 'reissued_lost' ? '분실 후 재발행' : '정보 없음';
+        }
+        const fields = [
+            details.productName && `품명: ${details.productName}`,
+            details.manufacturer && `제작사: ${details.manufacturer}`,
+            details.serialNumber && `기기번호: ${details.serialNumber}`,
+            details.typeApprovalNumber && `형식승인번호: ${details.typeApprovalNumber}`,
+            details.inspectionDate && `검사일자: ${details.inspectionDate}`,
+            details.validity && `유효기간: ${details.validity}`,
+        ].filter(Boolean);
+
+        return fields.length > 0 ? fields.join('\n') : '정보 없음';
+    } catch {
+        return notes; // Return raw notes if parsing fails
+    }
+};
+
+const formatMarkingCheckNotes = (notes: string): string => {
+    try {
+        const details: Record<string, string> = JSON.parse(notes);
+        const fields = Object.entries(details)
+            .map(([key, value]) => value ? `${key}: ${value}` : null)
+            .filter(Boolean);
+        return fields.length > 0 ? fields.join('\n') : '정보 없음';
+    } catch {
+        return notes; // Return raw notes if parsing fails
+    }
+};
+
+export const ChecklistSnapshot: React.FC<ChecklistSnapshotProps> = ({ job }) => {
+  const mainItemName = MAIN_STRUCTURAL_ITEMS.find(item => item.key === job.mainItemKey)?.name || job.mainItemKey;
+  const checklistItems = CHECKLIST_DEFINITIONS[job.mainItemKey];
+  
+  const isFixedDateItem = job.mainItemKey === 'PH' || job.mainItemKey === 'TU' || job.mainItemKey === 'Cl';
+
+  // --- Start: Logic to calculate comparison note ---
+  let comparisonNote: string | null = null;
+  const markingCheckData = job.checklistData["표시사항확인"];
+  const certificateData = job.checklistData["정도검사 증명서"];
+
+  if (markingCheckData?.notes && certificateData?.notes) {
+      let markingDetails: Record<string, string> | null = null;
+      try {
+          const parsed = JSON.parse(markingCheckData.notes);
+          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+              markingDetails = {};
+              for (const key in parsed) {
+                  if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+                      markingDetails[key] = String(parsed[key]);
+                  }
+              }
+          }
+      } catch (e) { /* silent fail */ }
+
+      let certDetails: CertificateDetails | null = null;
+      try {
+          const parsed = JSON.parse(certificateData.notes);
+          if (typeof parsed === 'object' && parsed !== null) certDetails = parsed as CertificateDetails;
+      } catch (e) { /* silent fail */ }
+
+      if (markingDetails && certDetails && certDetails.presence === 'present') {
+          const norm = (s: string | undefined) => (s || '').toLowerCase().replace(/\s+/g, '').replace(/제|호/g, '');
+          const messages: string[] = [];
+          let allMatch = true;
+          let anyComparisonMade = false;
+
+          const markingManufacturerVal = markingDetails['제조회사'];
+          const certManufacturerVal = certDetails.manufacturer;
+          if (markingManufacturerVal || certManufacturerVal) {
+            anyComparisonMade = true;
+            if (norm(markingManufacturerVal) !== norm(certManufacturerVal)) {
+              messages.push(`제조사 (표시사항: "${markingManufacturerVal || '없음'}" vs 증명서: "${certManufacturerVal || '없음'}")`);
+              allMatch = false;
+            }
+          }
+
+          const markingTypeApprovalVal = markingDetails['형식승인번호'];
+          const certTypeApprovalVal = certDetails.typeApprovalNumber;
+           if (markingTypeApprovalVal || certTypeApprovalVal) {
+            anyComparisonMade = true;
+            if (norm(markingTypeApprovalVal) !== norm(certTypeApprovalVal)) {
+              messages.push(`형식승인번호 (표시사항: "${markingTypeApprovalVal || '없음'}" vs 증명서: "${certTypeApprovalVal || '없음'}")`);
+              allMatch = false;
+            }
+          }
+
+          const markingSerialVal = markingDetails['기기고유번호'];
+          const certSerialVal = certDetails.serialNumber;
+          if (markingSerialVal || certSerialVal) {
+            anyComparisonMade = true;
+            if (norm(markingSerialVal) !== norm(certSerialVal)) {
+              messages.push(`기기/제작번호 (표시사항: "${markingSerialVal || '없음'}" vs 증명서: "${certSerialVal || '없음'}")`);
+              allMatch = false;
+            }
+          }
+
+          if (anyComparisonMade) {
+              if (allMatch) {
+                  comparisonNote = "(참고) 표시사항과 증명서 정보가 일치합니다.";
+              } else {
+                  comparisonNote = `(주의) 표시사항과 증명서 정보가 다릅니다:\n- ${messages.join('\n- ')}\n내용을 확인하세요.`;
+              }
+          }
+      }
+  }
+  // --- End: Logic to calculate comparison note ---
+
+  // ── 인쇄 친화형 색상 팔레트 (Claydox 전송용) ──
+  // 배경: 흰색, 글씨: 진한 회색/검정, 구분선: 연회색
+  const PRINT = {
+    pageBg: '#ffffff',
+    pageText: '#1e293b',
+    headerBg: '#f1f5f9',       // slate-100
+    headerText: '#0f172a',     // slate-900
+    headerBorder: '#0ea5e9',   // sky-500
+    rowBg: '#ffffff',
+    rowBorder: '#e2e8f0',      // slate-200
+    rowText: '#1e293b',
+    secondaryText: '#475569',  // slate-600
+    noteText: '#334155',       // slate-700
+    aiLabelText: '#7c3aed',    // violet-700 (인쇄 시 잘 보이는 보라)
+    specialNoteText: '#b45309',// amber-700
+    warnBg: '#fef3c7',         // amber-100
+    warnText: '#92400e',       // amber-800
+    warnBorder: '#f59e0b',     // amber-500
+    okBg: '#e0f2fe',           // sky-100
+    okText: '#0369a1',         // sky-700
+    okBorder: '#0ea5e9',       // sky-500
+  };
+
+  const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
+    let bgColor = '#e2e8f0'; // slate-200 for '선택 안됨'
+    let textColor = '#475569'; // slate-600
+    if (status === '적합') { bgColor = '#dcfce7'; textColor = '#166534'; } // green-100, green-800
+    if (status === '부적합') { bgColor = '#fee2e2'; textColor = '#991b1b'; } // red-100, red-800
+
+    return (
+      <span style={{
+        backgroundColor: bgColor,
+        color: textColor,
+        padding: '4px 10px',
+        borderRadius: '9999px',
+        fontSize: '12px',
+        fontWeight: '600',
+        minWidth: '50px',
+        textAlign: 'center',
+        border: `1px solid ${status === '적합' ? '#86efac' : status === '부적합' ? '#fca5a5' : '#cbd5e1'}`
+      }}>
+        {status}
+      </span>
+    );
+  };
+
+  return (
+    <div
+      id={`snapshot-container-for-${job.id}`}
+      style={{
+        position: 'absolute',
+        left: '-9999px',
+        top: '0px',
+        width: '800px',
+        minHeight: '1120px',
+        padding: '24px',
+        backgroundColor: PRINT.pageBg,
+        color: PRINT.pageText,
+        fontFamily: 'Inter, "Noto Sans KR", sans-serif',
+        lineHeight: '1.5',
+      }}
+    >
+      {/* 제목 헤더 */}
+      <div style={{
+        fontSize: '20px',
+        fontWeight: 'bold',
+        color: PRINT.headerText,
+        backgroundColor: PRINT.headerBg,
+        padding: '12px 16px',
+        borderRadius: '8px',
+        marginBottom: '24px',
+        borderLeft: `4px solid ${PRINT.headerBorder}`,
+        borderBottom: `1px solid ${PRINT.rowBorder}`,
+      }}>
+        구조 확인 체크리스트: {job.receiptNumber} / {mainItemName}
+      </div>
+
+      <div style={{ border: `1px solid ${PRINT.rowBorder}`, borderRadius: '8px', overflow: 'hidden' }}>
+        {/* 사후검사 날짜 */}
+        <div style={{
+            padding: '12px 16px',
+            backgroundColor: PRINT.headerBg,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            borderBottom: `1px solid ${PRINT.rowBorder}`
+        }}>
+          <span style={{ fontWeight: '600', fontSize: '16px', color: PRINT.headerText }}>
+              {isFixedDateItem ? '사후검사일' : '사후검사 유효일자'}: {job.postInspectionDate}
+          </span>
+        </div>
+
+        {checklistItems.map((itemName, index) => {
+          const data = job.checklistData[itemName];
+          if (!data) return null;
+          
+          const isSpecialTocItem = job.mainItemKey === 'TOC' && (itemName === EMISSION_STANDARD_ITEM_NAME || itemName === RESPONSE_TIME_ITEM_NAME);
+          const tocSpecialItemCount = job.mainItemKey === 'TOC' ? 2 : 0;
+          const displayItemNumber = (index >= tocSpecialItemCount) ? index - tocSpecialItemCount + 1 : null;
+          const isAiReferenceItem = itemName === "표시사항확인" || itemName === "정도검사 증명서";
+
+          let notesToDisplay = data.notes || '';
+          if (itemName === '정도검사 증명서') {
+              notesToDisplay = formatCertificateNotes(data.notes || '');
+          } else if (itemName === '표시사항확인') {
+              notesToDisplay = formatMarkingCheckNotes(data.notes || '');
+          }
+
+          const notePrefix = getNotePrefix(itemName);
+          
+          return (
+            <div key={itemName} style={{
+              padding: '12px 16px',
+              borderBottom: `1px solid ${PRINT.rowBorder}`,
+              backgroundColor: PRINT.rowBg
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: 'calc(100% - 80px)' }}>
+                  <span style={{ fontWeight: '600', fontSize: '16px', color: PRINT.rowText, display: 'flex', alignItems: 'baseline' }}>
+                    <span>{displayItemNumber !== null && `${displayItemNumber}. `}{itemName}</span>
+                    {isAiReferenceItem && (
+                      <span style={{ fontSize: '12px', color: PRINT.aiLabelText, marginLeft: '6px', whiteSpace: 'nowrap' }}>(AI 분석 참고)</span>
+                    )}
+                  </span>
+                  {data.confirmedAt && !isSpecialTocItem && (
+                      <span style={{ fontSize: '12px', color: PRINT.secondaryText }}>(확인: {data.confirmedAt})</span>
+                  )}
+                  {notesToDisplay && notesToDisplay.trim() && (
+                      <span style={{ fontSize: '14px', color: PRINT.noteText, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                          {notePrefix && <strong>{notePrefix}: </strong>}{notesToDisplay}
+                      </span>
+                  )}
+                  {data.specialNotes && data.specialNotes.trim() && (
+                      <span style={{ fontSize: '14px', color: PRINT.specialNoteText, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                          <strong>특이사항: </strong>{data.specialNotes}
+                      </span>
+                  )}
+                </div>
+                <div style={{ flexShrink: 0 }}>
+                  {isSpecialTocItem ? null : <StatusBadge status={data.status} />}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      
+      {comparisonNote && (
+        <div style={{
+          marginTop: '16px',
+          padding: '12px',
+          borderRadius: '8px',
+          fontSize: '14px',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          border: `1px solid ${comparisonNote.startsWith('(주의)') ? PRINT.warnBorder : PRINT.okBorder}`,
+          backgroundColor: comparisonNote.startsWith('(주의)') ? PRINT.warnBg : PRINT.okBg,
+          color: comparisonNote.startsWith('(주의)') ? PRINT.warnText : PRINT.okText,
+        }}>
+          {comparisonNote}
+        </div>
+      )}
+    </div>
+  );
+};
