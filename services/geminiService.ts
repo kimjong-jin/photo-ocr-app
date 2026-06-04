@@ -88,9 +88,10 @@ export const extractTextFromImage = async (
   const isRetryableError = (error: any): boolean => {
     const status = (error as AxiosError).response?.status;
     const msg = error.message?.toLowerCase() ?? '';
+    // 429는 서버에서 이미 모든 모델 시도 완료 → 클라이언트 재시도 무의미
+    if (status === 429) return false;
     return (
       (status !== undefined && status >= 500 && status < 600) ||
-      status === 429 ||                              // Google Rate Limit → 재시도
       msg.includes("internal error encountered") ||
       msg.includes("timeout") ||
       msg.includes("econnreset") ||
@@ -124,16 +125,21 @@ export const extractTextFromImage = async (
     return extractedText;
   } catch (error: any) {
     console.error("[geminiService] 모든 재시도 실패:", error.message);
-    if (error.message.includes("API Key not valid")) {
+
+    // axios 응답 본문에 서버 에러 메시지가 있으면 우선 사용
+    const serverMessage = (error as AxiosError<any>).response?.data?.error;
+    const status = (error as AxiosError).response?.status;
+
+    if (status === 429 || serverMessage?.includes('한도') || serverMessage?.includes('quota')) {
+      throw new Error(serverMessage || 'AI 분석 일일 한도 초과. 잠시 후 다시 시도하거나 관리자에게 문의하세요.');
+    }
+    if (error.message.includes("API Key not valid") || serverMessage?.includes('API key')) {
       throw new Error(
         "유효하지 않은 Gemini API Key입니다. Vercel 환경변수 GEMINI_API_KEY를 확인해주세요."
       );
     }
-    if (error.message.includes("Quota exceeded")) {
-      throw new Error("Gemini API 할당량을 초과했습니다. 사용량을 확인해주세요.");
-    }
     throw new Error(
-      error.message || "Gemini API 통신 중 알 수 없는 오류가 발생했습니다."
+      serverMessage || error.message || "Gemini API 통신 중 알 수 없는 오류가 발생했습니다."
     );
   }
 };

@@ -13,7 +13,7 @@ const ALLOWED_ORIGINS: string[] = [
 // ✅ Rate Limiting: IP별 요청 횟수 추적
 // Vercel Serverless는 재시작될 수 있으므로 메모리 기반 (간이 방어)
 const rateLimitMap = new Map<string, { count: number; minuteCount: number; resetAt: number; minuteResetAt: number }>();
-const DAILY_LIMIT = 300;    // IP당 하루 최대 300회 (Google Cloud 할당량과 동일)
+const DAILY_LIMIT = 1500;   // IP당 하루 최대 1500회
 const MINUTE_LIMIT = 60;    // IP당 1분 최대 60회 (배치 30장 × 2회 여유)
 const MAX_BODY_BYTES = 50 * 1024 * 1024; // 50MB (카카오톡 고화질 원본 이미지 대응)
 
@@ -126,6 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ];
 
     let lastError: any;
+    let isQuotaError = false;
     for (const model of MODELS) {
       try {
         const response = await client.models.generateContent({
@@ -141,17 +142,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ text: response.text, model });
       } catch (e: any) {
         lastError = e;
-        const msg = e?.message ?? '';
-        if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
-          // 할당량 초과 — 나머지 모델도 같은 키 쓰므로 즉시 중단 (quota 낭비 방지)
+        const msg = (e?.message ?? '').toLowerCase();
+        if (msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted')) {
           console.warn(`[gemini-ocr] 할당량 초과 (${model}), 중단`);
+          isQuotaError = true;
           break;
         }
-        console.warn(`[gemini-ocr] 모델 ${model} 실패 (${msg.slice(0, 80)}), 다음 시도`);
+        console.warn(`[gemini-ocr] 모델 ${model} 실패 (${(e?.message ?? '').slice(0, 80)}), 다음 시도`);
       }
+    }
+
+    // quota 초과는 429로 명시 반환 (500으로 감추지 않음)
+    if (isQuotaError) {
+      return res.status(429).json({
+        error: 'AI 분석 일일 한도 초과. 잠시 후 다시 시도하거나 관리자에게 문의하세요.',
+        code: 'QUOTA_EXCEEDED',
+      });
     }
     throw lastError;
   } catch (e: any) {
+    const msg = (e?.message ?? '').toLowerCase();
+    if (msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted')) {
+      return res.status(429).json({
+        error: 'AI 분석 일일 한도 초과. 잠시 후 다시 시도하거나 관리자에게 문의하세요.',
+        code: 'QUOTA_EXCEEDED',
+      });
+    }
     console.error('[gemini-ocr] 오류:', e?.message);
     return res.status(500).json({ error: e?.message || 'Gemini API 호출 중 오류 발생' });
   }

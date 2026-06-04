@@ -1159,7 +1159,7 @@ export const compressImage = (base64: string, mimeType: string, maxWidth = 2048,
   });
 };
 
-// ─── 추가 사진자료 전용 A4 3×3 생성 ──────────────────────────────────────────
+// ─── 추가 사진자료 전용 A4 2×3 생성 ──────────────────────────────────────────
 // 기존 generateA4CompositeJPEGPages()와 완전히 별도 함수.
 // 기존 함수의 인터페이스·기본값·출력 결과에 영향 없음.
 
@@ -1200,7 +1200,7 @@ function drawImageCoverInCell(
 }
 
 /**
- * 추가 사진자료 A4 3×3 JPEG 페이지 생성
+ * 추가 사진자료 A4 2×3 JPEG 페이지 생성 (2열×3행 = 6장/페이지, 사진 크게)
  * - 기존 generateA4CompositeJPEGPages 와 완전히 독립된 함수
  * - 기존 P1~P5 출력 결과에 영향 없음
  * - 반환: JPEG data URL 배열 (페이지 수만큼)
@@ -1211,9 +1211,9 @@ export async function generateExtraPhotoA4Pages(
 ): Promise<string[]> {
   assertBrowser('generateExtraPhotoA4Pages');
 
-  const COLS = 3;
+  const COLS = 2;
   const ROWS = 2;
-  const PER_PAGE = COLS * ROWS;   // 6장 / 페이지
+  const PER_PAGE = COLS * ROWS;   // 4장 / 페이지 (2열×2행 — 가로A4에서 사진 크게)
 
   // A4 가로(landscape) ~150dpi (1754×1240px)
   const PAGE_W = 1754;
@@ -1298,7 +1298,7 @@ export async function generateExtraPhotoA4Pages(
       ctx.fillText(`${pageIdx + 1} / ${groups.length}`, MARGIN + innerW - 12, headerY + headerH * 0.5);
     }
 
-    // ── 2×2 그리드
+    // ── 2×3 그리드 (2열×3행)
     const gridOriginY = MARGIN + HEADER_H;
     const originX = MARGIN;
 
