@@ -118,11 +118,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { GoogleGenAI } = await import('@google/genai');
     const client = new GoogleGenAI({ apiKey });
 
-    // 실제 존재하는 모델만 사용 (검증 완료)
+    // 실제 존재하는 모델만 사용 (v1beta API 검증 완료)
     const MODELS = [
-      'gemini-2.0-flash',       // ✅ GA, 무제한/일, 2000 RPM
-      'gemini-2.5-flash',       // ✅ GA, 10000/일, 1000 RPM (fallback)
-      'gemini-2.0-flash-lite',  // ✅ GA, 무제한/일 (최후 fallback)
+      'gemini-2.0-flash',   // ✅ GA, 무제한/일, 2000 RPM
+      'gemini-2.5-flash',   // ✅ GA, 10000/일
+      'gemini-3.5-flash',   // ✅ GA, 최신 (fallback)
     ];
 
     let lastError: any;
