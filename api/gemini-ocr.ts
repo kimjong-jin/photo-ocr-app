@@ -119,11 +119,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const client = new GoogleGenAI({ apiKey });
 
     // 2026-06 기준 실제 동작 모델 (v1beta API 검증 완료)
-    // gemini-2.0-flash, gemini-2.0-flash-lite → 404 삭제됨
     const MODELS = [
-      'gemini-2.5-flash',      // ✅ 200 OK, 1000 RPM
-      'gemini-3.5-flash',      // ✅ 200 OK (fallback)
-      'gemini-2.5-flash-lite', // ✅ 200 OK (최후 fallback)
+      'gemini-3.5-flash',      // ✅ 최신 (1순위)
+      'gemini-2.5-flash',      // ✅ 안정 (2순위)
+      'gemini-2.5-flash-lite', // ✅ 경량 (최후 fallback)
     ];
 
     let lastError: any;
