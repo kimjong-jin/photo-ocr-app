@@ -141,8 +141,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ text: response.text, model });
       } catch (e: any) {
         lastError = e;
-        // 429/quota 도 다음 모델로 계속 시도 (break 금지)
-        console.warn(`[gemini-ocr] 모델 ${model} 실패 (${e?.message?.slice(0, 80)}), 다음 시도`);
+        const msg = e?.message ?? '';
+        if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
+          // 할당량 초과 — 나머지 모델도 같은 키 쓰므로 즉시 중단 (quota 낭비 방지)
+          console.warn(`[gemini-ocr] 할당량 초과 (${model}), 중단`);
+          break;
+        }
+        console.warn(`[gemini-ocr] 모델 ${model} 실패 (${msg.slice(0, 80)}), 다음 시도`);
       }
     }
     throw lastError;
