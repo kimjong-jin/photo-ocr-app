@@ -124,32 +124,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'gemini-2.5-flash',      // ✅ 안정 (2순위)
       'gemini-2.5-flash-lite', // ✅ 경량 (최후 fallback)
     ];
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
     let lastError: any;
-    let allQuotaError = true; // 모든 모델이 quota 에러인 경우에만 429 반환
-    for (const model of MODELS) {
-      try {
-        const response = await client.models.generateContent({
-          model,
-          contents: {
-            parts: [
-              { text: promptText },
-              { inlineData: { mimeType, data: imageBase64 } },
-            ],
-          },
-          config: modelConfig ?? {},
-        });
-        return res.status(200).json({ text: response.text, model });
-      } catch (e: any) {
-        lastError = e;
-        const msg = (e?.message ?? '').toLowerCase();
-        if (msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted')) {
-          // 이 모델은 한도 초과 → 다음 모델로 계속 시도 (모델별 할당량 독립적)
-          console.warn(`[gemini-ocr] 할당량 초과 (${model}), 다음 모델 시도`);
-        } else {
-          // quota 이외 에러(404, 500 등)는 quota 문제 아님
-          allQuotaError = false;
-          console.warn(`[gemini-ocr] 모델 ${model} 실패 (${(e?.message ?? '').slice(0, 80)}), 다음 시도`);
+    let allQuotaError = true;
+
+    for (let mi = 0; mi < MODELS.length; mi++) {
+      const model = MODELS[mi];
+      // 두 번 시도 (일시적 rate limit 대응)
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await client.models.generateContent({
+            model,
+            contents: {
+              parts: [
+                { text: promptText },
+                { inlineData: { mimeType, data: imageBase64 } },
+              ],
+            },
+            config: modelConfig ?? {},
+          });
+          return res.status(200).json({ text: response.text, model });
+        } catch (e: any) {
+          lastError = e;
+          const msg = (e?.message ?? '').toLowerCase();
+          const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
+
+          if (isQuota) {
+            if (attempt === 0) {
+              // 1차 실패: 2초 대기 후 같은 모델 재시도
+              console.warn(`[gemini-ocr] 429 (${model}) 1차, 2초 후 재시도`);
+              await sleep(2000);
+            } else {
+              // 2차 실패: 다음 모델로
+              console.warn(`[gemini-ocr] 429 (${model}) 2차 실패, 다음 모델`);
+            }
+          } else {
+            // quota 외 에러 → 재시도 없이 다음 모델
+            allQuotaError = false;
+            console.warn(`[gemini-ocr] ${model} 실패 (${msg.slice(0, 80)})`);
+            break; // 같은 모델 재시도 불필요
+          }
         }
       }
     }
