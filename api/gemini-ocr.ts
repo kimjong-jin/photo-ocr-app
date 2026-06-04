@@ -114,62 +114,89 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'imageBase64, mimeType, promptText are required.' });
     }
 
-    // Gemini API 직접 호출 (서버 사이드)
-    const { GoogleGenAI } = await import('@google/genai');
-    const client = new GoogleGenAI({ apiKey });
-
-    // 2026-06 기준 실제 동작 모델 (v1beta API 검증 완료)
+    // 2026-06 기준 실제 동작 모델 (직접 fetch, SDK 미사용)
     const MODELS = [
-      'gemini-3.5-flash',      // ✅ 최신 (1순위)
-      'gemini-2.5-flash',      // ✅ 안정 (2순위)
-      'gemini-2.5-flash-lite', // ✅ 경량 (최후 fallback)
+      'gemini-3.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
     ];
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+    const buildBody = (model: string) => ({
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: promptText },
+          { inlineData: { mimeType, data: imageBase64 } },
+        ],
+      }],
+      ...(modelConfig && Object.keys(modelConfig).length > 0
+        ? { generationConfig: modelConfig }
+        : {}),
+    });
 
     let lastError: any;
     let allQuotaError = true;
 
-    for (let mi = 0; mi < MODELS.length; mi++) {
-      const model = MODELS[mi];
-      // 두 번 시도 (일시적 rate limit 대응)
+    for (const model of MODELS) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const response = await client.models.generateContent({
-            model,
-            contents: {
-              parts: [
-                { text: promptText },
-                { inlineData: { mimeType, data: imageBase64 } },
-              ],
-            },
-            config: modelConfig ?? {},
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buildBody(model)),
+            signal: AbortSignal.timeout(55_000),
           });
-          return res.status(200).json({ text: response.text, model });
+
+          const data = await resp.json() as any;
+
+          if (resp.status === 429 || data?.error?.code === 429 ||
+              data?.error?.status === 'RESOURCE_EXHAUSTED') {
+            const errMsg = data?.error?.message ?? '429';
+            if (attempt === 0) {
+              console.warn(`[gemini-ocr] 429 (${model}) 1차 — 2초 후 재시도`);
+              await sleep(2000);
+            } else {
+              console.warn(`[gemini-ocr] 429 (${model}) 2차 실패, 다음 모델`);
+            }
+            lastError = new Error(`429: ${errMsg}`);
+            continue;
+          }
+
+          if (!resp.ok || data?.error) {
+            const errMsg = data?.error?.message ?? `HTTP ${resp.status}`;
+            console.warn(`[gemini-ocr] ${model} 비quota 오류: ${errMsg.slice(0, 100)}`);
+            allQuotaError = false;
+            lastError = new Error(errMsg);
+            break; // 비quota 에러 → 다음 모델
+          }
+
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+          if (!text) {
+            allQuotaError = false;
+            lastError = new Error('응답에 텍스트 없음');
+            break;
+          }
+
+          return res.status(200).json({ text, model });
+
         } catch (e: any) {
           lastError = e;
           const msg = (e?.message ?? '').toLowerCase();
           const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted');
-
           if (isQuota) {
-            if (attempt === 0) {
-              // 1차 실패: 2초 대기 후 같은 모델 재시도
-              console.warn(`[gemini-ocr] 429 (${model}) 1차, 2초 후 재시도`);
-              await sleep(2000);
-            } else {
-              // 2차 실패: 다음 모델로
-              console.warn(`[gemini-ocr] 429 (${model}) 2차 실패, 다음 모델`);
-            }
+            if (attempt === 0) { await sleep(2000); }
           } else {
-            // quota 외 에러 → 재시도 없이 다음 모델
             allQuotaError = false;
-            console.warn(`[gemini-ocr] ${model} 실패 (${msg.slice(0, 80)})`);
-            break; // 같은 모델 재시도 불필요
+            console.warn(`[gemini-ocr] ${model} fetch 오류: ${msg.slice(0, 80)}`);
+            break;
           }
         }
       }
     }
 
-    // 모든 모델이 quota 초과인 경우에만 429 반환
     if (allQuotaError) {
       return res.status(429).json({
         error: 'AI 분석 일일 한도 초과. 잠시 후 다시 시도하거나 관리자에게 문의하세요.',
@@ -177,6 +204,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
     throw lastError;
+
 
   } catch (e: any) {
     const msg = (e?.message ?? '').toLowerCase();
