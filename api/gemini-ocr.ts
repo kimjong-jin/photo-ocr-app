@@ -122,6 +122,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ];
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+    // Gemini REST API 호환 스키마 정규화
+    // - additionalProperties 제거 (미지원)
+    // - type 소문자 변환 (SDK 열거형 호환)
+    function normalizeSchema(schema: any): any {
+      if (!schema || typeof schema !== 'object') return schema;
+      const { additionalProperties: _, ...rest } = schema;
+      const normalized: any = {};
+      for (const [k, v] of Object.entries(rest)) {
+        if (k === 'type' && typeof v === 'string') {
+          normalized[k] = v.toLowerCase();
+        } else if (k === 'properties' && v && typeof v === 'object') {
+          normalized[k] = Object.fromEntries(
+            Object.entries(v as Record<string, any>).map(([pk, pv]) => [pk, normalizeSchema(pv)])
+          );
+        } else if (Array.isArray(v)) {
+          normalized[k] = v.map((item: any) => normalizeSchema(item));
+        } else {
+          normalized[k] = v;
+        }
+      }
+      return normalized;
+    }
+
+    function buildGenConfig(cfg: any) {
+      if (!cfg || !Object.keys(cfg).length) return {};
+      const result: any = {};
+      if (cfg.responseMimeType) result.responseMimeType = cfg.responseMimeType;
+      if (cfg.responseSchema) result.responseSchema = normalizeSchema(cfg.responseSchema);
+      if (cfg.maxOutputTokens) result.maxOutputTokens = cfg.maxOutputTokens;
+      if (cfg.temperature != null) result.temperature = cfg.temperature;
+      return result;
+    }
+
     const buildBody = (model: string) => ({
       contents: [{
         role: 'user',
@@ -131,7 +164,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ],
       }],
       ...(modelConfig && Object.keys(modelConfig).length > 0
-        ? { generationConfig: modelConfig }
+        ? { generationConfig: buildGenConfig(modelConfig) }
         : {}),
     });
 
