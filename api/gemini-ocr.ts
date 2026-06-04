@@ -126,7 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ];
 
     let lastError: any;
-    let isQuotaError = false;
+    let allQuotaError = true; // 모든 모델이 quota 에러인 경우에만 429 반환
     for (const model of MODELS) {
       try {
         const response = await client.models.generateContent({
@@ -144,22 +144,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         lastError = e;
         const msg = (e?.message ?? '').toLowerCase();
         if (msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted')) {
-          console.warn(`[gemini-ocr] 할당량 초과 (${model}), 중단`);
-          isQuotaError = true;
-          break;
+          // 이 모델은 한도 초과 → 다음 모델로 계속 시도 (모델별 할당량 독립적)
+          console.warn(`[gemini-ocr] 할당량 초과 (${model}), 다음 모델 시도`);
+        } else {
+          // quota 이외 에러(404, 500 등)는 quota 문제 아님
+          allQuotaError = false;
+          console.warn(`[gemini-ocr] 모델 ${model} 실패 (${(e?.message ?? '').slice(0, 80)}), 다음 시도`);
         }
-        console.warn(`[gemini-ocr] 모델 ${model} 실패 (${(e?.message ?? '').slice(0, 80)}), 다음 시도`);
       }
     }
 
-    // quota 초과는 429로 명시 반환 (500으로 감추지 않음)
-    if (isQuotaError) {
+    // 모든 모델이 quota 초과인 경우에만 429 반환
+    if (allQuotaError) {
       return res.status(429).json({
         error: 'AI 분석 일일 한도 초과. 잠시 후 다시 시도하거나 관리자에게 문의하세요.',
         code: 'QUOTA_EXCEEDED',
       });
     }
     throw lastError;
+
   } catch (e: any) {
     const msg = (e?.message ?? '').toLowerCase();
     if (msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted')) {
