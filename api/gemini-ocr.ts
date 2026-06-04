@@ -118,12 +118,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { GoogleGenAI } = await import('@google/genai');
     const client = new GoogleGenAI({ apiKey });
 
-    // 2026-05 기준 실제 동작 확인된 모델 (순서대로 시도)
+    // 안정적인 모델 먼저, 신규 모델은 후순위 (429 발생 시 다음 모델로 계속 시도)
     const MODELS = [
-      'gemini-3.5-flash',          // 최신 3.5 Flash (1순위)
-      'gemini-3-flash-preview',    // 3.0 Flash preview
-      'gemini-2.5-flash',          // 안정적 fallback
-      'gemini-2.0-flash',          // 최후 fallback
+      'gemini-2.0-flash',          // 안정 GA, 할당량 여유
+      'gemini-2.5-flash',          // 안정 GA
+      'gemini-3.5-flash',          // 최신 (할당량 제한 가능성)
     ];
 
     let lastError: any;
@@ -142,8 +141,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ text: response.text, model });
       } catch (e: any) {
         lastError = e;
-        if (e?.message?.includes('quota') || e?.message?.includes('429')) break;
-        console.warn(`[gemini-ocr] 모델 ${model} 실패, 다음 시도:`, e?.message);
+        // 429/quota 도 다음 모델로 계속 시도 (break 금지)
+        console.warn(`[gemini-ocr] 모델 ${model} 실패 (${e?.message?.slice(0, 80)}), 다음 시도`);
       }
     }
     throw lastError;
