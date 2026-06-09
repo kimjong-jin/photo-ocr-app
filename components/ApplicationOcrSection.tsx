@@ -846,7 +846,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       const codeRes = await fetch('/api/issue-calc-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: app.site_name || app.receipt_no, days: 30 }),
+        body: JSON.stringify({ label: app.site_name || app.receipt_no, days: 10 }),
       });
       const codeData = await codeRes.json();
       if (!codeRes.ok) throw new Error(codeData.error || '코드 발급 실패');
@@ -861,7 +861,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 
 [KTL 정도검사 계산기]
 https://calculator-snowy-eight-87.vercel.app
-*비밀번호: ${pw}`;
+*패스워드: ${pw}`;
 
       await sendKakaoTalkMessage(message, app.applicant_phone);
       const { error: updateError } = await supabase!
