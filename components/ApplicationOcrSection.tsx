@@ -861,7 +861,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 [KTL 정도검사 계산기]
 <유지관리 담당자 전달용>
 홈페이지: https://aicalc.work
-유지관리 담당자 접속: https://aicalc.work/?pw=${pw}
+바로접속: https://aicalc.work/?pw=${pw}
 비밀번호: ${pw}
 
 ※ 정도검사 계산 확인용으로 유지관리 담당자에게 전달해 주시기 바랍니다.`;
