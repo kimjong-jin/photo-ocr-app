@@ -845,7 +845,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       const codeRes = await fetch('/api/issue-calc-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: userName, days: 10, applicantName: app.applicant_name || '', receiptNo: app.receipt_no || '' }),
+        body: JSON.stringify({ label: userName, days: 10, applicantName: app.applicant_name || '', receiptNo: app.receipt_no || '', siteName: app.site_name || '' }),
       });
       const codeData = await codeRes.json();
       if (!codeRes.ok) throw new Error(codeData.error || '코드 발급 실패');

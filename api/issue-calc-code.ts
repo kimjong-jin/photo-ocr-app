@@ -8,12 +8,12 @@ export default async function handler(req: any, res: any) {
   const MCP_KEY = process.env.CALC_MCP_KEY;
   if (!MCP_KEY) return res.status(500).json({ error: 'CALC_MCP_KEY not configured' });
 
-  const { label, days, applicantName, receiptNo } = (req.body || {}) as { label?: string; days?: number; applicantName?: string; receiptNo?: string };
+  const { label, days, applicantName, receiptNo, siteName } = (req.body || {}) as { label?: string; days?: number; applicantName?: string; receiptNo?: string; siteName?: string };
 
   const response = await fetch(CALC_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': MCP_KEY },
-    body: JSON.stringify({ label: label || '', days: days || 30, applicantName: applicantName || '', receiptNo: receiptNo || '' }),
+    body: JSON.stringify({ label: label || '', days: days || 30, applicantName: applicantName || '', receiptNo: receiptNo || '', siteName: siteName || '' }),
   });
 
   const data = await response.json();
