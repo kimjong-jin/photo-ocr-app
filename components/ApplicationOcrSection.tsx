@@ -859,8 +859,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 문의 사항은 이 메시지로 편하게 회신해 주세요. 시험·검사일에 뵙겠습니다.
 
 [KTL 정도검사 계산기]
-https://aicalc.work
-*패스워드: ${pw}`;
+https://aicalc.work/?pw=${pw}`;
 
       await sendKakaoTalkMessage(message, app.applicant_phone);
       const { error: updateError } = await supabase!
