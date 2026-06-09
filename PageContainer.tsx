@@ -15,7 +15,6 @@ import { ActionButton } from './components/ActionButton';
 import { UserRole } from './components/UserNameInput';
 import AdminPanel from './components/admin/AdminPanel';
 import { callSaveTempApi, callLoadTempApi, SaveDataPayload, LoadedData, SavedValueEntry } from './services/apiService';
-import { sendKakaoTalkMessage } from './services/claydoxApiService';
 import { uploadPhotoToServer, downloadPhotosFromServer, deletePhotosFromServer } from './services/photoStorageService';
 import { cachePhotos, loadCachedPhotos, clearCachedPhotos, getAllCacheSummaries, type CacheSummary } from './services/photoCacheService';
 import { Spinner } from './components/Spinner';
@@ -201,11 +200,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [showRename, setShowRename] = useState(false);
   const [showKakaoTalkModal, setShowKakaoTalkModal] = useState(false);
 
-  // 계산기 링크 카카오톡 전송 모달
-  const [calcSendModal, setCalcSendModal] = useState<{ rn: string; siteName?: string } | null>(null);
-  const [calcSendPhone, setCalcSendPhone] = useState('');
-  const [calcSendStatus, setCalcSendStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
-  const [calcSendError, setCalcSendError] = useState('');
   const [renameOld, setRenameOld] = useState('');
   const [renameNew, setRenameNew] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
@@ -2620,18 +2614,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                                             })}
                                           </div>
 
-                                          {/* 계산기 링크 카카오톡 전송 */}
-                                          <button
-                                            onClick={() => {
-                                              setCalcSendModal({ rn, siteName: status?.siteName });
-                                              setCalcSendPhone('');
-                                              setCalcSendStatus('idle');
-                                              setCalcSendError('');
-                                            }}
-                                            className="shrink-0 p-0.5 text-[10px] text-slate-500 hover:text-yellow-300 hover:bg-yellow-900/20 rounded transition-colors"
-                                            title="계산기 링크 카카오톡 전송"
-                                          >📱</button>
-
                                           {/* 하위 삭제 */}
                                           <button
                                             onClick={() => handleDeleteChild(rn)}
@@ -2897,103 +2879,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         {activePageContent}
 
         {userRole === 'admin' && <AdminPanel adminUserName={userName} />}
-
-        {/* ── 계산기 링크 카카오톡 전송 모달 ── */}
-        {calcSendModal && (
-          <div
-            className="fixed inset-0 z-[210] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
-            onClick={(e) => { if (e.target === e.currentTarget && calcSendStatus !== 'sending') setCalcSendModal(null); }}
-          >
-            <div className="w-full max-w-sm bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-white">📱 계산기 링크 전송</h3>
-                <button
-                  onClick={() => setCalcSendModal(null)}
-                  disabled={calcSendStatus === 'sending'}
-                  className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded transition-colors disabled:opacity-40"
-                >✕</button>
-              </div>
-
-              <div className="mb-3 p-2.5 bg-slate-900/60 rounded-lg border border-slate-700">
-                <p className="text-[10px] text-slate-400 mb-1">접수번호</p>
-                <p className="text-xs text-sky-300 font-mono">{calcSendModal.rn}</p>
-                {calcSendModal.siteName && (
-                  <p className="text-[10px] text-slate-400 mt-0.5">{calcSendModal.siteName}</p>
-                )}
-              </div>
-
-              <div className="mb-3 p-2.5 bg-slate-900/60 rounded-lg border border-slate-700">
-                <p className="text-[10px] text-slate-400 mb-1">전송 메시지 미리보기</p>
-                <p className="text-[10px] text-slate-300 leading-relaxed break-all">
-                  {`[KTL 정도검사] 계산기 링크를 보내드립니다.\nhttps://calculator-snowy-eight-87.vercel.app`}
-                </p>
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-[10px] text-slate-400 mb-1.5">수신자 휴대폰 번호</label>
-                <input
-                  type="tel"
-                  value={calcSendPhone}
-                  onChange={(e) => setCalcSendPhone(e.target.value.replace(/[^\d,\-\s]/g, ''))}
-                  placeholder="010-1234-5678"
-                  disabled={calcSendStatus === 'sending'}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 disabled:opacity-40"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && calcSendPhone.trim()) {
-                      (async () => {
-                        setCalcSendStatus('sending');
-                        setCalcSendError('');
-                        try {
-                          await sendKakaoTalkMessage(
-                            `[KTL 정도검사] 계산기 링크를 보내드립니다.\nhttps://calculator-snowy-eight-87.vercel.app`,
-                            calcSendPhone.trim()
-                          );
-                          setCalcSendStatus('success');
-                          setTimeout(() => setCalcSendModal(null), 1500);
-                        } catch (err: any) {
-                          setCalcSendStatus('error');
-                          setCalcSendError(err?.message || '전송 실패');
-                        }
-                      })();
-                    }
-                  }}
-                />
-              </div>
-
-              {calcSendStatus === 'success' && (
-                <div className="mb-3 text-xs text-green-400 bg-green-900/20 rounded-lg px-3 py-2">✅ 전송 완료</div>
-              )}
-              {calcSendStatus === 'error' && (
-                <div className="mb-3 text-xs text-red-400 bg-red-900/20 rounded-lg px-3 py-2 break-all">❌ {calcSendError}</div>
-              )}
-
-              <button
-                onClick={async () => {
-                  if (!calcSendPhone.trim()) return;
-                  setCalcSendStatus('sending');
-                  setCalcSendError('');
-                  try {
-                    await sendKakaoTalkMessage(
-                      `[KTL 정도검사] 계산기 링크를 보내드립니다.\nhttps://calculator-snowy-eight-87.vercel.app`,
-                      calcSendPhone.trim()
-                    );
-                    setCalcSendStatus('success');
-                    setTimeout(() => setCalcSendModal(null), 1500);
-                  } catch (err: any) {
-                    setCalcSendStatus('error');
-                    setCalcSendError(err?.message || '전송 실패');
-                  }
-                }}
-                disabled={!calcSendPhone.trim() || calcSendStatus === 'sending'}
-                className="w-full py-2.5 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-40 disabled:cursor-not-allowed text-black font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                {calcSendStatus === 'sending' ? (
-                  <><span className="animate-spin">⏳</span> 전송 중...</>
-                ) : '카카오톡으로 전송'}
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* ── 카카오톡 전송 모달 ── */}
         {showKakaoTalkModal && (

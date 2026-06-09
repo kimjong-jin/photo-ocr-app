@@ -118,6 +118,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   const tableContainerRef = useRef<HTMLDivElement>(null);
   // KTL 실시간 접수번호 존재 여부: true=있음, false=없음, null=확인중
   const [receiptStatuses, setReceiptStatuses] = useState<Record<string, boolean | null>>({});
+  // 이미 조회된 접수번호 캐시 (siteName 등 변경 시 재조회 방지)
+  const ktlCacheRef = useRef<Record<string, { exists: boolean; ktlInfo: KtlDetail | null }>>({});
 
   interface KtlDetail {
     companyName?: string;
@@ -139,17 +141,48 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     }
   };
 
-  // 목록 로드 시 KTL API로 접수번호 실시간 확인
+  // 목록 로드 시 KTL API로 접수번호 실시간 확인 (캐시된 결과 재사용)
   useEffect(() => {
     if (applications.length === 0) return;
-    // 확인 중 상태로 초기화
-    const initialStatuses: Record<string, boolean | null> = {};
-    applications.forEach(app => { if (app.receipt_no) initialStatuses[app.receipt_no] = null; });
-    setReceiptStatuses(initialStatuses);
 
-    const checkAll = async () => {
+    // 캐시에 없는 새 접수번호만 필터링
+    const newApps = applications.filter(app =>
+      app.receipt_no && ktlCacheRef.current[app.receipt_no] === undefined
+    );
+
+    // 캐시된 결과는 즉시 state에 반영 (기존 state 유지 + 캐시 병합)
+    setReceiptStatuses(prev => {
+      const merged = { ...prev };
+      applications.forEach(app => {
+        if (!app.receipt_no) return;
+        const cached = ktlCacheRef.current[app.receipt_no];
+        if (cached !== undefined) merged[app.receipt_no] = cached.exists;
+        else if (merged[app.receipt_no] === undefined) merged[app.receipt_no] = null; // 확인중
+      });
+      return merged;
+    });
+    setKtlDetails(prev => {
+      const merged = { ...prev };
+      applications.forEach(app => {
+        if (!app.receipt_no) return;
+        const cached = ktlCacheRef.current[app.receipt_no];
+        if (cached !== undefined) merged[app.receipt_no] = cached.ktlInfo;
+      });
+      return merged;
+    });
+
+    if (newApps.length === 0) return; // 새 접수번호 없으면 API 호출 안 함
+
+    // 새 접수번호만 확인 중으로 표시
+    setReceiptStatuses(prev => {
+      const updated = { ...prev };
+      newApps.forEach(app => { if (app.receipt_no) updated[app.receipt_no] = null; });
+      return updated;
+    });
+
+    const checkNew = async () => {
       const results = await Promise.allSettled(
-        applications.map(async (app) => {
+        newApps.map(async (app) => {
           const rcpn = app.receipt_no?.trim() ?? '';
           const parts = rcpn.split('-');
           const hasSequence = parts.length === 4;
@@ -160,9 +193,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
             const limsclientId = hasSequence ? rcpn : `${rcpn}-1`;
             const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(limsclientId)}`);
             const data = await res.json();
-            // KTL API는 Success를 boolean(true) 또는 string("true") 두 형태로 반환
             const isSuccess = data.Success === true || data.Success === 'true' || data.Success === 'True';
-            
             let ktlInfo: KtlDetail | null = null;
             if (isSuccess && data.Results) {
               ktlInfo = {
@@ -182,12 +213,14 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         if (r.status === 'fulfilled') {
           statuses[r.value.receipt_no] = r.value.exists;
           details[r.value.receipt_no] = r.value.ktlInfo;
+          // 캐시에 저장 → 이후 applications 변경 시 재조회 없음
+          ktlCacheRef.current[r.value.receipt_no] = { exists: r.value.exists, ktlInfo: r.value.ktlInfo };
         }
       });
-      setReceiptStatuses(statuses);
-      setKtlDetails(details);
+      setReceiptStatuses(prev => ({ ...prev, ...statuses }));
+      setKtlDetails(prev => ({ ...prev, ...details }));
     };
-    checkAll();
+    checkNew();
   }, [applications]);
 
   // 애플리케이션 목록 미리보기 시 맨 아래로 스크롤
@@ -804,38 +837,37 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   };
 
   const handleSendKakao = async (app: Application) => {
-    if (!userContact) {
-      setError('담당자 연락처 정보가 없습니다.');
-      return;
-    }
-    if (!app.applicant_phone) {
-      setError('신청인 휴대폰 번호가 없습니다.');
-      return;
-    }
+    if (!userContact) { setError('담당자 연락처 정보가 없습니다.'); return; }
+    if (!app.applicant_phone) { setError('신청인 휴대폰 번호가 없습니다.'); return; }
+    clearMessages();
+    setKakaoSendingId(app.id);
+    try {
+      // 계산기 접속 코드 자동 발급
+      const codeRes = await fetch('/api/issue-calc-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: app.site_name || app.receipt_no, days: 30 }),
+      });
+      const codeData = await codeRes.json();
+      if (!codeRes.ok) throw new Error(codeData.error || '코드 발급 실패');
+      const pw = codeData.pw as string;
 
-    const message = `<시험·검사 배정 완료>
+      const message = `<시험·검사 배정 완료>
 *현장: ${app.site_name}
 *시험·검사 담당자: ${userName}
 *연락처: ${userContact}
 
-문의 사항은 이 메시지로 편하게 회신해 주세요. 시험·검사일에 뵙겠습니다.`;
+문의 사항은 이 메시지로 편하게 회신해 주세요. 시험·검사일에 뵙겠습니다.
 
-    setKakaoSendingId(app.id);
-    clearMessages();
+[KTL 정도검사 계산기]
+https://calculator-snowy-eight-87.vercel.app
+*비밀번호: ${pw}`;
 
-    try {
       await sendKakaoTalkMessage(message, app.applicant_phone);
-
-      const { error: updateError } = await supabase
-        .from('applications')
-        .update({ p5_check: true })
-        .eq('id', app.id);
-
+      const { error: updateError } = await supabase!
+        .from('applications').update({ p5_check: true }).eq('id', app.id);
       if (updateError) throw updateError;
-
-      setApplications((prev) =>
-        prev.map((a) => (a.id === app.id ? { ...a, p5_check: true } : a)),
-      );
+      setApplications(prev => prev.map(a => a.id === app.id ? { ...a, p5_check: true } : a));
       setSuccessMessage(`'${app.receipt_no}'으로 카카오톡 메시지를 전송했습니다.`);
     } catch (err: any) {
       setError('카카오톡 전송 실패: ' + err.message);
@@ -843,6 +875,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       setKakaoSendingId(null);
     }
   };
+
 
   const handleEmailSentSuccess = async (appId: number) => {
     if (!supabase) return;
@@ -1390,6 +1423,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
           onSendSuccess={handleEmailSentSuccess}
         />
       )}
+
     </div>
   );
 };
