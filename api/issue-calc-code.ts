@@ -4,7 +4,7 @@
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
-  const CALC_URL = 'https://calculator-snowy-eight-87.vercel.app/api/issue-code';
+  const CALC_URL = 'https://aicalc.work/api/issue-code';
   const MCP_KEY = process.env.CALC_MCP_KEY;
   if (!MCP_KEY) return res.status(500).json({ error: 'CALC_MCP_KEY not configured' });
 

@@ -842,7 +842,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     clearMessages();
     setKakaoSendingId(app.id);
     try {
-      // 계산기 접속 코드 자동 발급
       const codeRes = await fetch('/api/issue-calc-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -860,7 +859,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 문의 사항은 이 메시지로 편하게 회신해 주세요. 시험·검사일에 뵙겠습니다.
 
 [KTL 정도검사 계산기]
-https://calculator-snowy-eight-87.vercel.app
+https://aicalc.work
 *패스워드: ${pw}`;
 
       await sendKakaoTalkMessage(message, app.applicant_phone);
