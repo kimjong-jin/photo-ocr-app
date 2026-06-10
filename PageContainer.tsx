@@ -2677,12 +2677,22 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 <div className="space-y-1">
                   <p className="text-[10px] text-slate-500">접수번호별 위치 저장 <span className="text-slate-600">· 세부 비우면 전체 적용</span></p>
                   <div className="flex gap-1.5 items-center">
-                    {/* 접수번호 */}
+                    {/* 접수번호 (세부포함 입력 가능: 26-031078-01-1) */}
                     <input
                       type="text"
                       value={locReceiptInput}
-                      onChange={e => setLocReceiptInput(e.target.value)}
-                      placeholder="26-031078-01"
+                      onChange={e => {
+                        const v = e.target.value;
+                        const parts = v.split('-');
+                        // 4부분 이상(YY-XXXXXX-NN-M)이면 세부번호 자동 분리
+                        if (parts.length >= 4) {
+                          setLocReceiptInput(parts.slice(0, 3).join('-'));
+                          setLocDetailInput('-' + parts.slice(3).join('-'));
+                        } else {
+                          setLocReceiptInput(v);
+                        }
+                      }}
+                      placeholder="26-031078-01 (-1 세부가능)"
                       className="flex-1 min-w-0 p-2 bg-slate-800 border border-slate-600 rounded-md text-slate-300 text-xs placeholder-slate-500"
                     />
                     {/* 세부 번호 (-1, -2, -3 ...) */}
