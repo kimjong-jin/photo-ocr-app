@@ -2109,15 +2109,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             <div>
               <button
                 onClick={() => toggleSection('applicationOcr')}
-                className={`w-full flex justify-between items-center text-left px-4 py-3 border-l-4 border-sky-500 transition-all hover:bg-slate-800/70 ${
-                  openSections.includes('applicationOcr') ? 'bg-slate-800/80' : ''
+                className={`w-full flex justify-between items-center text-left px-4 py-3 border-l-4 transition-all hover:bg-slate-800/70 ${
+                  openSections.includes('applicationOcr') ? 'border-sky-500 bg-slate-800/80' : 'border-transparent'
                 }`}
                 aria-expanded={openSections.includes('applicationOcr')}
                 aria-controls="application-ocr-section"
               >
-                <span className="text-sm font-bold text-sky-300 tracking-wide">📋 목록</span>
+                <span className={`text-sm font-bold tracking-wide ${openSections.includes('applicationOcr') ? 'text-sky-300' : 'text-slate-200'}`}>📋 목록</span>
                 <ChevronDownIcon
-                  className={`w-4 h-4 text-sky-400 transition-transform ${openSections.includes('applicationOcr') ? 'rotate-180' : ''}`}
+                  className={`w-4 h-4 transition-transform ${openSections.includes('applicationOcr') ? 'rotate-180 text-sky-400' : 'text-slate-400'}`}
                 />
               </button>
               <div
@@ -2142,15 +2142,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             <div>
               <button
                 onClick={() => toggleSection('addTask')}
-                className={`w-full flex justify-between items-center text-left px-4 py-3 border-l-4 border-emerald-500 transition-all hover:bg-slate-800/70 ${
-                  openSections.includes('addTask') ? 'bg-slate-800/80' : ''
+                className={`w-full flex justify-between items-center text-left px-4 py-3 border-l-4 transition-all hover:bg-slate-800/70 ${
+                  openSections.includes('addTask') ? 'border-sky-500 bg-slate-800/80' : 'border-transparent'
                 }`}
                 aria-expanded={openSections.includes('addTask')}
                 aria-controls="add-task-section"
               >
-                <span className="text-sm font-bold text-emerald-300 tracking-wide">⚙️ 공통 정보 및 작업 관리</span>
+                <span className={`text-sm font-bold tracking-wide ${openSections.includes('addTask') ? 'text-sky-300' : 'text-slate-200'}`}>⚙️ 공통 정보 및 작업 관리</span>
                 <ChevronDownIcon
-                  className={`w-4 h-4 text-emerald-400 transition-transform ${openSections.includes('addTask') ? 'rotate-180' : ''}`}
+                  className={`w-4 h-4 transition-transform ${openSections.includes('addTask') ? 'rotate-180 text-sky-400' : 'text-slate-400'}`}
                 />
               </button>
 
@@ -2255,14 +2255,14 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             <div>
               <button
                 onClick={() => toggleSection('data')}
-                className={`w-full flex justify-between items-center text-left px-4 py-3 border-l-4 border-amber-500 transition-all hover:bg-slate-800/70 ${
-                  openSections.includes('data') ? 'bg-slate-800/80' : ''
+                className={`w-full flex justify-between items-center text-left px-4 py-3 border-l-4 transition-all hover:bg-slate-800/70 ${
+                  openSections.includes('data') ? 'border-sky-500 bg-slate-800/80' : 'border-transparent'
                 }`}
                 aria-expanded={openSections.includes('data')}
                 aria-controls="data-section"
               >
-                <span className="text-sm font-bold text-amber-300 tracking-wide">🗄️ 데이터 관리</span>
-                <ChevronDownIcon className={`w-4 h-4 text-amber-400 transition-transform ${openSections.includes('data') ? 'rotate-180' : ''}`} />
+                <span className={`text-sm font-bold tracking-wide ${openSections.includes('data') ? 'text-sky-300' : 'text-slate-200'}`}>🗄️ 데이터 관리</span>
+                <ChevronDownIcon className={`w-4 h-4 transition-transform ${openSections.includes('data') ? 'rotate-180 text-sky-400' : 'text-slate-400'}`} />
               </button>
 
               <div
@@ -2657,14 +2657,14 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           <div className="w-full max-w-3xl mt-2 mb-4 bg-slate-900/70 rounded-xl border border-slate-700/60 shadow-md overflow-hidden">
             <button
               onClick={() => toggleSection('locationHelper')}
-              className={`w-full flex justify-between items-center text-left px-4 py-3 border-l-4 border-rose-500 transition-all hover:bg-slate-800/70 ${
-                openSections.includes('locationHelper') ? 'bg-slate-800/80' : ''
+              className={`w-full flex justify-between items-center text-left px-4 py-3 border-l-4 transition-all hover:bg-slate-800/70 ${
+                openSections.includes('locationHelper') ? 'border-sky-500 bg-slate-800/80' : 'border-transparent'
               }`}
               aria-expanded={openSections.includes('locationHelper')}
               aria-controls="location-helper-section"
             >
-              <span className="text-sm font-bold text-rose-300 tracking-wide">📍 위치 도우미</span>
-              <ChevronDownIcon className={`w-4 h-4 text-rose-400 transition-transform ${openSections.includes('locationHelper') ? 'rotate-180' : ''}`} />
+              <span className={`text-sm font-bold tracking-wide ${openSections.includes('locationHelper') ? 'text-sky-300' : 'text-slate-200'}`}>📍 위치 도우미</span>
+              <ChevronDownIcon className={`w-4 h-4 transition-transform ${openSections.includes('locationHelper') ? 'rotate-180 text-sky-400' : 'text-slate-400'}`} />
             </button>
 
             <div
