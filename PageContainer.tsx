@@ -198,6 +198,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   // 접수번호 일괄 변경 상태
   const [showRename, setShowRename] = useState(false);
+  // 작업 목록 펼침 (기본 접힘 — 길어서 페이지가 밑으로 밀리는 것 방지)
+  const [showJobList, setShowJobList] = useState(false);
   const [showKakaoTalkModal, setShowKakaoTalkModal] = useState(false);
 
   const [renameOld, setRenameOld] = useState('');
@@ -2537,17 +2539,27 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     };
 
                     return (
-                      <div className="mt-2 space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-slate-400 font-semibold">📋 작업 목록 ({allRcpts.length}건)</span>
+                      <div className="mt-2">
+                        {/* 작업 목록(중요) — 길어서 기본 접힘. 눈에 띄는 헤더로 펼침 */}
+                        <button
+                          onClick={() => setShowJobList(s => !s)}
+                          className="w-full flex items-center justify-between px-3 py-2 bg-sky-950/40 border border-sky-700/50 rounded-lg hover:bg-sky-950/60 transition-colors"
+                        >
+                          <span className="text-xs font-bold text-sky-300">📋 작업 목록 ({allRcpts.length}건)</span>
+                          <span className="text-[11px] font-semibold text-sky-500">{showJobList ? '▲ 접기' : '▼ 펼치기'}</span>
+                        </button>
+
+                        {showJobList && (
+                        <div className="mt-1.5 space-y-1.5">
                           {allRcpts.length > 0 && (
-                            <button
-                              onClick={handleDeleteAllJobs}
-                              title="작업 목록 전체 삭제"
-                              className="px-1.5 py-0.5 text-[11px] text-slate-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"
-                            >🗑️</button>
+                            <div className="flex justify-end">
+                              <button
+                                onClick={handleDeleteAllJobs}
+                                title="작업 목록 전체 삭제"
+                                className="px-2 py-0.5 text-[11px] text-slate-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"
+                              >🗑️ 전체 삭제</button>
+                            </div>
                           )}
-                        </div>
 
                         <div className="space-y-1">
                           {visibleGroups.map(([parentKey, children]) => {
@@ -2646,6 +2658,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                               ? `▼ 더보기 (${groups.length - 4}건 더)`
                               : '▲ 접기'}
                           </button>
+                        )}
+                        </div>
                         )}
                       </div>
                     );
