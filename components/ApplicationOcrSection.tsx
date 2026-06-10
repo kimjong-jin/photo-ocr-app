@@ -7,7 +7,6 @@ import { Type } from '@google/genai';
 import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
-import { CameraView } from './CameraView';
 import EmailModal from './EmailModal';
 
 export interface Application {
@@ -236,7 +235,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     const saved = localStorage.getItem('ocrApiMode');
     return (saved === 'gemini' || saved === 'vllm') ? saved : 'vllm';
   });
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isTableExpanded, setIsTableExpanded] = useState(false);
 
   const clearMessages = () => {
@@ -319,15 +317,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 
   const handleImagesSet = useCallback((images: ImageInfo[]) => {
     setImage(images[0] || null);
-    clearMessages();
-  }, []);
-
-  const handleOpenCamera = useCallback(() => setIsCameraOpen(true), []);
-  const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
-  const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
-    const capturedImage: ImageInfo = { file, base64, mimeType };
-    setImage(capturedImage);
-    setIsCameraOpen(false);
     clearMessages();
   }, []);
 
@@ -932,11 +921,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       {/* 컴팩트 한 줄 레이아웃 */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          {/* 파일 선택 + 카메라 */}
-          {isCameraOpen ? (
-            <CameraView onCapture={handleCameraCapture} onClose={handleCloseCamera} />
-          ) : (
-            <>
+          {/* 파일 선택 (모바일에선 OS가 카메라 옵션 제공) */}
+          <>
               <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-600 hover:bg-slate-500 text-white cursor-pointer transition-colors border border-slate-500">
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -960,19 +946,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                   }}
                 />
               </label>
-              <button
-                type="button"
-                onClick={handleOpenCamera}
-                disabled={isProcessing}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-600 hover:bg-slate-500 text-white transition-colors border border-slate-500"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                카메라
-              </button>
-
               {/* 분석 모드 + 분석및저장 오른쪽 */}
               <div className="flex items-center gap-2 ml-auto">
                 <div className="flex rounded-lg overflow-hidden border border-slate-600 text-xs font-bold">
@@ -1024,8 +997,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                   <span className="text-xs text-sky-400 truncate max-w-[120px]">{image.file.name}</span>
                 </div>
               )}
-            </>
-          )}
+          </>
         </div>
       </div>
 
