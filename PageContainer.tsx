@@ -2681,44 +2681,24 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     <input
                       type="text"
                       value={locReceiptInput}
-                      onChange={e => {
-                        const v = e.target.value;
-                        const parts = v.split('-');
-                        // 4부분 이상(YY-XXXXXX-NN-M)이면 세부번호 자동 분리
-                        if (parts.length >= 4) {
-                          setLocReceiptInput(parts.slice(0, 3).join('-'));
-                          setLocDetailInput('-' + parts.slice(3).join('-'));
-                        } else {
-                          setLocReceiptInput(v);
-                        }
-                      }}
-                      placeholder="26-031078-01 (-1 세부가능)"
+                      onChange={e => setLocReceiptInput(e.target.value)}
+                      placeholder="26-031078-01 또는 -1 포함"
                       className="flex-1 min-w-0 p-2 bg-slate-800 border border-slate-600 rounded-md text-slate-300 text-xs placeholder-slate-500"
-                    />
-                    {/* 세부 번호 (-1, -2, -3 ...) */}
-                    <input
-                      type="text"
-                      value={locDetailInput ?? ''}
-                      onChange={e => setLocDetailInput(e.target.value)}
-                      placeholder="-1"
-                      className="w-12 p-2 bg-slate-800 border border-slate-600 rounded-md text-slate-300 text-xs placeholder-slate-500 text-center"
-                      title="세부번호 (-1, -2, -3...) 비우면 전체 적용"
                     />
                     {/* 주소 저장 */}
                     <button
                       onClick={async () => {
-                        const base = locReceiptInput.trim() || receiptNumber;
-                        if (!base) { alert('접수번호를 입력하세요.'); return; }
+                        const id_base = locReceiptInput.trim() || receiptNumber;
+                        if (!id_base) { alert('접수번호를 입력하세요.'); return; }
                         if (!currentGpsAddress.trim()) { alert('저장할 주소가 없습니다.\nGPS, 찾기, 또는 지도에서 주소를 먼저 가져오세요.'); return; }
-                        const detail = locDetailInput?.trim();
-                        const id = detail ? `${base}${detail.startsWith('-') ? '' : '-'}${detail}` : base;
+                        const id = (locReceiptInput.trim() || receiptNumber);
                         if (!isValidReceiptId(id)) { alert(`올바르지 않은 형식: ${id}`); return; }
                         setIsLocSaving(true);
                         try {
                           const lat = coords?.lat ?? 0;
                           const lng = coords?.lng ?? 0;
                           // 현장명: jobs에서 접수번호 base로 매칭
-                          const baseId = base.split('-').slice(0, 3).join('-');
+                        const baseId = id_base.split('-').slice(0, 3).join('-');
                           const matchedSite = [
                             ...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs, ...(drinkingWaterJobs as any[])
                           ].find(j => j.receiptNumber?.startsWith(baseId))?.siteLocation || siteName || '';
