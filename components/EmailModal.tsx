@@ -1,5 +1,6 @@
 // EmailModal.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { jsPDF } from 'jspdf';
 import { PDFDocument } from '@cantoo/pdf-lib';
 import type { Application } from './ApplicationOcrSection';
@@ -427,8 +428,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
     );
   };
 
-  return (
-    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-start sm:items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto" onClick={onClose} role="dialog" aria-modal="true">
+  const modalContent = (
+    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-start sm:items-center justify-center p-2 sm:p-4 z-[9999] overflow-y-auto" onClick={onClose} role="dialog" aria-modal="true">
       <div className="bg-slate-800 w-full max-w-4xl rounded-xl border border-slate-700 shadow-2xl p-4 sm:p-6 flex flex-col my-2 sm:my-auto" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl sm:text-2xl font-semibold text-white">
           자료 전송: <span className="text-sky-400">{application.receipt_no}</span>
@@ -578,6 +579,8 @@ const EmailModal: React.FC<Props> = ({ isOpen, onClose, application, userName, o
       )}
     </div>
   );
+
+  return ReactDOM.createPortal(modalContent, document.body);
 };
 
 export default EmailModal;

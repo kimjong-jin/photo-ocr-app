@@ -1,5 +1,6 @@
 
 import React from 'react';
+import ReactDOM from 'react-dom';
 import { ActionButton } from './ActionButton';
 import { ImageInfo } from './ImageInput';
 
@@ -70,9 +71,9 @@ const KtlPreflightModal: React.FC<KtlPreflightModalProps> = ({
     }
   };
 
-  return (
+  return ReactDOM.createPortal(
     <div
-      className="fixed inset-0 bg-slate-900 bg-opacity-75 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+      className="fixed inset-0 bg-slate-900 bg-opacity-75 backdrop-blur-sm flex items-center justify-center p-4 z-[9999]"
       aria-labelledby="ktl-preflight-modal-title"
       role="dialog"
       aria-modal="true"
@@ -219,7 +220,8 @@ const KtlPreflightModal: React.FC<KtlPreflightModalProps> = ({
           </ActionButton>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
