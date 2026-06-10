@@ -492,6 +492,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   }, []);
 
   const handleApplicationSelect = useCallback((app: Application) => {
+    // 이미 선택된(작업중) 항목을 다시 클릭 → 해제 (목록은 맨 아래로 복귀)
+    if (selectedApplication?.id === app.id) {
+      setSelectedApplication(null);
+      return;
+    }
+
     const receiptNo = app.receipt_no || '';
     const parts = receiptNo.split('-');
 
@@ -507,7 +513,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
     setSiteName(app.site_name);
     setSelectedApplication(app);
-  }, []);
+  }, [selectedApplication]);
 
   const finalSiteLocation = useMemo(() => siteName.trim(), [siteName]);
 
