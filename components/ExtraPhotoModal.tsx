@@ -181,7 +181,8 @@ const ExtraPhotoModal: React.FC<ExtraPhotoModalProps> = ({
     if (preset.freeInput) {
       // 기타: 기존 코멘트 유지하되 입력란 포커스
       nextComment = photos.find(p => p.uid === uid)?.comment ?? '';
-      setTimeout(() => { commentRefs.current[uid]?.focus(); commentRefs.current[uid]?.select(); }, 50);
+      // preventScroll: 포커스 시 브라우저가 입력란으로 자동 스크롤하며 튀는 것 방지
+      setTimeout(() => { commentRefs.current[uid]?.focus({ preventScroll: true }); commentRefs.current[uid]?.select(); }, 50);
     } else {
       nextComment = preset.label;
     }
