@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo, useLayoutEffect } from 'react';
 import { ActionButton } from './ActionButton';
 import { ImageInput, ImageInfo } from './ImageInput';
 import { Spinner } from './Spinner';
@@ -222,13 +222,41 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     checkNew();
   }, [applications]);
 
-  // 목록 갱신 시 스크롤 보정: 선택(작업중) 항목이 맨 위에 고정돼 있으면 위로,
-  // 선택이 없을 때만 기존처럼 맨 아래로 (새 항목 확인용).
-  useEffect(() => {
-    if (!tableContainerRef.current || applications.length === 0) return;
-    tableContainerRef.current.scrollTop =
-      appIdToSync != null ? 0 : tableContainerRef.current.scrollHeight;
+  // '맨 아래 보기'를 유지할지 여부 (사용자가 위로 스크롤하면 false)
+  const stickBottomRef = useRef(true);
+
+  // 목록/선택 변경 시: 선택(작업중) 항목 있으면 위로 고정, 없으면 맨 아래(최신)로
+  useLayoutEffect(() => {
+    const el = tableContainerRef.current;
+    if (!el || applications.length === 0) return;
+    if (appIdToSync != null) {
+      el.scrollTop = 0;
+      stickBottomRef.current = false;
+    } else {
+      el.scrollTop = el.scrollHeight;
+      stickBottomRef.current = true;
+    }
   }, [applications, appIdToSync]);
+
+  // KTL 상태·회사명·대표자가 비동기로 로드돼 행 높이가 커져도 '맨 아래 보기'를 유지.
+  // (사용자가 위로 스크롤한 상태면 stickBottomRef=false라 방해하지 않음)
+  useEffect(() => {
+    const el = tableContainerRef.current;
+    const content = el?.querySelector('table');
+    if (!el || !content) return;
+    const ro = new ResizeObserver(() => {
+      if (appIdToSync == null && stickBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [appIdToSync]);
+
+  // 컨테이너 스크롤 시 '바닥 근접' 여부 기록 → 위로 올리면 바닥 고정 해제
+  const handleTableScroll = useCallback(() => {
+    const el = tableContainerRef.current;
+    if (!el) return;
+    stickBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  }, []);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [newApplicationData, setNewApplicationData] = useState<Partial<Application>>({});
   const [ocrApiMode, setOcrApiMode] = useState<'gemini' | 'vllm'>(() => {
@@ -1038,6 +1066,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         </div>
         <div
           ref={tableContainerRef}
+          onScroll={handleTableScroll}
           className="overflow-auto bg-slate-800 rounded-lg border border-slate-700 transition-all duration-300"
           style={{ maxHeight: isTableExpanded ? '365px' : '205px' }}
         >
