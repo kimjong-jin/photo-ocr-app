@@ -51,6 +51,12 @@ type MarkingAnalysisResult = {
   기기고유번호: string;
 };
 
+// ─── 사진 코멘트 빠른 입력 프리셋 (클릭 시 코멘트란에 입력) ──────────────────
+const PHOTO_COMMENT_PRESETS = [
+  '측정기', '교정값', '지시부', '센서부', '구조 및 기능', '기기번호',
+  '기체운송방식', '배출허용기준', '현장사진', '휴대용 측정기기 값',
+] as const;
+
 // ─── 항목별 측정범위 단위 ──────────────────────────────────────────────────
 const UNIT_MAP: Record<string, string> = {
   TOC: 'mg/L', TN: 'mg/L', TP: 'mg/L', SS: 'mg/L',
@@ -1626,20 +1632,45 @@ Required output:
                         isLightTheme={typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches}
                     />
                 )}
-                 {currentPhotoIndexOfActiveJob !== -1 && activeJob.photos[currentPhotoIndexOfActiveJob] && (
+                 {currentPhotoIndexOfActiveJob !== -1 && activeJob.photos[currentPhotoIndexOfActiveJob] && (() => {
+                     const photoUid = activeJob.photos[currentPhotoIndexOfActiveJob].uid;
+                     const currentComment = activeJob.photoComments[photoUid] || '';
+                     return (
                      <div className="mt-2">
                         <label htmlFor="photo-comment" className="text-sm font-medium text-slate-300 mb-1 block">사진 코멘트 (선택 사항):</label>
                         <input
                             type="text"
                             id="photo-comment"
-                            value={activeJob.photoComments[activeJob.photos[currentPhotoIndexOfActiveJob].uid] || ''}
-                            onChange={(e) => handlePhotoCommentChange(activeJob.photos[currentPhotoIndexOfActiveJob].uid, e.target.value)}
+                            value={currentComment}
+                            onChange={(e) => handlePhotoCommentChange(photoUid, e.target.value)}
                             className="w-full text-sm bg-slate-700 border border-slate-600 rounded-md p-2 focus:ring-sky-500 focus:border-sky-500 text-slate-100 placeholder-slate-400"
                             placeholder="이 사진에 대한 코멘트 입력..."
                             disabled={isControlsDisabled}
                         />
+                        {/* 빠른 입력 프리셋: 클릭하면 코멘트란에 바로 입력 (같은 칩 다시 누르면 해제) */}
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {PHOTO_COMMENT_PRESETS.map(preset => {
+                            const isActive = currentComment === preset;
+                            return (
+                              <button
+                                key={preset}
+                                type="button"
+                                disabled={isControlsDisabled}
+                                onClick={() => handlePhotoCommentChange(photoUid, isActive ? '' : preset)}
+                                className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
+                                  isActive
+                                    ? 'bg-sky-600 border-sky-500 text-white shadow-sm shadow-sky-900'
+                                    : 'bg-slate-800 border-slate-600 text-slate-300 hover:border-sky-500 hover:text-sky-300'
+                                }`}
+                              >
+                                {preset}
+                              </button>
+                            );
+                          })}
+                        </div>
                      </div>
-                 )}
+                     );
+                 })()}
                  {/* ✅ 전체 분석용 항목 지정 버튼 - 현재 미리보기 사진에 분석 타입 할당 */}
                  {currentPhotoIndexOfActiveJob !== -1 && activeJob.photos[currentPhotoIndexOfActiveJob] && FULL_ANALYSIS_TYPES.length > 0 && (
                    <div className="mt-2 px-1">
