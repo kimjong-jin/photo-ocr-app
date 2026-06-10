@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { ActionButton } from './ActionButton';
 import { ImageInput, ImageInfo } from './ImageInput';
 import { Spinner } from './Spinner';
@@ -223,12 +223,13 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     checkNew();
   }, [applications]);
 
-  // 애플리케이션 목록 미리보기 시 맨 아래로 스크롤
+  // 목록 갱신 시 스크롤 보정: 선택(작업중) 항목이 맨 위에 고정돼 있으면 위로,
+  // 선택이 없을 때만 기존처럼 맨 아래로 (새 항목 확인용).
   useEffect(() => {
-    if (tableContainerRef.current && applications.length > 0) {
-      tableContainerRef.current.scrollTop = tableContainerRef.current.scrollHeight;
-    }
-  }, [applications]);
+    if (!tableContainerRef.current || applications.length === 0) return;
+    tableContainerRef.current.scrollTop =
+      appIdToSync != null ? 0 : tableContainerRef.current.scrollHeight;
+  }, [applications, appIdToSync]);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [newApplicationData, setNewApplicationData] = useState<Partial<Application>>({});
   const [ocrApiMode, setOcrApiMode] = useState<'gemini' | 'vllm'>(() => {
@@ -917,6 +918,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 
   const totalColumns = 7 + CHECK_COLUMNS.length + 1;
 
+  // 선택된 항목(작업 대상)을 목록 맨 위로 고정 — 정렬·새로고침에도 자리가 안 바뀌어
+  // 접수번호/공통정보가 흔들리지 않게 한다. 다른 행 클릭 시엔 그 행이 새 선택이 된다.
+  const displayApplications = useMemo(() => {
+    if (appIdToSync == null) return applications;
+    const sel = applications.find((a) => a.id === appIdToSync);
+    if (!sel) return applications;
+    return [sel, ...applications.filter((a) => a.id !== appIdToSync)];
+  }, [applications, appIdToSync]);
+
   return (
     <div className="pt-4 px-2 space-y-4">
       {/* 컴팩트 한 줄 레이아웃 */}
@@ -1100,7 +1110,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                   </td>
                 </tr>
               ) : (
-                applications.map((app) =>
+                displayApplications.map((app) =>
                   editingId === app.id ? (
                     <tr key={app.id} className="bg-sky-900/30">
                       <td className="p-1">
@@ -1196,10 +1206,23 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                   ) : (
                     <tr
                       key={app.id}
-                      className="hover:bg-slate-700/30 cursor-pointer"
+                      className={
+                        app.id === appIdToSync
+                          ? 'bg-sky-500/20 ring-1 ring-inset ring-sky-400/60 cursor-pointer'
+                          : 'hover:bg-slate-700/30 cursor-pointer'
+                      }
                       onClick={() => onApplicationSelect(app)}
                     >
-                      <td className="px-3 py-2 whitespace-nowrap text-center font-bold text-sky-400">
+                      <td
+                        className={`px-3 py-2 whitespace-nowrap text-center font-bold text-sky-400 ${
+                          app.id === appIdToSync ? 'border-l-4 border-sky-400' : ''
+                        }`}
+                      >
+                        {app.id === appIdToSync && (
+                          <span className="block text-[9px] leading-none text-sky-300 font-semibold mb-0.5">
+                            작업중
+                          </span>
+                        )}
                         {app.queue_slot}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-200 font-mono">
