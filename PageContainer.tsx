@@ -2538,6 +2538,26 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       });
                     };
 
+                    // 접수번호(그룹)의 현장명 찾기: 저장된 작업상태 → 현재 세션 작업 → 신청목록 순
+                    const getGroupSiteName = (parentKey: string, children: string[]): string => {
+                      for (const rn of children) {
+                        const js = jobStatuses.find(s => s.receiptNo === rn && s.siteName);
+                        if (js?.siteName) return js.siteName;
+                      }
+                      const allJobs: any[] = [
+                        ...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs,
+                        ...(drinkingWaterJobs as any[]), ...(csvGraphJobs as any[]),
+                      ];
+                      for (const rn of children) {
+                        const j = allJobs.find(j => j.receiptNumber === rn);
+                        const s = j?.siteLocation || j?.site;
+                        if (s) return s;
+                      }
+                      const base = parentKey.split('-').slice(0, 3).join('-');
+                      const app = applications.find(a => a.receipt_no === base || a.receipt_no === parentKey);
+                      return app?.site_name || '';
+                    };
+
                     return (
                       <div className="mt-2">
                         {/* 작업 목록(중요) — 길어서 기본 접힘. 눈에 띄는 헤더로 펼침 */}
@@ -2564,13 +2584,17 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         <div className="space-y-1">
                           {visibleGroups.map(([parentKey, children]) => {
                             const isExpanded = expandedGroups.has(parentKey);
+                            const groupSite = getGroupSiteName(parentKey, children);
                             return (
                               <div key={parentKey} className="rounded-lg border border-slate-700/50 bg-slate-800/40 overflow-hidden">
                                 {/* 부모 헤더 - 클릭 시 아코디언 토글 */}
                                 <div className="flex items-center gap-1 px-2 py-1.5 bg-slate-700/40 cursor-pointer"
                                   onClick={() => handleToggleGroup(parentKey)}>
                                   <span className="text-[9px] text-slate-500 mr-0.5">{isExpanded ? '▼' : '▶'}</span>
-                                  <span className="flex-1 text-[10px] font-bold text-sky-300 truncate">{parentKey}</span>
+                                  <span className="flex-1 min-w-0 text-[10px] truncate">
+                                    <span className="font-bold text-sky-300">{parentKey}</span>
+                                    {groupSite && <span className="text-slate-300 font-normal ml-1.5">· {groupSite}</span>}
+                                  </span>
                                   <button
                                     onClick={e => { e.stopPropagation(); handleDeleteGroup(parentKey, children); }}
                                     className="shrink-0 px-1.5 py-0.5 text-[10px] text-slate-500 hover:text-red-400 hover:bg-red-900/30 rounded border border-transparent hover:border-red-700/40 transition-colors"
