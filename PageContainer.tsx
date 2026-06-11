@@ -2048,6 +2048,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             siteName={siteNameOnly}
             onDeleteJob={handleDeleteStructuralCheckJob}
             currentGpsAddress={currentGpsAddress}
+            locationList={locationList}
             applications={applications}
             selectedApplication={selectedApplication}
             onSaveDraft={handleSaveDraft}

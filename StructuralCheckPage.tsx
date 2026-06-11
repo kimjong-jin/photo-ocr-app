@@ -357,6 +357,8 @@ interface StructuralCheckPageProps {
   siteName: string;
   onDeleteJob: (jobId: string) => void;
   currentGpsAddress: string;
+  /** 위치 도우미에 저장된 주소 목록 (접수번호별 전송 주소 매칭용) */
+  locationList?: { id: string; address: string; lat?: number; lng?: number }[];
   applications: Application[];
   selectedApplication: Application | null;
   onSaveDraft?: (receipt?: string) => void;  // 빠른 저장 버튼용
@@ -372,9 +374,24 @@ interface StructuralCheckPageProps {
 
 const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
   userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, onDeleteJob,
-  currentGpsAddress, applications, selectedApplication, onSaveDraft, onLoadDraft, onSaveAllDrafts, onLoadAllDrafts, draftMessage, isSavingDraft, isLoadingDraft,
+  currentGpsAddress, locationList = [], applications, selectedApplication, onSaveDraft, onLoadDraft, onSaveAllDrafts, onLoadAllDrafts, draftMessage, isSavingDraft, isLoadingDraft,
   onOpenExtraPhotoModal,
 }) => {
+  // 접수번호별 전송 주소 해석: 정확 일치 → 베이스(-01) 폴백. 없으면 폼 주소(currentGpsAddress).
+  const resolveSendAddress = useCallback((receipt: string): string => {
+    if (!receipt) return currentGpsAddress.trim();
+    const exact = locationList.find(l => l.id === receipt);
+    if (exact?.address?.trim()) return exact.address.trim();
+    const base = receipt.split('-').slice(0, 3).join('-');
+    const baseMatch = locationList.find(l => l.id === base);
+    return (baseMatch?.address || currentGpsAddress).trim();
+  }, [locationList, currentGpsAddress]);
+  // 등록된 위치(정확/베이스)가 있는지 — 누락 알람용
+  const hasRegisteredLocation = useCallback((receipt: string): boolean => {
+    if (!receipt) return false;
+    const base = receipt.split('-').slice(0, 3).join('-');
+    return !!locationList.find(l => (l.id === receipt || l.id === base) && l.address?.trim());
+  }, [locationList]);
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const activeJobFileInputRef = useRef<HTMLInputElement>(null);
   const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
@@ -1369,6 +1386,18 @@ Required output:
         updateActiveJob(job => ({ ...job, submissionStatus: 'sending', submissionMessage: message }));
     };
 
+    // 접수번호별 전송 주소(정확→베이스→폼) + 위치 도우미 누락 알람
+    const sendAddr = resolveSendAddress(activeJob.receiptNumber);
+    if (!hasRegisteredLocation(activeJob.receiptNumber)) {
+      const proceed = window.confirm(
+        `⚠️ "${activeJob.receiptNumber}" 의 주소가 위치 도우미에 없습니다.\n\n` +
+        `위치 도우미에서 주소를 먼저 등록하세요.\n` +
+        `(베이스 25-000000-01 로 등록하면 하위 -01-1·-01-2 전체 적용)\n\n` +
+        `[취소] 등록하러 가기 · [확인] 그대로 전송`
+      );
+      if (!proceed) return;
+    }
+
     onProgress('전송 시작...');
 
     try {
@@ -1377,7 +1406,7 @@ Required output:
         ktlPreflightData.generatedChecklistImage,
         siteName,
         userName,
-        currentGpsAddress,
+        sendAddr,
         onProgress,
         'p1_check',
         selectedApplication || undefined
@@ -1458,6 +1487,20 @@ Required output:
             if (!proceed) return;
         }
 
+        // 접수번호별 전송 주소(위치 도우미) 누락 검사
+        const missingLocReceipts = Array.from(new Set(jobs.map(j => j.receiptNumber).filter(Boolean)))
+            .filter(rn => !hasRegisteredLocation(rn));
+        if (missingLocReceipts.length > 0) {
+            const proceed = window.confirm(
+                `⚠️ 위치 도우미에 주소가 없는 접수번호 (${missingLocReceipts.length}건):\n\n` +
+                `- ${missingLocReceipts.join('\n- ')}\n\n` +
+                `위치 도우미에서 주소를 먼저 등록하세요.\n` +
+                `(베이스 25-000000-01 로 등록하면 하위 -01-1·-01-2 전체 적용)\n\n` +
+                `[취소] 등록하러 가기 · [확인] 주소 없이 그대로 전송`
+            );
+            if (!proceed) return;
+        }
+
         setIsSendingToClaydox(true);
         setBatchSendProgress(`(0/${jobs.length}) 체크리스트 이미지 생성 시작...`);
         setJobs(prev => prev.map(j => ({ ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' })));
@@ -1531,7 +1574,12 @@ Required output:
         setBatchSendProgress(`모든 체크리스트 이미지 생성 완료. KTL 서버로 전송합니다...`);
 
         try {
-            const results = await sendBatchStructuralChecksToKtlApi(jobsWithAppData, generatedChecklistImages, siteName, userName, currentGpsAddress, 'p1_check');
+            // 접수번호별 전송 주소 맵 (정확→베이스→폼)
+            const gpsAddressByReceipt: Record<string, string> = {};
+            Array.from(new Set(jobsWithAppData.map(j => j.receiptNumber).filter(Boolean))).forEach(rn => {
+                gpsAddressByReceipt[rn] = resolveSendAddress(rn);
+            });
+            const results = await sendBatchStructuralChecksToKtlApi(jobsWithAppData, generatedChecklistImages, siteName, userName, currentGpsAddress, 'p1_check', gpsAddressByReceipt);
             results.forEach(result => {
                 setJobs(prev => prev.map(j => (j.receiptNumber === result.receiptNo && (MAIN_STRUCTURAL_ITEMS.find(it => it.key === j.mainItemKey)?.name || j.mainItemKey) === result.mainItem)
                     ? { ...j, submissionStatus: result.success ? 'success' : 'error', submissionMessage: result.message }

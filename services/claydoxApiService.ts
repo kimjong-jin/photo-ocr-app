@@ -1035,7 +1035,8 @@ export const sendBatchStructuralChecksToKtlApi = async (
   siteNameGlobal: string,
   userNameGlobal: string,
   gpsAddressGlobal: string,
-  p_key?: string
+  p_key?: string,
+  gpsAddressByReceipt?: Record<string, string>   // 접수번호별 주소(있으면 우선, 없으면 global)
 ): Promise<{ receiptNo: string; mainItem: string; success: boolean; message: string }[]> => {
   const results: { receiptNo: string; mainItem: string; success: boolean; message: string }[] = [];
   const filesToUploadDirectly: File[] = [];
@@ -1278,7 +1279,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       currentGroupOfJobs,
       userNameGlobal,
       siteNameGlobal,
-      gpsAddressGlobal,
+      gpsAddressByReceipt?.[receiptNo] ?? gpsAddressGlobal,   // 접수번호별 주소 우선
       compositeFileNamesForThisReceipt,
       zipFileNameForThisReceipt
     );
