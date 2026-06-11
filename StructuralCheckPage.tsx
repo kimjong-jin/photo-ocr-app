@@ -714,17 +714,17 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     setQuickAnalysisFeedback(null);
   }, [activeJob, updateActiveJob]);
 
-  const handleAnalyzeChecklistItemDetail = useCallback(async (itemNameForAnalysis: AnalysisType, isQuickAnalysis: boolean = false, overridePhotoIndex?: number) => {
+  const handleAnalyzeChecklistItemDetail = useCallback(async (itemNameForAnalysis: AnalysisType, isQuickAnalysis: boolean = false, overridePhotoIndex?: number, batchMode: boolean = false): Promise<{ ok: boolean; issue: string | null }> => {
     if (!activeJob || activeJob.photos.length === 0) {
         const errorMsg = "판별을 위해 사진을 먼저 첨부하세요.";
         if (isQuickAnalysis) setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: errorMsg, type: 'error' });
         else setDetailAnalysisError(errorMsg);
-        return false;
+        return { ok: false, issue: null };
     }
     const photoToProcess = overridePhotoIndex !== undefined
         ? activeJob.photos[overridePhotoIndex] ?? activeJob.photos[0]
         : isQuickAnalysis ? activeJob.photos[currentPhotoIndexOfActiveJob] : activeJob.photos[0];
-    if (!photoToProcess) return false;
+    if (!photoToProcess) return { ok: false, issue: null };
 
     if (isQuickAnalysis) { setQuickAnalysisTarget(itemNameForAnalysis); setQuickAnalysisFeedback(null); }
     setIsAnalyzingDetail(true); setDetailAnalysisError(null);
@@ -737,18 +737,16 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     const mainItemName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey;
 
     // ★ AI 분석 활용 — 분석 텍스트에서 항목을 감지해 작업 항목과 다르면 팝업 경고 (증명서·표시사항 공용)
-    const warnIfItemMismatch = (sourceText: string, sourceLabel: string) => {
+    // 항목 불일치를 감지해 메시지 반환(없으면 null). 팝업/요약은 호출부에서 처리.
+    let mismatchMsg: string | null = null;
+    const detectMismatch = (sourceText: string, sourceLabel: string): string | null => {
       const detected = detectItemFromText(sourceText);
       const expectedIsCombo = /\//.test(activeJob.mainItemKey) || /MULTI/i.test(activeJob.mainItemKey);
       if (detected && detected !== 'MULTI' && !expectedIsCombo && detected !== activeJob.mainItemKey) {
         const detName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === detected)?.name || detected;
-        window.alert(
-          `⚠️ 항목이 달라요!\n\n` +
-          `"${activeJob.mainItemKey}" 작업인데 "${detected}"(으)로 분석됐어요.\n` +
-          `(${sourceLabel}: ${mainItemName} → ${detName})\n\n` +
-          `다른 항목의 사진을 분석한 건 아닌지 확인하세요.`
-        );
+        return `${sourceLabel}: "${activeJob.mainItemKey}" 작업인데 "${detected}"로 분석됨 (${mainItemName}→${detName})`;
       }
+      return null;
     };
 
     switch (itemNameForAnalysis) {
@@ -1028,7 +1026,7 @@ Required output:
         setDetailAnalysisError("지원되지 않는 분석 유형입니다.");
         setIsAnalyzingDetail(false);
         if (isQuickAnalysis) setQuickAnalysisTarget(null);
-        return false;
+        return { ok: false, issue: null };
     }
 
     try {
@@ -1064,8 +1062,8 @@ Required output:
             // 회사명 "(주)" 표기 통일 (작은(주)/큰(주)/㈜ → "(주)")
             if (newCertDetails.manufacturer) newCertDetails.manufacturer = normalizeCompanyName(newCertDetails.manufacturer);
 
-            // ★ 항목 불일치 감지: 증명서 품명이 이 작업의 항목과 다르면 팝업 경고
-            warnIfItemMismatch(newCertDetails.productName || '', '증명서');
+            // ★ 항목 불일치 감지: 증명서 품명이 이 작업의 항목과 다른지
+            mismatchMsg = detectMismatch(newCertDetails.productName || '', '증명서');
 
             const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes;
             let existingCertDetails: CertificateDetails = { presence: 'not_selected' };
@@ -1082,7 +1080,7 @@ Required output:
             // ★ 항목 불일치 감지: 모델이 식별한 측정항목 + 기기형식·형식승인번호(코드)로 판단
             let markingItemHint = '';
             try { markingItemHint = JSON.parse(extractJsonObject(resultText) || '{}')['측정항목'] || ''; } catch {}
-            warnIfItemMismatch(`${markingItemHint} ${normalizedMarking.기기형식} ${normalizedMarking.형식승인번호}`, '표시사항');
+            mismatchMsg = detectMismatch(`${markingItemHint} ${normalizedMarking.기기형식} ${normalizedMarking.형식승인번호}`, '표시사항');
 
             handleChecklistItemChange(targetChecklistItem, "notes", JSON.stringify(normalizedMarking));
         } else if (itemNameForAnalysis === "측정범위확인") {
@@ -1169,19 +1167,25 @@ Required output:
                 return { ...prev, [activeJobId!]: jobSet };
             });
         }
-        return true;
+        // 항목 불일치 — 단일/빠른 분석은 즉시 팝업, 전체(batch)는 끝에서 요약만
+        if (mismatchMsg && !batchMode) {
+            window.alert(`⚠️ 항목이 달라요!\n\n${mismatchMsg}\n\n다른 항목의 사진을 분석한 건 아닌지 확인하세요.`);
+        }
+        return { ok: true, issue: mismatchMsg };
     } catch (error: any) {
         const errorMsg = `분석 오류: ${error.message}`;
         if (isQuickAnalysis) setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: errorMsg, type: 'error' });
         else setDetailAnalysisError(errorMsg);
         // 디버깅용: 실패 항목·원인 콘솔 출력
         console.error(`[분석실패] ${itemNameForAnalysis}:`, error?.message, error);
-        // ★ 증명서·표시사항 분석 실패는 놓치기 쉬우므로 팝업으로도 알림 (간결한 문구)
-        if (itemNameForAnalysis === "정도검사 증명서" || itemNameForAnalysis === "표시사항확인") {
-            const label = itemNameForAnalysis === "정도검사 증명서" ? '정도검사 증명서' : '표시사항(명판)';
-            window.alert(`⚠️ ${label}을(를) 인식하지 못했어요.\n\n사진이 흐리거나 다른 항목·화면이 찍혔을 수 있어요. ${label}이 또렷하게 나오도록 다시 촬영해 주세요.`);
+        // 증명서·표시사항 실패는 단일/빠른 분석에서만 즉시 팝업 (전체는 끝에서 요약)
+        const noun = itemNameForAnalysis === "정도검사 증명서" ? '증명서'
+                   : itemNameForAnalysis === "표시사항확인" ? '명판' : '';
+        if (noun && !batchMode) {
+            window.alert(`⚠️ ${noun} 인식 실패\n\n${noun} 사진이 흐리거나 다른 화면이 찍혔을 수 있어요.\n또렷하게 다시 촬영해 주세요.`);
         }
-        return false;
+        const itemLabel = getAnalysisTypeDisplayString(itemNameForAnalysis) || (itemNameForAnalysis as string);
+        return { ok: false, issue: `${itemLabel}: 인식 실패` };
     } finally {
         setIsAnalyzingDetail(false);
         if (isQuickAnalysis) setQuickAnalysisTarget(null);
@@ -1579,23 +1583,23 @@ Required output:
         const isNotApplicable = (activeJob.mainItemKey === 'TU' || activeJob.mainItemKey === 'Cl') && type === '운용프로그램확인';
         return !isNotApplicable && fullAnalysisAssignments[type] !== undefined;
       });
-      const failed: string[] = [];
+      const issues: string[] = [];   // 실패 + 항목불일치 모두 수집
       for (let i = 0; i < targets.length; i++) {
         const type = targets[i];
         const photoIdx = fullAnalysisAssignments[type]!;
         setFullAnalysisResults(prev => ({ ...prev, [type]: 'running' }));
-        // 분석 함수가 성공/실패를 반환 → 실제 결과로 정확히 표시 (내부에서 에러를 삼키므로 throw 대신 반환값 사용)
-        const ok = await handleAnalyzeChecklistItemDetail(type, false, photoIdx);
-        setFullAnalysisResults(prev => ({ ...prev, [type]: ok ? 'ok' : 'error' }));
-        if (!ok) failed.push(getAnalysisTypeDisplayString(type) || type);
+        // batchMode=true → 개별 팝업 끄고, 문제(실패·불일치)는 끝에서 한 번에 요약
+        const r = await handleAnalyzeChecklistItemDetail(type, false, photoIdx, true);
+        setFullAnalysisResults(prev => ({ ...prev, [type]: r.ok ? 'ok' : 'error' }));
+        if (r.issue) issues.push(r.issue);
         // 항목 간 간격 → Gemini 분당 한도(429) 회피 (마지막 항목 뒤에는 대기 안 함)
         if (i < targets.length - 1) await new Promise(r => setTimeout(r, 900));
       }
       setIsRunningFullAnalysis(false);
-      // ★ 전체 분석 중 실패한 항목이 있으면 팝업으로 요약 알림
-      if (failed.length > 0) {
+      // ★ 전체 분석 — 문제(실패·항목불일치) 전부를 1회 팝업으로 요약 (2개면 2개, 1개면 1개)
+      if (issues.length > 0) {
         window.alert(
-          `⚠️ 전체 분석 중 ${failed.length}개 항목 분석 실패\n\n- ${failed.join('\n- ')}\n\n` +
+          `⚠️ 전체 분석 — 확인 필요 ${issues.length}건\n\n- ${issues.join('\n- ')}\n\n` +
           `해당 항목의 사진을 확인한 뒤 다시 분석하세요.`
         );
       }
