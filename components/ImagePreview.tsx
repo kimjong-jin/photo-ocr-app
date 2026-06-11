@@ -104,11 +104,11 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
             <DeleteIcon />
           </ActionButton>
         )}
-        {/* 고정 높이(h-96)+object-contain: 사진마다/로드시 높이가 변해 스크롤이 튀는 것 방지 */}
+        {/* 자연 크기(최대 384px)로 표시 — 작은 사진이 큰 빈 박스로 뜨지 않게 */}
         <img
           src={src}
           alt={fileName || '미리보기'}
-          className="w-full h-96 rounded-md object-contain"
+          className="max-w-full max-h-96 mx-auto rounded-md object-contain"
         />
         {showOverlay && (
           <div
