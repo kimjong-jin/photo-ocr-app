@@ -76,10 +76,11 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   // 라이트테마: 밝은 반투명 배경 + 진한 글씨 + 코멘트는 녹색
   const stampStyle: React.CSSProperties = isLightTheme
     ? {
-        backgroundColor: 'rgba(255, 255, 255, 0.92)',
-        backdropFilter: 'blur(4px)',
-        border: '1px solid rgba(203, 213, 225, 0.8)',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        backgroundColor: 'rgba(255, 255, 255, 0.6)',
+        backdropFilter: 'blur(6px)',
+        WebkitBackdropFilter: 'blur(6px)',
+        border: '1px solid rgba(203, 213, 225, 0.6)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
       }
     : {
         backgroundColor: 'rgba(0, 0, 0, 0.88)',
