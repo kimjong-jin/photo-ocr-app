@@ -1709,8 +1709,11 @@ Required output:
                  })()}
                  {/* ✅ 전체 분석용 항목 지정 버튼 - 현재 미리보기 사진에 분석 타입 할당 */}
                  {currentPhotoIndexOfActiveJob !== -1 && activeJob.photos[currentPhotoIndexOfActiveJob] && FULL_ANALYSIS_TYPES.length > 0 && (
-                   <div className="mt-2 px-1">
-                     <p className="text-xs text-slate-500 mb-1.5">📌 이 사진으로 분석할 항목 지정:</p>
+                   <div className="mt-2 rounded-lg border border-indigo-500/50 bg-indigo-950/30 p-2.5">
+                     <p className="text-xs font-bold text-indigo-300 mb-2 flex items-center gap-1.5">
+                       <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white text-[10px] font-extrabold tracking-wide">전체 분석</span>
+                       📌 이 사진으로 분석할 항목 지정
+                     </p>
                      <div className="flex flex-wrap gap-1.5">
                        {FULL_ANALYSIS_TYPES.map(type => {
                          const isAssigned = fullAnalysisAssignments[type] === currentPhotoIndexOfActiveJob;
