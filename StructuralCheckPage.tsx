@@ -200,13 +200,14 @@ const normalizeCompanyName = (name: string): string => {
   return s.trim();
 };
 
-// 증명서 품명(productName: 한글 서술문 또는 모델코드)에서 측정항목 키 감지.
-// 복합(MULTI)·불명확은 'MULTI'/null 반환 → 비교 시 경고 제외(오탐 방지).
-const detectItemFromCertProductName = (productName: string): string | null => {
-  const s = (productName || '').replace(/\s/g, '');
-  if (!s) return null;
+// 분석 텍스트(증명서 품명 / 표시사항 기기형식·형식승인번호)에서 측정항목 키 감지.
+// 한글 품명 서술문(1순위) + 모델코드(보조). 복합(MULTI)·불명확은 'MULTI'/null → 비교 제외(오탐 방지).
+const detectItemFromText = (raw: string): string | null => {
+  if (!raw) return null;
+  const s = raw.replace(/\s/g, '');
+  const u = s.toUpperCase();
   // 복합 항목 신호 → 모호하므로 비교 제외
-  if (s.includes('MULTI')) return 'MULTI';
+  if (u.includes('MULTI')) return 'MULTI';
   if ((s.includes('총질소') && s.includes('총인')) || (s.includes('탁도') && s.includes('잔류염소'))) return 'MULTI';
   // 한글 품명 서술문 (가장 신뢰)
   if (s.includes('총유기탄소')) return 'TOC';
@@ -218,9 +219,16 @@ const detectItemFromCertProductName = (productName: string): string | null => {
   if (s.includes('용존산소')) return 'DO';
   if (s.includes('탁도')) return 'TU';
   if (s.includes('잔류염소')) return 'Cl';
-  // 모델코드 폴백 (먹는물)
-  if (/-TM-|-TU-/i.test(s)) return 'TU';
-  if (/-CM-/i.test(s)) return 'Cl';
+  // 모델코드 (하이픈/경계로 구분된 토큰만 — 오탐 방지)
+  if (/-TM[-\b]|-TU[-\b]/.test(u) || /-TM-|-TU-/.test(u)) return 'TU';   // 먹는물 탁도
+  if (/-CM-|-CM\b/.test(u)) return 'Cl';                                  // 먹는물 잔류염소
+  if (/COD/.test(u)) return 'COD';
+  if (/-TN-|-TN\b/.test(u)) return 'TN';
+  if (/-TP-|-TP\b/.test(u)) return 'TP';
+  if (/-SS-|-SS\b/.test(u)) return 'SS';
+  if (/-PH-|-PH\b/.test(u)) return 'pH';
+  if (/-DO-|-DO\b/.test(u)) return 'DO';
+  if (/-TOC-|-TOC\b/.test(u)) return 'TOC';
   return null;
 };
 
@@ -728,6 +736,21 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
 
     const mainItemName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === activeJob.mainItemKey)?.name || activeJob.mainItemKey;
 
+    // ★ AI 분석 활용 — 분석 텍스트에서 항목을 감지해 작업 항목과 다르면 팝업 경고 (증명서·표시사항 공용)
+    const warnIfItemMismatch = (sourceText: string, sourceLabel: string) => {
+      const detected = detectItemFromText(sourceText);
+      const expectedIsCombo = /\//.test(activeJob.mainItemKey) || /MULTI/i.test(activeJob.mainItemKey);
+      if (detected && detected !== 'MULTI' && !expectedIsCombo && detected !== activeJob.mainItemKey) {
+        const detName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === detected)?.name || detected;
+        window.alert(
+          `⚠️ 항목 불일치 의심 (${sourceLabel})\n\n` +
+          `이 작업의 항목: "${mainItemName}"\n` +
+          `분석된 ${sourceLabel}: "${detName}"\n\n` +
+          `다른 항목의 사진을 읽었을 수 있습니다. 사진을 다시 확인하세요.`
+        );
+      }
+    };
+
     switch (itemNameForAnalysis) {
       case "정도검사 증명서":
         autoComment = "정도검사 증명서";
@@ -1033,18 +1056,8 @@ Required output:
             // 회사명 "(주)" 표기 통일 (작은(주)/큰(주)/㈜ → "(주)")
             if (newCertDetails.manufacturer) newCertDetails.manufacturer = normalizeCompanyName(newCertDetails.manufacturer);
 
-            // ★ AI 분석 활용 — 항목 불일치 감지: 증명서 품명이 이 작업의 항목과 다르면 팝업 경고
-            const detectedItem = detectItemFromCertProductName(newCertDetails.productName || '');
-            const expectedIsCombo = /\//.test(activeJob.mainItemKey) || /MULTI/i.test(activeJob.mainItemKey);
-            if (detectedItem && detectedItem !== 'MULTI' && !expectedIsCombo && detectedItem !== activeJob.mainItemKey) {
-              const detName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === detectedItem)?.name || detectedItem;
-              window.alert(
-                `⚠️ 항목 불일치 의심\n\n` +
-                `이 작업의 항목: "${mainItemName}"\n` +
-                `분석된 증명서: "${detName}"\n\n` +
-                `다른 항목의 증명서를 읽었을 수 있습니다. 사진(증명서)을 다시 확인하세요.`
-              );
-            }
+            // ★ 항목 불일치 감지: 증명서 품명이 이 작업의 항목과 다르면 팝업 경고
+            warnIfItemMismatch(newCertDetails.productName || '', '증명서');
 
             const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes;
             let existingCertDetails: CertificateDetails = { presence: 'not_selected' };
@@ -1057,6 +1070,9 @@ Required output:
             if (!hasAnyMeaningfulMarkingValue(normalizedMarking)) {
                 throw new Error("표시사항 라벨을 읽지 못했습니다. 형식승인표/명판이 선명하게 보이도록 다시 촬영해주세요.");
             }
+
+            // ★ 항목 불일치 감지: 표시사항(기기형식·형식승인번호 모델코드)이 작업 항목과 다르면 팝업
+            warnIfItemMismatch(`${normalizedMarking.기기형식} ${normalizedMarking.형식승인번호}`, '표시사항');
 
             handleChecklistItemChange(targetChecklistItem, "notes", JSON.stringify(normalizedMarking));
         } else if (itemNameForAnalysis === "측정범위확인") {
