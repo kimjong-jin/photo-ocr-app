@@ -832,10 +832,24 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         return;
       }
 
+      // 접수번호별 주소(정확→베이스). 등록분 없으면 폼 값 사용. 둘 다 없으면 누락 알람.
+      const dLoc = resolveLocationForReceipt(receiptToSave);
+      const dAddr = (dLoc?.address || currentGpsAddress).trim();
+      const dLat = dLoc?.lat ?? coords?.lat ?? 0;
+      const dLng = dLoc?.lng ?? coords?.lng ?? 0;
+      if (!dAddr) {
+        const proceed = window.confirm(
+          `⚠️ ${receiptToSave} 의 위치(주소)가 없습니다.\n\n` +
+          `위치 도우미에서 주소를 등록하거나, GPS·검색으로 주소를 먼저 가져오세요.\n\n` +
+          `[취소] 등록하러 가기 · [확인] 주소 없이 그대로 진행`
+        );
+        if (!proceed) { setDraftMessage({ type: 'error', text: '위치(주소) 없음 — 저장 보류' }); setIsSaving(false); return; }
+      }
+
       await callSaveTempApi({
         receipt_no: receiptToSave,
         site: siteName,
-        gps_address: currentGpsAddress.trim() || undefined,
+        gps_address: dAddr || undefined,
         item: Array.from(allItems),
         user_name: userName,
         values: apiPayload,
@@ -912,10 +926,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 siteLocation: job.siteLocation || siteName,
                 selectedItem: job.selectedItem || job.mainItemKey || pageCode,
                 inspectionDate: job.inspectionStartDate || job.postInspectionDate || '',
-                // 위치 자동 저장: GPS 주소가 있으면 업로드 시 서버에 저장
-                address:  currentGpsAddress.trim() || undefined,
-                lat:      coords?.lat,
-                lng:      coords?.lng,
+                // 접수번호별 주소(정확→베이스, 없으면 폼 값)
+                address:  dAddr || undefined,
+                lat:      dLat,
+                lng:      dLng,
                 siteName: siteName.trim() || undefined,
               }).catch(e => console.warn(`[${pageCode} 사진저장 실패]`, e.message));
             })
@@ -945,7 +959,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   }, [
     getReceiptNumberForSaveLoad, buildPayloadForReceipt, userName,
-    siteName, currentGpsAddress, jobStatuses
+    siteName, currentGpsAddress, jobStatuses, resolveLocationForReceipt, coords
   ]);
 
   /** 현재 메모리에 있는 모든 접수번호를 한 번에 일괄 저장 */
