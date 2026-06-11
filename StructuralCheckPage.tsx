@@ -215,7 +215,7 @@ const detectItemFromText = (raw: string): string | null => {
   if (s.includes('총인')) return 'TP';
   if (s.includes('화학적산소요구량')) return 'COD';
   if (s.includes('부유물질')) return 'SS';
-  if (s.includes('수소이온농도')) return 'pH';
+  if (s.includes('수소이온농도')) return 'PH';   // 작업 키와 동일하게 대문자 PH
   if (s.includes('용존산소')) return 'DO';
   if (s.includes('탁도')) return 'TU';
   if (s.includes('잔류염소')) return 'Cl';
@@ -226,7 +226,7 @@ const detectItemFromText = (raw: string): string | null => {
   if (/-TN-|-TN\b/.test(u)) return 'TN';
   if (/-TP-|-TP\b/.test(u)) return 'TP';
   if (/-SS-|-SS\b/.test(u)) return 'SS';
-  if (/-PH-|-PH\b/.test(u)) return 'pH';
+  if (/-PH-|-PH\b/.test(u)) return 'PH';
   if (/-DO-|-DO\b/.test(u)) return 'DO';
   if (/-TOC-|-TOC\b/.test(u)) return 'TOC';
   return null;
@@ -738,15 +738,21 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
 
     // ★ AI 분석 활용 — 분석 텍스트에서 항목을 감지해 작업 항목과 다르면 팝업 경고 (증명서·표시사항 공용)
     // 항목 불일치를 감지해 메시지 반환(없으면 null). 팝업/요약은 호출부에서 처리.
+    // 멀티 장비(WTMS-MULTI, DWMS-MULTI)가 존재하므로 TN↔TP, TU↔Cl 는 서로(파트너)와
+    // MULTI 를 모두 정상으로 받아들인다. 그 외 항목은 자기 자신 + MULTI 만 정상.
+    const ACCEPTABLE_ITEMS: Record<string, string[]> = {
+      TN: ['TN', 'TP', 'MULTI'], TP: ['TN', 'TP', 'MULTI'],
+      TU: ['TU', 'Cl', 'MULTI'], Cl: ['TU', 'Cl', 'MULTI'],
+    };
     let mismatchMsg: string | null = null;
     const detectMismatch = (sourceText: string, sourceLabel: string): string | null => {
       const detected = detectItemFromText(sourceText);
-      const expectedIsCombo = /\//.test(activeJob.mainItemKey) || /MULTI/i.test(activeJob.mainItemKey);
-      if (detected && detected !== 'MULTI' && !expectedIsCombo && detected !== activeJob.mainItemKey) {
-        const detName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === detected)?.name || detected;
-        return `${sourceLabel}: "${activeJob.mainItemKey}" 작업인데 "${detected}"로 분석됨 (${mainItemName}→${detName})`;
-      }
-      return null;
+      if (!detected) return null;
+      const expectedKey = activeJob.mainItemKey;
+      const acceptable = ACCEPTABLE_ITEMS[expectedKey] || [expectedKey, 'MULTI'];
+      if (acceptable.includes(detected)) return null;
+      const detName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === detected)?.name || detected;
+      return `${sourceLabel}: "${expectedKey}" 작업인데 "${detected}"로 분석됨 (${mainItemName}→${detName})`;
     };
 
     switch (itemNameForAnalysis) {
