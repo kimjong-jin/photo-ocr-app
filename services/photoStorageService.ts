@@ -261,3 +261,32 @@ export async function deletePhotosFromServer(
   const url = query ? `${PHOTO_API}/${receiptNo}?${query}` : `${PHOTO_API}/${receiptNo}`;
   await axios.delete(url, { timeout: 10000 });
 }
+
+/** 개별 사진 삭제 (DB id 기준) */
+export async function deletePhotoById(id: number): Promise<void> {
+  await axios.delete(`${PHOTO_API}/file/${id}`, { timeout: 10000 });
+}
+
+/**
+ * 접수번호의 서버 사진 중복 정리.
+ * original(업로드 파일명)+크기가 같은 사진은 가장 오래된 1장만 남기고 나머지를 id로 삭제.
+ * 다운로드/재업로드 없이 여분만 지우므로 안전(데이터 손실 위험 없음).
+ * @returns { removed: 제거 장수, kept: 유지 장수 }
+ */
+export async function dedupePhotosForReceipt(receiptNo: string): Promise<{ removed: number; kept: number }> {
+  const photos = await getPhotosFromServer(receiptNo);  // uploaded ASC (오래된 순)
+  if (photos.length === 0) return { removed: 0, kept: 0 };
+
+  const seen = new Set<string>();
+  const extras: ServerPhoto[] = [];
+  for (const p of photos) {
+    const key = `${p.original}__${p.sizeBytes}`;
+    if (seen.has(key)) extras.push(p);   // 같은 사진 재업로드분 → 여분
+    else seen.add(key);                  // 그룹의 첫(가장 오래된) 1장 유지
+  }
+
+  for (const p of extras) {
+    await deletePhotoById(p.id).catch(e => console.warn('[중복정리] 삭제 실패', p.id, e?.message));
+  }
+  return { removed: extras.length, kept: seen.size };
+}

@@ -15,7 +15,7 @@ import { ActionButton } from './components/ActionButton';
 import { UserRole } from './components/UserNameInput';
 import AdminPanel from './components/admin/AdminPanel';
 import { callSaveTempApi, callLoadTempApi, SaveDataPayload, LoadedData, SavedValueEntry } from './services/apiService';
-import { uploadPhotoToServer, downloadPhotosFromServer, deletePhotosFromServer } from './services/photoStorageService';
+import { uploadPhotoToServer, downloadPhotosFromServer, deletePhotosFromServer, dedupePhotosForReceipt } from './services/photoStorageService';
 import { cachePhotos, loadCachedPhotos, clearCachedPhotos, getAllCacheSummaries, type CacheSummary } from './services/photoCacheService';
 import { Spinner } from './components/Spinner';
 import {
@@ -200,6 +200,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [showRename, setShowRename] = useState(false);
   // 작업 목록 펼침 (기본 접힘 — 길어서 페이지가 밑으로 밀리는 것 방지)
   const [showJobList, setShowJobList] = useState(false);
+  // 서버 사진 중복 정리 진행 상태
+  const [dedupBusy, setDedupBusy] = useState(false);
+  const [dedupProgress, setDedupProgress] = useState<string | null>(null);
   const [showKakaoTalkModal, setShowKakaoTalkModal] = useState(false);
 
   const [renameOld, setRenameOld] = useState('');
@@ -2477,6 +2480,27 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       setJobStatuses([]);
                     };
 
+                    // 서버 사진 중복 정리 — 접수번호별로 같은 사진 1장만 남기고 여분 삭제
+                    const handleDedupePhotos = async () => {
+                      if (dedupBusy) return;
+                      if (!window.confirm(`작업 목록 전체(${allRcpts.length}건)의 서버 사진에서 중복을 정리합니다.\n같은 사진은 1장만 남기고 나머지를 삭제합니다. 계속할까요?`)) return;
+                      setDedupBusy(true);
+                      let totalRemoved = 0, processed = 0;
+                      for (const rn of allRcpts) {
+                        setDedupProgress(`정리 중… ${processed + 1}/${allRcpts.length} (${rn})`);
+                        try {
+                          const { removed } = await dedupePhotosForReceipt(rn);
+                          totalRemoved += removed;
+                        } catch (e: any) {
+                          console.warn('[중복정리]', rn, e?.message);
+                        }
+                        processed++;
+                      }
+                      setDedupBusy(false);
+                      setDedupProgress(null);
+                      setDraftMessage({ type: 'success', text: `사진 중복 정리 완료 — ${processed}건 처리, 중복 ${totalRemoved}장 제거` });
+                    };
+
                     const handleDeleteGroup = async (parentKey: string, children: string[]) => {
                       if (!window.confirm(`"${parentKey}" 그룹의 모든 작업을 삭제하시겠습니까?\n(하위: ${children.join(', ')})`)) return;
                       children.forEach(rn => {
@@ -2574,13 +2598,22 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         {showJobList && (
                         <div className="mt-1.5 space-y-1.5">
                           {allRcpts.length > 0 && (
-                            <div className="flex justify-end">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={handleDedupePhotos}
+                                disabled={dedupBusy}
+                                title="서버에 중복 저장된 사진을 1장만 남기고 정리"
+                                className="px-2 py-0.5 text-[11px] text-sky-400 hover:text-sky-300 hover:bg-sky-900/30 rounded transition-colors disabled:opacity-50"
+                              >{dedupBusy ? '정리 중…' : '🧹 사진 중복 정리'}</button>
                               <button
                                 onClick={handleDeleteAllJobs}
                                 title="작업 목록 전체 삭제"
                                 className="px-2 py-0.5 text-[11px] text-slate-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"
                               >🗑️ 전체 삭제</button>
                             </div>
+                          )}
+                          {dedupProgress && (
+                            <p className="text-[10px] text-sky-400 text-right">{dedupProgress}</p>
                           )}
 
                         <div className="space-y-1">
