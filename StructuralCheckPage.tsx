@@ -200,6 +200,30 @@ const normalizeCompanyName = (name: string): string => {
   return s.trim();
 };
 
+// 증명서 품명(productName: 한글 서술문 또는 모델코드)에서 측정항목 키 감지.
+// 복합(MULTI)·불명확은 'MULTI'/null 반환 → 비교 시 경고 제외(오탐 방지).
+const detectItemFromCertProductName = (productName: string): string | null => {
+  const s = (productName || '').replace(/\s/g, '');
+  if (!s) return null;
+  // 복합 항목 신호 → 모호하므로 비교 제외
+  if (s.includes('MULTI')) return 'MULTI';
+  if ((s.includes('총질소') && s.includes('총인')) || (s.includes('탁도') && s.includes('잔류염소'))) return 'MULTI';
+  // 한글 품명 서술문 (가장 신뢰)
+  if (s.includes('총유기탄소')) return 'TOC';
+  if (s.includes('총질소')) return 'TN';
+  if (s.includes('총인')) return 'TP';
+  if (s.includes('화학적산소요구량')) return 'COD';
+  if (s.includes('부유물질')) return 'SS';
+  if (s.includes('수소이온농도')) return 'pH';
+  if (s.includes('용존산소')) return 'DO';
+  if (s.includes('탁도')) return 'TU';
+  if (s.includes('잔류염소')) return 'Cl';
+  // 모델코드 폴백 (먹는물)
+  if (/-TM-|-TU-/i.test(s)) return 'TU';
+  if (/-CM-/i.test(s)) return 'Cl';
+  return null;
+};
+
 const escapeRegExp = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
@@ -1008,6 +1032,20 @@ Required output:
             const newCertDetails = JSON.parse(jsonText) as Partial<CertificateDetails>;
             // 회사명 "(주)" 표기 통일 (작은(주)/큰(주)/㈜ → "(주)")
             if (newCertDetails.manufacturer) newCertDetails.manufacturer = normalizeCompanyName(newCertDetails.manufacturer);
+
+            // ★ AI 분석 활용 — 항목 불일치 감지: 증명서 품명이 이 작업의 항목과 다르면 팝업 경고
+            const detectedItem = detectItemFromCertProductName(newCertDetails.productName || '');
+            const expectedIsCombo = /\//.test(activeJob.mainItemKey) || /MULTI/i.test(activeJob.mainItemKey);
+            if (detectedItem && detectedItem !== 'MULTI' && !expectedIsCombo && detectedItem !== activeJob.mainItemKey) {
+              const detName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === detectedItem)?.name || detectedItem;
+              window.alert(
+                `⚠️ 항목 불일치 의심\n\n` +
+                `이 작업의 항목: "${mainItemName}"\n` +
+                `분석된 증명서: "${detName}"\n\n` +
+                `다른 항목의 증명서를 읽었을 수 있습니다. 사진(증명서)을 다시 확인하세요.`
+              );
+            }
+
             const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes;
             let existingCertDetails: CertificateDetails = { presence: 'not_selected' };
             try { if (existingNotes) existingCertDetails = JSON.parse(existingNotes); } catch (e) { /* ignore */ }
@@ -1110,6 +1148,13 @@ Required output:
         const errorMsg = `분석 오류: ${error.message}`;
         if (isQuickAnalysis) setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: errorMsg, type: 'error' });
         else setDetailAnalysisError(errorMsg);
+        // ★ 증명서 분석 실패는 놓치기 쉬우므로 팝업으로도 알림
+        if (itemNameForAnalysis === "정도검사 증명서") {
+            window.alert(
+                `⚠️ 정도검사 증명서 분석 실패\n\n${error.message}\n\n` +
+                `증명서가 선명하게 보이도록 다시 촬영하거나, 올바른 증명서 사진인지 확인하세요.`
+            );
+        }
         return false;
     } finally {
         setIsAnalyzingDetail(false);
