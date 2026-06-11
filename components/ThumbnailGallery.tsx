@@ -121,6 +121,16 @@ export const ThumbnailGallery: React.FC<ThumbnailGalleryProps> = ({
                   <CheckmarkIcon />
                 </div>
               )}
+
+              {/* 선택된 사진 강조: 굵은 파란 테두리 + 파란 오버레이 + 체크 배지 */}
+              {currentIndex === index && (
+                <>
+                  <div className="absolute inset-0 rounded-md ring-4 ring-inset ring-sky-400 bg-sky-500/25 pointer-events-none" />
+                  <div className="absolute top-1 left-1 bg-sky-500 rounded-full p-1 shadow-lg ring-2 ring-white/80 pointer-events-none flex items-center justify-center" title="선택된 사진">
+                    <CheckmarkIcon />
+                  </div>
+                </>
+              )}
             </div>
           );
         })}
