@@ -18,17 +18,16 @@ export async function preprocessImageForGemini(
   const { maxWidth = 1600, jpegQuality = 0.9, grayscale = true } = options;
 
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (!event.target?.result) {
-        return reject(new Error('File could not be read.'));
-      }
-      const img = new Image();
-      img.onload = () => {
+    const img = new Image();
+    // iOS Safari data URI(약 2~4MB) 한도 우회: FileReader data URL 대신 object URL로 로드.
+    // 대용량 아이폰 원본(5~10MB)을 data URL로 로드하면 iOS에서 실패하던 문제 해결.
+    const objectUrl = URL.createObjectURL(imageFile);
+    img.onload = () => {
+      try {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-
         if (!ctx) {
+          URL.revokeObjectURL(objectUrl);
           return reject(new Error('Could not get canvas context.'));
         }
 
@@ -39,7 +38,6 @@ export async function preprocessImageForGemini(
           width = maxWidth;
           height = height * scaleFactor;
         }
-
         canvas.width = width;
         canvas.height = height;
 
@@ -49,21 +47,22 @@ export async function preprocessImageForGemini(
         }
 
         ctx.drawImage(img, 0, 0, width, height);
-        
-        // 3. Convert to JPEG and get data URL
+
+        // 3. Convert to JPEG and get base64
         const dataUrl = canvas.toDataURL('image/jpeg', jpegQuality);
         const base64 = dataUrl.split(',')[1];
-
         if (!base64) {
           return reject(new Error('Failed to generate base64 string from canvas.'));
         }
-
         resolve({ base64, mimeType: 'image/jpeg' });
-      };
-      img.onerror = (err) => reject(new Error(`Image could not be loaded: ${err}`));
-      img.src = event.target.result as string;
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
-    reader.onerror = (err) => reject(new Error(`FileReader error: ${err}`));
-    reader.readAsDataURL(imageFile);
+    img.onerror = (err) => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error(`Image could not be loaded: ${err}`));
+    };
+    img.src = objectUrl;
   });
 }
