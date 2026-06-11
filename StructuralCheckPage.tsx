@@ -188,6 +188,18 @@ const extractJsonObject = (text: string): string | null => {
   return cleaned.slice(start, end + 1);
 };
 
+// 회사명 "(주)" 표기 통일: ㈜ · （주） · ( 주 ) · (주) → "(주)" 로 통일하고 붙는 공백 제거.
+// OCR이 같은 회사를 작은(주)/큰(주)로 다르게 읽어 비교가 어긋나던 문제 해결.
+const normalizeCompanyName = (name: string): string => {
+  if (!name) return name;
+  let s = name.trim();
+  s = s.replace(/㈜/g, '(주)');            // ㈜ (U+321C, 원괄호 주)
+  s = s.replace(/[（(]\s*주\s*[）)]/g, '(주)');  // (주) · （주） · ( 주 ) 등 → (주)
+  s = s.replace(/\(주\)\s+/g, '(주)');          // "(주) 휴마스" → "(주)휴마스"
+  s = s.replace(/\s+\(주\)/g, '(주)');          // "휴마스 (주)" → "휴마스(주)"
+  return s.trim();
+};
+
 const escapeRegExp = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
@@ -292,7 +304,7 @@ const normalizeMarkingAnalysisResult = (rawText: string): MarkingAnalysisResult 
     extractLooseField(cleaned, ['기기고유번호', '제조번호', '기기번호', 'serialNumber', 'S/N', 'SN']);
 
   return {
-    제조회사: manufacturer,
+    제조회사: normalizeCompanyName(manufacturer),
     기기형식: deviceType,
     형식승인번호: normalizeApprovalNumber(typeApprovalNumberRaw),
     형식승인일: normalizeYmdDate(approvalDateRaw),
@@ -476,7 +488,12 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
         return null;
     }
 
-    const norm = (s: string | undefined) => (s || '').toLowerCase().replace(/\s+/g, '').replace(/제|호/g, '');
+    // 비교 정규화: "(주)" 표기 통일(㈜·（주）·(주)) 후 공백·제/호 제거
+    // → 같은 회사를 작은(주)/큰(주)로 다르게 읽어도 '다름'으로 뜨지 않는다.
+    const norm = (s: string | undefined) => (s || '')
+      .replace(/㈜/g, '(주)')
+      .replace(/[（(]\s*주\s*[）)]/g, '(주)')
+      .toLowerCase().replace(/\s+/g, '').replace(/제|호/g, '');
 
     const messages: string[] = [];
     let allMatch = true;
@@ -989,6 +1006,8 @@ Required output:
                 throw new Error("정도검사 증명서를 읽지 못했습니다. 증명서가 선명하게 보이도록 다시 촬영해주세요.");
             }
             const newCertDetails = JSON.parse(jsonText) as Partial<CertificateDetails>;
+            // 회사명 "(주)" 표기 통일 (작은(주)/큰(주)/㈜ → "(주)")
+            if (newCertDetails.manufacturer) newCertDetails.manufacturer = normalizeCompanyName(newCertDetails.manufacturer);
             const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes;
             let existingCertDetails: CertificateDetails = { presence: 'not_selected' };
             try { if (existingNotes) existingCertDetails = JSON.parse(existingNotes); } catch (e) { /* ignore */ }
