@@ -743,10 +743,10 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
       if (detected && detected !== 'MULTI' && !expectedIsCombo && detected !== activeJob.mainItemKey) {
         const detName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === detected)?.name || detected;
         window.alert(
-          `⚠️ 항목 불일치 의심 (${sourceLabel})\n\n` +
-          `이 작업의 항목: "${mainItemName}"\n` +
-          `분석된 ${sourceLabel}: "${detName}"\n\n` +
-          `다른 항목의 사진을 읽었을 수 있습니다. 사진을 다시 확인하세요.`
+          `⚠️ 항목이 달라요!\n\n` +
+          `"${activeJob.mainItemKey}" 작업인데 "${detected}"(으)로 분석됐어요.\n` +
+          `(${sourceLabel}: ${mainItemName} → ${detName})\n\n` +
+          `다른 항목의 사진을 분석한 건 아닌지 확인하세요.`
         );
       }
     };
