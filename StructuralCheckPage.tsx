@@ -1767,6 +1767,7 @@ Required output:
                 {currentPhotoIndexOfActiveJob !== -1 && activeJob.photos[currentPhotoIndexOfActiveJob] && (
                     <ImagePreview
                         imageBase64={activeJob.photos[currentPhotoIndexOfActiveJob].base64}
+                        file={activeJob.photos[currentPhotoIndexOfActiveJob].file instanceof File ? activeJob.photos[currentPhotoIndexOfActiveJob].file : null}
                         fileName={activeJob.photos[currentPhotoIndexOfActiveJob].file.name}
                         mimeType={activeJob.photos[currentPhotoIndexOfActiveJob].mimeType}
                         receiptNumber={activeJob.receiptNumber}

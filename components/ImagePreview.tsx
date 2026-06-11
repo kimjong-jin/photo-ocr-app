@@ -1,11 +1,12 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ActionButton } from './ActionButton';
 
 interface ImagePreviewProps {
   imageBase64: string;
   fileName: string;
   mimeType: string;
+  file?: File | null;       // 제공 시 URL.createObjectURL 사용 (iOS data URI 한도 우회)
   receiptNumber?: string;
   item?: string;
   comment?: string;
@@ -13,10 +14,9 @@ interface ImagePreviewProps {
   totalSelectedImages?: number;
   currentImageIndex?: number;
   onDelete?: () => void;
-  siteName?: string; // JPG 오버레이용
-  // FIX: Add gpsAddress prop to accept GPS coordinates/address string.
+  siteName?: string;
   gpsAddress?: string;
-  /** 라이트 테마 여부: true이면 스탬프를 밝은 배경으로 표시 */
+  /** 라이트 테마 여부 */
   isLightTheme?: boolean;
 }
 
@@ -41,6 +41,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   imageBase64,
   fileName,
   mimeType,
+  file,
   receiptNumber,
   item,
   comment,
@@ -52,10 +53,21 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
   gpsAddress,
   isLightTheme = false,
 }) => {
-  if (!imageBase64) return null;
+  // iOS Safari data URI 한도 우회: 실제 File이 있으면 object URL 사용
+  const [imgSrc, setImgSrc] = useState<string>('');
+  useEffect(() => {
+    if (file && file.size > 0) {
+      const url = URL.createObjectURL(file);
+      setImgSrc(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    // 폴백: base64 이중 접두사 방어 후 data URI
+    if (!imageBase64) return;
+    const clean = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+    setImgSrc(`data:${mimeType || 'image/jpeg'};base64,${clean}`);
+  }, [file, imageBase64, mimeType]);
 
-  const src = `data:${mimeType};base64,${imageBase64}`;
-  
+  if (!imageBase64 && !file) return null;
   // 현장명만 표시 (주소는 포함하지 않음)
   const locationText = siteName?.trim() || '';
 
@@ -106,9 +118,13 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
         )}
         {/* 자연 크기(최대 384px)로 표시 — 작은 사진이 큰 빈 박스로 뜨지 않게 */}
         <img
-          src={src}
+          src={imgSrc}
           alt={fileName || '미리보기'}
           className="max-w-full max-h-96 mx-auto rounded-md object-contain"
+          onError={(e) => {
+            // data URI 실패 시 콘솔에 경고 (iOS 대용량 파일 등)
+            console.warn('[ImagePreview] 이미지 로드 실패:', fileName, 'src length:', imgSrc.length);
+          }}
         />
         {showOverlay && (
           <div
