@@ -377,15 +377,15 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
   currentGpsAddress, locationList = [], applications, selectedApplication, onSaveDraft, onLoadDraft, onSaveAllDrafts, onLoadAllDrafts, draftMessage, isSavingDraft, isLoadingDraft,
   onOpenExtraPhotoModal,
 }) => {
-  // 접수번호별 전송 주소 해석: 정확 일치 → 베이스(-01) 폴백. 없으면 폼 주소(currentGpsAddress).
+  // 접수번호별 "등록된" 전송 주소: 정확 일치 → 베이스(-01) 폴백. 없으면 '' (폼 폴백 없음 — 일괄에서 타 접수번호 주소 오발송 방지)
   const resolveSendAddress = useCallback((receipt: string): string => {
-    if (!receipt) return currentGpsAddress.trim();
+    if (!receipt) return '';
     const exact = locationList.find(l => l.id === receipt);
     if (exact?.address?.trim()) return exact.address.trim();
     const base = receipt.split('-').slice(0, 3).join('-');
     const baseMatch = locationList.find(l => l.id === base);
-    return (baseMatch?.address || currentGpsAddress).trim();
-  }, [locationList, currentGpsAddress]);
+    return (baseMatch?.address || '').trim();
+  }, [locationList]);
   // 등록된 위치(정확/베이스)가 있는지 — 누락 알람용
   const hasRegisteredLocation = useCallback((receipt: string): boolean => {
     if (!receipt) return false;
@@ -1386,8 +1386,8 @@ Required output:
         updateActiveJob(job => ({ ...job, submissionStatus: 'sending', submissionMessage: message }));
     };
 
-    // 접수번호별 전송 주소(정확→베이스→폼) + 위치 도우미 누락 알람
-    const sendAddr = resolveSendAddress(activeJob.receiptNumber);
+    // 단건: 등록 주소(정확→베이스), 없으면 활성 작업의 폼 주소로 폴백 (활성 작업이라 정당)
+    const sendAddr = resolveSendAddress(activeJob.receiptNumber) || currentGpsAddress.trim();
     if (!hasRegisteredLocation(activeJob.receiptNumber)) {
       const proceed = window.confirm(
         `⚠️ "${activeJob.receiptNumber}" 의 주소가 위치 도우미에 없습니다.\n\n` +
