@@ -665,15 +665,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   }, [receiptNumber, locationList]);
 
-  // 접수번호별 위치(주소) 해석 — 정확 일치(25-000000-01-2) → 베이스(25-000000-01) 폴백. 없으면 null.
-  const resolveLocationForReceipt = useCallback((receipt: string): LocationEntry | null => {
-    if (!receipt) return null;
-    const exact = locationList.find(l => l.id === receipt);
-    if (exact) return exact;
-    const base = receipt.split('-').slice(0, 3).join('-');
-    return locationList.find(l => l.id === base) || null;
-  }, [locationList]);
-
   const getReceiptNumberForSaveLoad = useCallback(() => {
     let rn: string | null = receiptNumber;
     if (activePage === 'photoLog' && activePhotoLogJobId) {
@@ -832,24 +823,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         return;
       }
 
-      // 접수번호별 주소(정확→베이스). 등록분 없으면 폼 값 사용. 둘 다 없으면 누락 알람.
-      const dLoc = resolveLocationForReceipt(receiptToSave);
-      const dAddr = (dLoc?.address || currentGpsAddress).trim();
-      const dLat = dLoc?.lat ?? coords?.lat ?? 0;
-      const dLng = dLoc?.lng ?? coords?.lng ?? 0;
-      if (!dAddr) {
-        const proceed = window.confirm(
-          `⚠️ ${receiptToSave} 의 위치(주소)가 없습니다.\n\n` +
-          `위치 도우미에서 주소를 등록하거나, GPS·검색으로 주소를 먼저 가져오세요.\n\n` +
-          `[취소] 등록하러 가기 · [확인] 주소 없이 그대로 진행`
-        );
-        if (!proceed) { setDraftMessage({ type: 'error', text: '위치(주소) 없음 — 저장 보류' }); setIsSaving(false); return; }
-      }
-
       await callSaveTempApi({
         receipt_no: receiptToSave,
         site: siteName,
-        gps_address: dAddr || undefined,
+        gps_address: currentGpsAddress.trim() || undefined,
         item: Array.from(allItems),
         user_name: userName,
         values: apiPayload,
@@ -926,10 +903,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 siteLocation: job.siteLocation || siteName,
                 selectedItem: job.selectedItem || job.mainItemKey || pageCode,
                 inspectionDate: job.inspectionStartDate || job.postInspectionDate || '',
-                // 접수번호별 주소(정확→베이스, 없으면 폼 값)
-                address:  dAddr || undefined,
-                lat:      dLat,
-                lng:      dLng,
+                // 위치 자동 저장: GPS 주소가 있으면 업로드 시 서버에 저장
+                address:  currentGpsAddress.trim() || undefined,
+                lat:      coords?.lat,
+                lng:      coords?.lng,
                 siteName: siteName.trim() || undefined,
               }).catch(e => console.warn(`[${pageCode} 사진저장 실패]`, e.message));
             })
@@ -959,7 +936,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   }, [
     getReceiptNumberForSaveLoad, buildPayloadForReceipt, userName,
-    siteName, currentGpsAddress, jobStatuses, resolveLocationForReceipt, coords
+    siteName, currentGpsAddress, jobStatuses
   ]);
 
   /** 현재 메모리에 있는 모든 접수번호를 한 번에 일괄 저장 */
@@ -981,23 +958,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       return;
     }
 
-    // ── 위치(주소) 누락 검사: 접수번호별로 위치 도우미에 주소가 있는지(정확→베이스) 확인 ──
-    // 먹는물처럼 서브 접수번호(-01-1, -01-2)마다 주소가 다른 경우, 누락분을 잡아 오발송 방지.
-    const missingLoc = uniqueReceipts.filter(rn => !resolveLocationForReceipt(rn)?.address?.trim());
-    if (missingLoc.length > 0) {
-      const proceed = window.confirm(
-        `⚠️ 다음 접수번호는 위치 도우미에 주소가 없습니다 (${missingLoc.length}건):\n\n` +
-        `- ${missingLoc.join('\n- ')}\n\n` +
-        `위치 도우미에서 해당 접수번호 주소를 먼저 등록하세요.\n` +
-        `(베이스 25-000000-01 로 등록하면 그 하위 -01-1·-01-2 전체에 적용됩니다)\n\n` +
-        `[취소] 등록하러 가기 · [확인] 주소 없이 그대로 진행`
-      );
-      if (!proceed) {
-        setDraftMessage({ type: 'error', text: `위치(주소) 누락 ${missingLoc.length}건 — 저장 보류` });
-        return;
-      }
-    }
-
     setIsSavingAll(true);
     setDraftMessage(null);
 
@@ -1008,23 +968,18 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       try {
         const { allItems, apiPayload } = buildPayloadForReceipt(receipt);
         if (allItems.size <= 1) continue;
-        // 접수번호별 주소(정확→베이스). 없으면 폼 값으로 폴백.
-        const rLoc = resolveLocationForReceipt(receipt);
-        const rAddr = (rLoc?.address || currentGpsAddress).trim();
-        const rLat = rLoc?.lat ?? coords?.lat ?? 0;
-        const rLng = rLoc?.lng ?? coords?.lng ?? 0;
         await callSaveTempApi({
           receipt_no: receipt,
           site: siteName,
-          gps_address: rAddr || undefined,
+          gps_address: currentGpsAddress.trim() || undefined,
           item: Array.from(allItems),
           user_name: userName,
           values: apiPayload,
         });
         succeeded.push(receipt);
 
-        // 위치 도우미에 등록이 없고 폼 주소만 있는 경우에만 베이스로 자동 저장 (등록분은 덮어쓰지 않음)
-        if (!rLoc?.address?.trim() && currentGpsAddress.trim() && userName) {
+        // ✅ GPS 주소 자동 저장 (사진 0장이어도 무조건 저장)
+        if (currentGpsAddress.trim() && userName) {
           const baseId = receipt.replace(/-\d+$/, '') || receipt;
           saveLocation({
             id: baseId,
@@ -1070,9 +1025,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
               siteLocation: job.siteLocation || siteName,
               selectedItem: job.selectedItem || job.mainItemKey || pageCode,
               inspectionDate: job.inspectionStartDate || job.postInspectionDate || '',
-              address:  rAddr || undefined,   // 접수번호별 주소 (정확→베이스)
-              lat:      rLat,
-              lng:      rLng,
+              address:  currentGpsAddress.trim() || undefined,
+              lat:      coords?.lat,
+              lng:      coords?.lng,
               siteName: siteName.trim() || undefined,
             }).catch(e => console.warn(`[전체저장][${pageCode} 사진]`, e.message));
           }));
@@ -1114,8 +1069,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     setIsSavingAll(false);
   }, [
     photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs,
-    buildPayloadForReceipt, userName, siteName, currentGpsAddress, jobStatuses,
-    resolveLocationForReceipt, coords
+    buildPayloadForReceipt, userName, siteName, currentGpsAddress, jobStatuses
   ]);
 
   const handleLoadDraft = useCallback(async (receipt?: string) => {
