@@ -200,36 +200,36 @@ const normalizeCompanyName = (name: string): string => {
   return s.trim();
 };
 
-// 분석 텍스트(증명서 품명 / 표시사항 기기형식·형식승인번호)에서 측정항목 키 감지.
-// 한글 품명 서술문(1순위) + 모델코드(보조). 복합(MULTI)·불명확은 'MULTI'/null → 비교 제외(오탐 방지).
-const detectItemFromText = (raw: string): string | null => {
-  if (!raw) return null;
+// 분석 텍스트(증명서 품명 / 표시사항 측정항목·기기형식·형식승인번호)에서 측정항목을 "모두" 감지.
+// 증명서·형식승인표에 여러 항목(예: TU+Cl, TOC+TN+TP+SS)이 같이 있는 경우가 많으므로
+// 첫 항목만 잡지 않고 발견된 모든 항목을 집합으로 반환. 한글 품명(1순위)+모델코드(보조).
+const detectAllItems = (raw: string): Set<string> => {
+  const found = new Set<string>();
+  if (!raw) return found;
   const s = raw.replace(/\s/g, '');
   const u = s.toUpperCase();
-  // 복합 항목 신호 → 모호하므로 비교 제외
-  if (u.includes('MULTI')) return 'MULTI';
-  if ((s.includes('총질소') && s.includes('총인')) || (s.includes('탁도') && s.includes('잔류염소'))) return 'MULTI';
-  // 한글 품명 서술문 (가장 신뢰)
-  if (s.includes('총유기탄소')) return 'TOC';
-  if (s.includes('총질소')) return 'TN';
-  if (s.includes('총인')) return 'TP';
-  if (s.includes('화학적산소요구량')) return 'COD';
-  if (s.includes('부유물질')) return 'SS';
-  if (s.includes('수소이온농도')) return 'PH';   // 작업 키와 동일하게 대문자 PH
-  if (s.includes('용존산소')) return 'DO';
-  if (s.includes('탁도')) return 'TU';
-  if (s.includes('잔류염소')) return 'Cl';
+  if (/MULTI/i.test(u)) found.add('MULTI');
+  // 한글 품명 서술문 (가장 신뢰) — else 없이 전부 검사
+  if (s.includes('총유기탄소')) found.add('TOC');
+  if (s.includes('총질소')) found.add('TN');
+  if (s.includes('총인')) found.add('TP');
+  if (s.includes('화학적산소요구량')) found.add('COD');
+  if (s.includes('부유물질')) found.add('SS');
+  if (s.includes('수소이온농도')) found.add('PH');
+  if (s.includes('용존산소')) found.add('DO');
+  if (s.includes('탁도')) found.add('TU');
+  if (s.includes('잔류염소')) found.add('Cl');
   // 모델코드 (하이픈/경계로 구분된 토큰만 — 오탐 방지)
-  if (/-TM[-\b]|-TU[-\b]/.test(u) || /-TM-|-TU-/.test(u)) return 'TU';   // 먹는물 탁도
-  if (/-CM-|-CM\b/.test(u)) return 'Cl';                                  // 먹는물 잔류염소
-  if (/COD/.test(u)) return 'COD';
-  if (/-TN-|-TN\b/.test(u)) return 'TN';
-  if (/-TP-|-TP\b/.test(u)) return 'TP';
-  if (/-SS-|-SS\b/.test(u)) return 'SS';
-  if (/-PH-|-PH\b/.test(u)) return 'PH';
-  if (/-DO-|-DO\b/.test(u)) return 'DO';
-  if (/-TOC-|-TOC\b/.test(u)) return 'TOC';
-  return null;
+  if (/-TM-|-TM\b|-TU-/.test(u)) found.add('TU');
+  if (/-CM-|-CM\b/.test(u)) found.add('Cl');
+  if (/COD/.test(u)) found.add('COD');
+  if (/-TN-|-TN\b/.test(u)) found.add('TN');
+  if (/-TP-|-TP\b/.test(u)) found.add('TP');
+  if (/-SS-|-SS\b/.test(u)) found.add('SS');
+  if (/-PH-|-PH\b/.test(u)) found.add('PH');
+  if (/-DO-|-DO\b/.test(u)) found.add('DO');
+  if (/-TOC-|-TOC\b/.test(u)) found.add('TOC');
+  return found;
 };
 
 const escapeRegExp = (value: string): string => {
@@ -747,13 +747,15 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     let mismatchMsg: string | null = null;
     let prevNotesForRevert: string | undefined;   // 불일치 '취소' 시 되돌릴 직전 값
     const detectMismatch = (sourceText: string, sourceLabel: string): string | null => {
-      const detected = detectItemFromText(sourceText);
-      if (!detected) return null;
+      const detected = detectAllItems(sourceText);
+      if (detected.size === 0) return null;   // 어떤 항목도 못 찾음 → 판단 불가, 경고 안 함
       const expectedKey = activeJob.mainItemKey;
       const acceptable = ACCEPTABLE_ITEMS[expectedKey] || [expectedKey, 'MULTI'];
-      if (acceptable.includes(detected)) return null;
-      const detName = MAIN_STRUCTURAL_ITEMS.find(i => i.key === detected)?.name || detected;
-      return `${sourceLabel}: "${expectedKey}" 작업인데 "${detected}"로 분석됨 (${mainItemName}→${detName})`;
+      // 사진에 여러 항목이 있어도, 허용 항목(자기/파트너/MULTI) 중 하나라도 있으면 정상
+      if (acceptable.some(a => detected.has(a))) return null;
+      // 작업 항목이 전혀 안 보임 → 불일치 (발견된 항목들 표시)
+      const detList = [...detected].join(', ');
+      return `${sourceLabel}: "${expectedKey}"(${mainItemName}) 작업인데, 사진에선 ${detList} 만 인식됨`;
     };
 
     switch (itemNameForAnalysis) {
