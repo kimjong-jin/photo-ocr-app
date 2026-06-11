@@ -745,6 +745,7 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
       TU: ['TU', 'Cl', 'MULTI'], Cl: ['TU', 'Cl', 'MULTI'],
     };
     let mismatchMsg: string | null = null;
+    let prevNotesForRevert: string | undefined;   // 불일치 '취소' 시 되돌릴 직전 값
     const detectMismatch = (sourceText: string, sourceLabel: string): string | null => {
       const detected = detectItemFromText(sourceText);
       if (!detected) return null;
@@ -1072,6 +1073,7 @@ Required output:
             mismatchMsg = detectMismatch(newCertDetails.productName || '', '증명서');
 
             const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes;
+            prevNotesForRevert = existingNotes;   // 취소 시 복원용
             let existingCertDetails: CertificateDetails = { presence: 'not_selected' };
             try { if (existingNotes) existingCertDetails = JSON.parse(existingNotes); } catch (e) { /* ignore */ }
             const mergedDetails: CertificateDetails = { ...existingCertDetails, ...newCertDetails, presence: 'present' };
@@ -1088,6 +1090,7 @@ Required output:
             try { markingItemHint = JSON.parse(extractJsonObject(resultText) || '{}')['측정항목'] || ''; } catch {}
             mismatchMsg = detectMismatch(`${markingItemHint} ${normalizedMarking.기기형식} ${normalizedMarking.형식승인번호}`, '표시사항');
 
+            prevNotesForRevert = activeJob.checklistData[targetChecklistItem]?.notes;   // 취소 시 복원용
             handleChecklistItemChange(targetChecklistItem, "notes", JSON.stringify(normalizedMarking));
         } else if (itemNameForAnalysis === "측정범위확인") {
             const itemOptions = MEASUREMENT_RANGE_OPTIONS[activeJob.mainItemKey];
@@ -1173,9 +1176,20 @@ Required output:
                 return { ...prev, [activeJobId!]: jobSet };
             });
         }
-        // 항목 불일치 — 단일/빠른 분석은 즉시 팝업, 전체(batch)는 끝에서 요약만
+        // 항목 불일치 — 단일/빠른 분석은 확인창(맞으면 적용, 틀리면 취소→직전 값 복원)
+        // 전체(batch)는 팝업 없이 끝에서 요약만
         if (mismatchMsg && !batchMode) {
-            window.alert(`⚠️ 항목이 달라요!\n\n${mismatchMsg}\n\n다른 항목의 사진을 분석한 건 아닌지 확인하세요.`);
+            const keep = window.confirm(
+                `⚠️ 항목이 다르게 인식됐어요.\n\n${mismatchMsg}\n\n` +
+                `분석 내용이 맞으면 [확인]을 눌러 그대로 적용하세요.\n` +
+                `잘못 읽은 거라면 [취소]를 누르면 이 결과를 버립니다.`
+            );
+            if (!keep) {
+                // 취소: 직전 값으로 되돌리고 실패로 처리
+                handleChecklistItemChange(targetChecklistItem, "notes", prevNotesForRevert ?? '');
+                if (isQuickAnalysis) setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: '분석 결과를 취소했습니다', type: 'error' });
+                return { ok: false, issue: `${getAnalysisTypeDisplayString(itemNameForAnalysis) || (itemNameForAnalysis as string)}: 결과 취소됨` };
+            }
         }
         return { ok: true, issue: mismatchMsg };
     } catch (error: any) {
