@@ -1200,14 +1200,21 @@ Required output:
         else setDetailAnalysisError(errorMsg);
         // 디버깅용: 실패 항목·원인 콘솔 출력
         console.error(`[분석실패] ${itemNameForAnalysis}:`, error?.message, error);
-        // 증명서·표시사항 실패는 단일/빠른 분석에서만 즉시 팝업 (전체는 끝에서 요약)
+        // 실제 원인 구분 (레이트리밋/한도 vs 사진 인식 실패)
+        const em = String(error?.message || '');
+        const isRateLimited = /한도|quota|429|혼잡|rate\s*limit|resource exhausted|too many/i.test(em);
         const noun = itemNameForAnalysis === "정도검사 증명서" ? '증명서'
                    : itemNameForAnalysis === "표시사항확인" ? '명판' : '';
+        // 증명서·표시사항 실패는 단일/빠른 분석에서만 즉시 팝업 (전체는 끝에서 요약)
         if (noun && !batchMode) {
-            window.alert(`⚠️ ${noun} 인식 실패\n\n${noun} 사진이 흐리거나 다른 화면이 찍혔을 수 있어요.\n또렷하게 다시 촬영해 주세요.`);
+            const detail = isRateLimited
+              ? `AI 분석 요청이 몰렸어요(한도/혼잡).\n10~20초 뒤에 다시 시도해 주세요.\n(연속으로 빠르게 분석하면 발생합니다)`
+              : `${noun} 사진이 흐리거나 다른 화면이 찍혔을 수 있어요.\n또렷하게 다시 촬영해 주세요.`;
+            window.alert(`⚠️ ${noun} 인식 실패\n\n${detail}`);
         }
         const itemLabel = getAnalysisTypeDisplayString(itemNameForAnalysis) || (itemNameForAnalysis as string);
-        return { ok: false, issue: `${itemLabel}: 인식 실패` };
+        const reason = isRateLimited ? '한도/혼잡(잠시 후 재시도)' : '인식 실패';
+        return { ok: false, issue: `${itemLabel}: ${reason}` };
     } finally {
         setIsAnalyzingDetail(false);
         if (isQuickAnalysis) setQuickAnalysisTarget(null);
