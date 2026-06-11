@@ -1038,7 +1038,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           ...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs, ...drinkingWaterJobs
         ].some(j => j.receiptNumber === receipt);
         if (hasJobs) {
-          deletePhotosFromServer(receipt, undefined, userName)
+          // 단일 저장과 동일하게 userName 필터 없이 전체 삭제 후 업로드.
+          // (서버가 userName 컬럼 미지원 → userName을 붙이면 삭제가 안 돼 중복 누적되던 버그)
+          deletePhotosFromServer(receipt)
             .catch(() => {})
             .then(() => {
               if (allUploadFactories.length === 0) return;
