@@ -117,11 +117,12 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({
             <DeleteIcon />
           </ActionButton>
         )}
-        {/* 자연 크기(최대 384px)로 표시 — 작은 사진이 큰 빈 박스로 뜨지 않게 */}
+        {/* 고정 높이(h-96)+object-contain: 사진 전환/비동기 로드 시 높이가 변해
+            화면이 위아래로 튀던 문제 방지 (createObjectURL 로 imgSrc가 늦게 채워짐) */}
         <img
           src={imgSrc}
           alt={fileName || '미리보기'}
-          className="max-w-full max-h-96 mx-auto rounded-md object-contain"
+          className="w-full h-96 rounded-md object-contain"
           onError={(e) => {
             // data URI 실패 시 콘솔에 경고 (iOS 대용량 파일 등)
             console.warn('[ImagePreview] 이미지 로드 실패:', fileName, 'src length:', imgSrc.length);
