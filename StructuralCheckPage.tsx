@@ -949,6 +949,12 @@ FIELD EXTRACTION RULES:
 - Extract the visible 제조번호 / 기기번호 / Serial Number / S/N from the selected label only.
 - Return exactly the visible identifier text without extra commentary.
 
+6) "측정항목"
+- 이 명판(선택한 라벨)이 어떤 측정항목용인지 식별해 한글 항목명 하나로 반환:
+  총유기탄소 / 총질소 / 총인 / 부유물질 / 화학적산소요구량 / 수소이온농도 / 용존산소 / 탁도 / 잔류염소
+- 근거: 한글 품명 서술문(예: "총인 연속자동측정기와 그 부속기기") 또는 형식승인 코드(WTMS-TP, DWMS-CM, DWMS-TM 등).
+- 복합(MULTI/슬래시 조합) 라벨이면 "복합". 판단 근거가 전혀 없으면 "".
+
 STRICT OUTPUT RULES:
 - Return ONLY one JSON object.
 - No markdown.
@@ -963,7 +969,8 @@ Required output:
   "기기형식": "",
   "형식승인번호": "",
   "형식승인일": "",
-  "기기고유번호": ""
+  "기기고유번호": "",
+  "측정항목": ""
 }
 `.trim();
 
@@ -977,8 +984,9 @@ Required output:
               "형식승인번호": { type: Type.STRING, description: "형식승인번호 (제...호)" },
               "형식승인일": { type: Type.STRING, description: "형식승인일 또는 제조일 (YYYY-MM-DD)" },
               "기기고유번호": { type: Type.STRING, description: "기기고유번호/제조번호" },
+              "측정항목": { type: Type.STRING, description: "측정항목 한글명(총유기탄소/총질소/총인/부유물질/화학적산소요구량/수소이온농도/용존산소/탁도/잔류염소) 또는 복합 또는 빈문자열" },
             },
-            required: ["제조회사", "기기형식", "형식승인번호", "형식승인일", "기기고유번호"],
+            required: ["제조회사", "기기형식", "형식승인번호", "형식승인일", "기기고유번호", "측정항목"],
             additionalProperties: false
           },
         };
@@ -1071,8 +1079,10 @@ Required output:
                 throw new Error("표시사항 라벨을 읽지 못했습니다. 형식승인표/명판이 선명하게 보이도록 다시 촬영해주세요.");
             }
 
-            // ★ 항목 불일치 감지: 표시사항(기기형식·형식승인번호 모델코드)이 작업 항목과 다르면 팝업
-            warnIfItemMismatch(`${normalizedMarking.기기형식} ${normalizedMarking.형식승인번호}`, '표시사항');
+            // ★ 항목 불일치 감지: 모델이 식별한 측정항목 + 기기형식·형식승인번호(코드)로 판단
+            let markingItemHint = '';
+            try { markingItemHint = JSON.parse(extractJsonObject(resultText) || '{}')['측정항목'] || ''; } catch {}
+            warnIfItemMismatch(`${markingItemHint} ${normalizedMarking.기기형식} ${normalizedMarking.형식승인번호}`, '표시사항');
 
             handleChecklistItemChange(targetChecklistItem, "notes", JSON.stringify(normalizedMarking));
         } else if (itemNameForAnalysis === "측정범위확인") {
@@ -1569,6 +1579,7 @@ Required output:
         const isNotApplicable = (activeJob.mainItemKey === 'TU' || activeJob.mainItemKey === 'Cl') && type === '운용프로그램확인';
         return !isNotApplicable && fullAnalysisAssignments[type] !== undefined;
       });
+      const failed: string[] = [];
       for (let i = 0; i < targets.length; i++) {
         const type = targets[i];
         const photoIdx = fullAnalysisAssignments[type]!;
@@ -1576,10 +1587,18 @@ Required output:
         // 분석 함수가 성공/실패를 반환 → 실제 결과로 정확히 표시 (내부에서 에러를 삼키므로 throw 대신 반환값 사용)
         const ok = await handleAnalyzeChecklistItemDetail(type, false, photoIdx);
         setFullAnalysisResults(prev => ({ ...prev, [type]: ok ? 'ok' : 'error' }));
+        if (!ok) failed.push(getAnalysisTypeDisplayString(type) || type);
         // 항목 간 간격 → Gemini 분당 한도(429) 회피 (마지막 항목 뒤에는 대기 안 함)
         if (i < targets.length - 1) await new Promise(r => setTimeout(r, 900));
       }
       setIsRunningFullAnalysis(false);
+      // ★ 전체 분석 중 실패한 항목이 있으면 팝업으로 요약 알림
+      if (failed.length > 0) {
+        window.alert(
+          `⚠️ 전체 분석 중 ${failed.length}개 항목 분석 실패\n\n- ${failed.join('\n- ')}\n\n` +
+          `해당 항목의 사진을 확인한 뒤 다시 분석하세요.`
+        );
+      }
     };
 
 
