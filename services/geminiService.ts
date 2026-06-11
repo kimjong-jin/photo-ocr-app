@@ -88,8 +88,9 @@ export const extractTextFromImage = async (
   const isRetryableError = (error: any): boolean => {
     const status = (error as AxiosError).response?.status;
     const msg = error.message?.toLowerCase() ?? '';
-    // 429는 서버에서 이미 모든 모델 시도 완료 → 클라이언트 재시도 무의미
-    if (status === 429) return false;
+    // 429(요청 한도)도 잠시 대기 후 재시도 — 분당 한도는 시간이 지나면 회복된다.
+    // (연속 분석/재분석 시 두 번째 묶음이 즉시 실패하던 문제 해결)
+    if (status === 429) return true;
     return (
       (status !== undefined && status >= 500 && status < 600) ||
       msg.includes("internal error encountered") ||

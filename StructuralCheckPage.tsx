@@ -178,6 +178,16 @@ const stripCodeFence = (text: string): string => {
     .trim();
 };
 
+// 모델 응답에서 JSON 객체만 안전 추출 (```json 펜스 + 앞뒤 설명문 제거 → 첫 '{' ~ 마지막 '}')
+// 데이터(JSON 본문)는 그대로 두고 포장지만 벗긴다. JSON이 없으면 null.
+const extractJsonObject = (text: string): string | null => {
+  const cleaned = stripCodeFence(text);
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) return null;
+  return cleaned.slice(start, end + 1);
+};
+
 const escapeRegExp = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
@@ -660,12 +670,12 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
         const errorMsg = "판별을 위해 사진을 먼저 첨부하세요.";
         if (isQuickAnalysis) setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: errorMsg, type: 'error' });
         else setDetailAnalysisError(errorMsg);
-        return;
+        return false;
     }
     const photoToProcess = overridePhotoIndex !== undefined
         ? activeJob.photos[overridePhotoIndex] ?? activeJob.photos[0]
         : isQuickAnalysis ? activeJob.photos[currentPhotoIndexOfActiveJob] : activeJob.photos[0];
-    if (!photoToProcess) return;
+    if (!photoToProcess) return false;
 
     if (isQuickAnalysis) { setQuickAnalysisTarget(itemNameForAnalysis); setQuickAnalysisFeedback(null); }
     setIsAnalyzingDetail(true); setDetailAnalysisError(null);
@@ -946,7 +956,7 @@ Required output:
         setDetailAnalysisError("지원되지 않는 분석 유형입니다.");
         setIsAnalyzingDetail(false);
         if (isQuickAnalysis) setQuickAnalysisTarget(null);
-        return;
+        return false;
     }
 
     try {
@@ -974,7 +984,11 @@ Required output:
         const resultText = (await extractTextFromImage(processedBase64, processedMimeType, prompt, modelConfig)).trim();
 
         if (itemNameForAnalysis === "정도검사 증명서") {
-            const newCertDetails = JSON.parse(resultText) as Partial<CertificateDetails>;
+            const jsonText = extractJsonObject(resultText);
+            if (!jsonText) {
+                throw new Error("정도검사 증명서를 읽지 못했습니다. 증명서가 선명하게 보이도록 다시 촬영해주세요.");
+            }
+            const newCertDetails = JSON.parse(jsonText) as Partial<CertificateDetails>;
             const existingNotes = activeJob.checklistData[targetChecklistItem]?.notes;
             let existingCertDetails: CertificateDetails = { presence: 'not_selected' };
             try { if (existingNotes) existingCertDetails = JSON.parse(existingNotes); } catch (e) { /* ignore */ }
@@ -1072,10 +1086,12 @@ Required output:
                 return { ...prev, [activeJobId!]: jobSet };
             });
         }
+        return true;
     } catch (error: any) {
         const errorMsg = `분석 오류: ${error.message}`;
         if (isQuickAnalysis) setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: errorMsg, type: 'error' });
         else setDetailAnalysisError(errorMsg);
+        return false;
     } finally {
         setIsAnalyzingDetail(false);
         if (isQuickAnalysis) setQuickAnalysisTarget(null);
@@ -1469,18 +1485,19 @@ Required output:
       if (!activeJob || activeJob.photos.length === 0) return;
       setIsRunningFullAnalysis(true);
       setFullAnalysisResults({});
-      for (const type of FULL_ANALYSIS_TYPES) {
+      const targets = FULL_ANALYSIS_TYPES.filter(type => {
         const isNotApplicable = (activeJob.mainItemKey === 'TU' || activeJob.mainItemKey === 'Cl') && type === '운용프로그램확인';
-        if (isNotApplicable) continue;
-        const photoIdx = fullAnalysisAssignments[type];
-        if (photoIdx === undefined) continue; // 선택 안 된 항목 건너뜀
+        return !isNotApplicable && fullAnalysisAssignments[type] !== undefined;
+      });
+      for (let i = 0; i < targets.length; i++) {
+        const type = targets[i];
+        const photoIdx = fullAnalysisAssignments[type]!;
         setFullAnalysisResults(prev => ({ ...prev, [type]: 'running' }));
-        try {
-          await handleAnalyzeChecklistItemDetail(type, false, photoIdx);
-          setFullAnalysisResults(prev => ({ ...prev, [type]: 'ok' }));
-        } catch {
-          setFullAnalysisResults(prev => ({ ...prev, [type]: 'error' }));
-        }
+        // 분석 함수가 성공/실패를 반환 → 실제 결과로 정확히 표시 (내부에서 에러를 삼키므로 throw 대신 반환값 사용)
+        const ok = await handleAnalyzeChecklistItemDetail(type, false, photoIdx);
+        setFullAnalysisResults(prev => ({ ...prev, [type]: ok ? 'ok' : 'error' }));
+        // 항목 간 간격 → Gemini 분당 한도(429) 회피 (마지막 항목 뒤에는 대기 안 함)
+        if (i < targets.length - 1) await new Promise(r => setTimeout(r, 900));
       }
       setIsRunningFullAnalysis(false);
     };
