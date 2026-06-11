@@ -986,7 +986,7 @@ Required output:
               "기기고유번호": { type: Type.STRING, description: "기기고유번호/제조번호" },
               "측정항목": { type: Type.STRING, description: "측정항목 한글명(총유기탄소/총질소/총인/부유물질/화학적산소요구량/수소이온농도/용존산소/탁도/잔류염소) 또는 복합 또는 빈문자열" },
             },
-            required: ["제조회사", "기기형식", "형식승인번호", "형식승인일", "기기고유번호", "측정항목"],
+            required: ["제조회사", "기기형식", "형식승인번호", "형식승인일", "기기고유번호"],
             additionalProperties: false
           },
         };
@@ -1174,12 +1174,12 @@ Required output:
         const errorMsg = `분석 오류: ${error.message}`;
         if (isQuickAnalysis) setQuickAnalysisFeedback({ targetItemName: itemNameForAnalysis, message: errorMsg, type: 'error' });
         else setDetailAnalysisError(errorMsg);
-        // ★ 증명서 분석 실패는 놓치기 쉬우므로 팝업으로도 알림
-        if (itemNameForAnalysis === "정도검사 증명서") {
-            window.alert(
-                `⚠️ 정도검사 증명서 분석 실패\n\n${error.message}\n\n` +
-                `증명서가 선명하게 보이도록 다시 촬영하거나, 올바른 증명서 사진인지 확인하세요.`
-            );
+        // 디버깅용: 실패 항목·원인 콘솔 출력
+        console.error(`[분석실패] ${itemNameForAnalysis}:`, error?.message, error);
+        // ★ 증명서·표시사항 분석 실패는 놓치기 쉬우므로 팝업으로도 알림 (간결한 문구)
+        if (itemNameForAnalysis === "정도검사 증명서" || itemNameForAnalysis === "표시사항확인") {
+            const label = itemNameForAnalysis === "정도검사 증명서" ? '정도검사 증명서' : '표시사항(명판)';
+            window.alert(`⚠️ ${label}을(를) 인식하지 못했어요.\n\n사진이 흐리거나 다른 항목·화면이 찍혔을 수 있어요. ${label}이 또렷하게 나오도록 다시 촬영해 주세요.`);
         }
         return false;
     } finally {
