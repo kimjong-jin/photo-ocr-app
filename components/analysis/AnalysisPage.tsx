@@ -907,7 +907,10 @@ ${timeRules}
         
         const prompt = generatePromptForProAnalysis(activeJob.receiptNumber, siteLocation, activeJob.selectedItem, singleAnalysisDate);
         const modelConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
-        const jsonStr = await extractTextFromImage(photoToAnalyze.base64, photoToAnalyze.mimeType, prompt, modelConfig);
+        // ✅ Vercel 4.5MB 한도 대응: 원본 대신 압축 이미지 전송 (전체 분석과 동일) — Request Entity Too Large 방지
+        const compressedDataUrl = await compressImage(photoToAnalyze.base64, photoToAnalyze.mimeType, 2400, 2400, 0.92);
+        const compressedBase64 = compressedDataUrl.split(',')[1];
+        const jsonStr = await extractTextFromImage(compressedBase64, 'image/jpeg', prompt, modelConfig);
         const jsonData = JSON.parse(jsonStr) as RawEntryUnion[];
         
         if (Array.isArray(jsonData)) {
