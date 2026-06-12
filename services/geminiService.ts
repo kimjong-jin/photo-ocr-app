@@ -87,7 +87,7 @@ export const extractTextFromImage = async (
   // 브라우저에서 직접 Gemini SDK를 호출하지 않으므로 키가 노출되지 않습니다.
   const isRetryableError = (error: any): boolean => {
     const status = (error as AxiosError).response?.status;
-    const msg = error.message?.toLowerCase() ?? '';
+    const msg = String(error?.message ?? '').toLowerCase();
     // 429(요청 한도)도 잠시 대기 후 재시도 — 분당 한도는 시간이 지나면 회복된다.
     // (연속 분석/재분석 시 두 번째 묶음이 즉시 실패하던 문제 해결)
     if (status === 429) return true;
@@ -128,19 +128,27 @@ export const extractTextFromImage = async (
     console.error("[geminiService] 모든 재시도 실패:", error.message);
 
     // axios 응답 본문에 서버 에러 메시지가 있으면 우선 사용
-    const serverMessage = (error as AxiosError<any>).response?.data?.error;
+    // data.error 가 문자열이 아니라 객체/숫자일 수 있어(.includes 오류) 항상 문자열로 정규화
+    const toMsg = (v: any): string => {
+      if (v == null) return '';
+      if (typeof v === 'string') return v;
+      if (typeof v === 'object' && typeof v.message === 'string') return v.message;
+      try { return JSON.stringify(v); } catch { return String(v); }
+    };
+    const serverMessage = toMsg((error as AxiosError<any>).response?.data?.error);
+    const errMsg = toMsg(error?.message);
     const status = (error as AxiosError).response?.status;
 
-    if (status === 429 || serverMessage?.includes('한도') || serverMessage?.includes('quota')) {
+    if (status === 429 || serverMessage.includes('한도') || serverMessage.includes('quota')) {
       throw new Error(serverMessage || 'AI 분석 일일 한도 초과. 잠시 후 다시 시도하거나 관리자에게 문의하세요.');
     }
-    if (error.message.includes("API Key not valid") || serverMessage?.includes('API key')) {
+    if (errMsg.includes("API Key not valid") || serverMessage.includes('API key')) {
       throw new Error(
         "유효하지 않은 Gemini API Key입니다. Vercel 환경변수 GEMINI_API_KEY를 확인해주세요."
       );
     }
     throw new Error(
-      serverMessage || error.message || "Gemini API 통신 중 알 수 없는 오류가 발생했습니다."
+      serverMessage || errMsg || "Gemini API 통신 중 알 수 없는 오류가 발생했습니다."
     );
   }
 };
