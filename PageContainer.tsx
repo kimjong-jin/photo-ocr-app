@@ -113,6 +113,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
+  const isSavingRef = useRef(false); // 저장 중 재저장 차단 (동기 가드 — 더블클릭 시 사진 중복 방지)
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingAll, setIsLoadingAll] = useState(false);
   const [draftMessage, setDraftMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -811,6 +812,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       return;
     }
 
+    if (isSavingRef.current) return; // 이미 저장 중 — 중복 저장(사진 2배) 방지
+    isSavingRef.current = true;
     setIsSaving(true);
     setDraftMessage(null);
 
@@ -937,6 +940,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     } catch (error: any) {
       setDraftMessage({ type: 'error', text: `저장 실패: ${error.message}` });
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
   }, [
@@ -963,6 +967,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       return;
     }
 
+    if (isSavingRef.current) return; // 이미 저장 중 — 중복 저장(사진 2배) 방지
+    isSavingRef.current = true;
     setIsSavingAll(true);
     setDraftMessage(null);
 
@@ -1078,6 +1084,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         text: `${succeeded.length}건 성공, ${failed.length}건 실패 — 원인: ${firstReason}`
       });
     }
+    isSavingRef.current = false;
     setIsSavingAll(false);
   }, [
     photoLogJobs, fieldCountJobs, drinkingWaterJobs, structuralCheckJobs, csvGraphJobs,
