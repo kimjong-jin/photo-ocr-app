@@ -680,8 +680,9 @@ ${timeRules}
             
             allRawExtractedEntries.sort((a, b) => {
                 const getTimePart = (timeStr: string) => {
-                    const match = timeStr.match(/(\d{4}[/-]\d{2}[/-]\d{2}\s*)?(\d{2}:\d{2}(:\d{2})?)/);
-                    return match ? (match[1] || '') + match[2] : timeStr;
+                    const s = String(timeStr ?? '');
+                    const match = s.match(/(\d{4}[/-]\d{2}[/-]\d{2}\s*)?(\d{2}:\d{2}(:\d{2})?)/);
+                    return match ? (match[1] || '') + match[2] : s;
                 };
                 return getTimePart(a.time).localeCompare(getTimePart(b.time));
             });
@@ -697,7 +698,7 @@ ${timeRules}
             let lastTime: string | null = null;
 
             allRawExtractedEntries.forEach(entry => {
-                let finalTimestamp = entry.time.replace(/-/g, '/').trim();
+                let finalTimestamp = String(entry.time ?? '').replace(/-/g, '/').trim();
                 const timeMatch = finalTimestamp.match(/(\d{2}:\d{2})(?::\d{2})?$/);
                 const currentTime = timeMatch ? timeMatch[1] : null;
                 // ✅ Raw Data 우선: 사진에서 날짜까지 읽혔으면 그대로 사용
@@ -743,14 +744,16 @@ ${timeRules}
 
             const finalOcrData = Array.from(uniqueEntriesMap.values()).sort((a,b) => a.time.localeCompare(b.time)).map((rawEntry: RawEntryUnion) => {
                 let primaryValue = '', tpValue: string | undefined = undefined;
+                // AI가 숫자(시마즈 등)를 반환할 수 있어 문자열 강제변환
                 if (activeJob.selectedItem === "TN/TP") {
                     const tnTpEntry = rawEntry as RawEntryTnTp;
-                    primaryValue = tnTpEntry.value_tn || '';
-                    tpValue = tnTpEntry.value_tp;
+                    primaryValue = tnTpEntry.value_tn != null ? String(tnTpEntry.value_tn) : '';
+                    tpValue = tnTpEntry.value_tp != null ? String(tnTpEntry.value_tp) : undefined;
                 } else {
-                    primaryValue = (rawEntry as RawEntrySingle).value || '';
+                    const sVal = (rawEntry as RawEntrySingle).value;
+                    primaryValue = sVal != null ? String(sVal) : '';
                 }
-                return { id: genUUID(), time: rawEntry.time, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
+                return { id: genUUID(), time: String(rawEntry.time ?? ''), value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
             });
 
             updateActiveJob(j => ({ ...j, processedOcrData: finalOcrData }));
@@ -916,14 +919,18 @@ ${timeRules}
         if (newRawEntries.length > 0) {
             const newExtractedEntries: ExtractedEntry[] = newRawEntries.map((rawEntry: RawEntryUnion) => {
                 let primaryValue = '', tpValue: string | undefined = undefined;
+                // AI가 스키마(STRING)와 달리 숫자(시마즈 등)를 반환할 수 있어 문자열 강제변환 — .match/.includes 오류 방지
                 if (activeJob.selectedItem === "TN/TP") {
-                    primaryValue = (rawEntry as RawEntryTnTp).value_tn || '';
-                    tpValue = (rawEntry as RawEntryTnTp).value_tp;
+                    const tnVal = (rawEntry as RawEntryTnTp).value_tn;
+                    const tpVal = (rawEntry as RawEntryTnTp).value_tp;
+                    primaryValue = tnVal != null ? String(tnVal) : '';
+                    tpValue = tpVal != null ? String(tpVal) : undefined;
                 } else {
-                    primaryValue = (rawEntry as RawEntrySingle).value || '';
+                    const sVal = (rawEntry as RawEntrySingle).value;
+                    primaryValue = sVal != null ? String(sVal) : '';
                 }
 
-                const aiTime = rawEntry.time;
+                const aiTime = String(rawEntry.time ?? '');
                 let timePart = "00:00"; // Default
                 // Robustly find HH:MM:SS or HH:MM, not matching parts of dates like '24' in '2024'.
                 // Looks for a time pattern preceded by a space, 'T', or the start of the string.
