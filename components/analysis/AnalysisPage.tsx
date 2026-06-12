@@ -917,27 +917,6 @@ ${timeRules}
         }
         
         if (newRawEntries.length > 0) {
-            // ── 날짜 자동 롤오버 ──
-            // 시간은 단조 증가하므로, 시각이 "거꾸로 줄어드는" 순간 = 자정 통과(+1일).
-            // 기존 데이터가 있으면 그 마지막(최신) 시각에서 이어받고(사진 간), 없으면 입력 시작 날짜부터.
-            const parseTs = (t: any): Date | null => {
-                const d = new Date(String(t ?? '').replace(/\//g, '-').replace(' ', 'T'));
-                return isNaN(d.getTime()) ? null : d;
-            };
-            let runningDate: Date;
-            let lastMinutes = -1;
-            let latest: Date | null = null;
-            for (const e of (activeJob.processedOcrData || [])) {
-                const d = parseTs(e.time);
-                if (d && (!latest || d > latest)) latest = d;
-            }
-            if (latest) {
-                runningDate = new Date(latest.getFullYear(), latest.getMonth(), latest.getDate());
-                lastMinutes = latest.getHours() * 60 + latest.getMinutes();
-            } else {
-                runningDate = parseTs(`${singleAnalysisDate} 00:00`) || new Date();
-            }
-
             const newExtractedEntries: ExtractedEntry[] = newRawEntries.map((rawEntry: RawEntryUnion) => {
                 let primaryValue = '', tpValue: string | undefined = undefined;
                 // AI가 스키마(STRING)와 달리 숫자(시마즈 등)를 반환할 수 있어 문자열 강제변환 — .match/.includes 오류 방지
@@ -961,24 +940,25 @@ ${timeRules}
                     console.warn(`AI response "${aiTime}" did not contain a recognizable time component. Defaulting to '00:00'.`);
                 }
 
-                // 시각이 직전보다 줄면 자정 통과 → 날짜 +1
-                const hm = timePart.split(':');
-                const curMinutes = (parseInt(hm[0], 10) || 0) * 60 + (parseInt(hm[1], 10) || 0);
-                if (lastMinutes >= 0 && curMinutes < lastMinutes) {
-                    runningDate = new Date(runningDate);
-                    runningDate.setDate(runningDate.getDate() + 1);
-                }
-                lastMinutes = curMinutes;
-
-                const y = runningDate.getFullYear();
-                const mo = String(runningDate.getMonth() + 1).padStart(2, '0');
-                const d = String(runningDate.getDate()).padStart(2, '0');
-                const finalTimestamp = `${y}/${mo}/${d} ${timePart}`;
+                // 사진 한 장당 입력한 날짜 사용 (분석할 때마다 누적)
+                const finalTimestamp = `${singleAnalysisDate} ${timePart}`.replace(/-/g, '/');
 
                 return { id: genUUID(), time: finalTimestamp, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
             });
 
-            const combinedData = [...(activeJob.processedOcrData || []), ...newExtractedEntries];
+            // 누적 + 중복 제거: 날짜+시간+데이터(value/valueTP)가 모두 같으면 동일 데이터 → 추가 안 함
+            const existingData = activeJob.processedOcrData || [];
+            const dupKey = (e: ExtractedEntry) => `${e.time}|${e.value ?? ''}|${e.valueTP ?? ''}`;
+            const seenKeys = new Set(existingData.map(dupKey));
+            const dedupedNew = newExtractedEntries.filter(e => {
+                const k = dupKey(e);
+                if (seenKeys.has(k)) return false;
+                seenKeys.add(k);
+                return true;
+            });
+            const skippedDup = newExtractedEntries.length - dedupedNew.length;
+
+            const combinedData = [...existingData, ...dedupedNew];
 
             combinedData.sort((a, b) => {
                 try {
@@ -992,7 +972,7 @@ ${timeRules}
             });
 
             updateActiveJob(j => ({ ...j, processedOcrData: combinedData }));
-            setSuccessMessage("현재 사진 분석이 완료되었습니다.");
+            setSuccessMessage(`현재 사진 분석 완료 — ${dedupedNew.length}개 추가${skippedDup > 0 ? `, 중복 ${skippedDup}개 제외` : ''} (총 ${combinedData.length}개)`);
 
         } else {
             setProcessingError("AI가 현재 사진에서 유효한 데이터를 추출하지 못했습니다.");
