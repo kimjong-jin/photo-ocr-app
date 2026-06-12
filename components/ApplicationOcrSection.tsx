@@ -1271,29 +1271,29 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                       onClick={() => onApplicationSelect(app)}
                     >
                       <td
-                        className={`px-3 py-2 whitespace-nowrap text-center font-bold text-sky-400 ${
+                        onClick={(e) => { e.stopPropagation(); toggleAppSelected(app.id); }}
+                        className={`px-3 py-2 whitespace-nowrap text-center font-bold text-sky-400 cursor-pointer select-none ${
                           app.id === appIdToSync ? 'border-l-4 border-sky-400' : ''
                         }`}
+                        title="클릭하여 선택 (삭제용)"
                       >
-                        {app.id === appIdToSync && (
-                          <span className="block text-[9px] leading-none text-sky-300 font-semibold mb-0.5">
-                            작업중
-                          </span>
-                        )}
                         <span className="inline-flex items-center gap-1.5">
                           <input
                             type="checkbox"
                             checked={selectedAppIds.has(app.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={() => toggleAppSelected(app.id)}
-                            className="w-3.5 h-3.5 accent-red-500 cursor-pointer align-middle"
+                            readOnly
+                            className="w-4 h-4 accent-red-500 pointer-events-none align-middle"
                             aria-label={`'${app.receipt_no}' 선택`}
-                            title="선택 (삭제용)"
                           />
                           {app.queue_slot}
                         </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-200 font-mono">
+                        {app.id === appIdToSync && (
+                          <span className="block text-[9px] leading-none text-sky-300 font-semibold mb-0.5">
+                            작업중
+                          </span>
+                        )}
                         <span className="flex items-center gap-2">
                           <span
                             className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${
