@@ -872,6 +872,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
       setDraftMessage({ type: 'success', text: `'${receiptToSave}'으로 저장되었습니다.` });
 
+      // 저장 후 위치(주소) 자동 초기화 — 주소가 다음 작업에 잘못 따라붙는 것 방지
+      setCurrentGpsAddress('');
+      setCoords(null);
+      setLocReceiptInput('');
+
       // ✅ 페이지별 사진 저장: P1~P4 독립 삭제→업로드 + userName 식별자 + 코멘트 스탬프
       // ── 사진 저장: 단일 delete-all 후 전체 업로드 (race condition 방지) ──
       // ✅ Ref를 통해 항상 최신 job 배열 사용 (stale closure 방지)
@@ -1055,6 +1060,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         console.error(`[전체저장] 실패 (${receipt}):`, reason);
         failed.push({ receipt, reason });
       }
+    }
+
+    if (succeeded.length > 0) {
+      // 전체 저장 후 위치(주소) 자동 초기화 — 주소가 다음 작업에 잘못 따라붙는 것 방지
+      setCurrentGpsAddress('');
+      setCoords(null);
+      setLocReceiptInput('');
     }
 
     if (failed.length === 0) {
@@ -2785,6 +2797,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                           await saveLocation({ id, address: currentGpsAddress.trim(), lat, lng, savedAt: Date.now(), siteName: matchedSite });
                           const all = await getAllLocations();
                           setLocationList(all);
+                          // 저장 후 위치(주소) 자동 초기화 — 주소가 다음 작업에 잘못 따라붙는 것 방지
+                          setCurrentGpsAddress('');
+                          setCoords(null);
+                          setLocReceiptInput('');
                         } catch(e: any) { alert(e.message || '저장 오류'); }
                         finally { setIsLocSaving(false); }
                       }}

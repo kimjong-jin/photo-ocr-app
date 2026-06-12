@@ -412,7 +412,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
 
             const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
             if (elementToCapture) {
-                const canvas = await html2canvas(elementToCapture, { backgroundColor: '#1e293b', scale: 1.5 });
+                const canvas = await html2canvas(elementToCapture, { backgroundColor: '#ffffff', scale: 1.5 });
                 const dataUrl = canvas.toDataURL('image/png');
                 const blob = dataURLtoBlob(dataUrl);
                 const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
@@ -517,7 +517,7 @@ const handleBatchSendToKtl = async () => {
 
                 const elementToCapture = document.getElementById(`snapshot-container-for-${job.id}`);
                 if (elementToCapture) {
-                    const canvas = await html2canvas(elementToCapture, { backgroundColor: '#1e293b', scale: 1.5 });
+                    const canvas = await html2canvas(elementToCapture, { backgroundColor: '#ffffff', scale: 1.5 });
                     const blob = dataURLtoBlob(canvas.toDataURL('image/png'));
                     const dataTableFileName = `${job.receiptNumber}_먹는물_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}_datatable.png`;
                     const dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });

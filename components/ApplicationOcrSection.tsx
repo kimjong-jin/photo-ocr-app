@@ -112,6 +112,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editedData, setEditedData] = useState<Partial<Application>>({});
+  const [selectedAppIds, setSelectedAppIds] = useState<Set<number>>(new Set()); // 선택 삭제용
   const [kakaoSendingId, setKakaoSendingId] = useState<number | null>(null);
   const [emailModalApp, setEmailModalApp] = useState<Application | null>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -774,6 +775,34 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     }
   };
 
+  const toggleAppSelected = (id: number) => {
+    setSelectedAppIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!supabase || selectedAppIds.size === 0) return;
+    const ids = Array.from(selectedAppIds);
+    if (!window.confirm(`선택한 ${ids.length}개 항목을 삭제할까요?`)) return;
+    clearMessages();
+    try {
+      const { error: deleteError } = await supabase
+        .from('applications')
+        .delete()
+        .in('id', ids);
+      if (deleteError) throw deleteError;
+      setSuccessMessage(`${ids.length}개 항목이 삭제되었습니다.`);
+      setSelectedAppIds(new Set());
+      loadApplications();
+    } catch (err: any) {
+      console.error('[handleDeleteSelected] error:', err);
+      setError('삭제 실패: ' + (err.message || '알 수 없는 오류가 발생했습니다.'));
+    }
+  };
+
   const handleEdit = (app: Application) => {
     setEditingId(app.id);
     setEditedData(app);
@@ -1044,6 +1073,18 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         <div className="flex justify-between items-center mb-2">
           <h4 className="text-xs font-semibold text-slate-400 tracking-widest uppercase">저장된 목록</h4>
           <div className="flex items-center gap-2">
+            {selectedAppIds.size > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors"
+                aria-label={`선택 ${selectedAppIds.size}개 삭제`}
+                title={`선택한 ${selectedAppIds.size}개 삭제`}
+              >
+                <TrashIcon className="w-3.5 h-3.5" />
+                {selectedAppIds.size}
+              </button>
+            )}
             <ActionButton
               onClick={handleStartAdding}
               disabled={isLoadingApplications || isAddingNew || editingId !== null}
@@ -1224,7 +1265,18 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                             작업중
                           </span>
                         )}
-                        {app.queue_slot}
+                        <span className="inline-flex items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={selectedAppIds.has(app.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => toggleAppSelected(app.id)}
+                            className="w-3.5 h-3.5 accent-red-500 cursor-pointer align-middle"
+                            aria-label={`'${app.receipt_no}' 선택`}
+                            title="선택 (삭제용)"
+                          />
+                          {app.queue_slot}
+                        </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-200 font-mono">
                         <span className="flex items-center gap-2">
