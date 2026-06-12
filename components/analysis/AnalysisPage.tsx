@@ -917,6 +917,27 @@ ${timeRules}
         }
         
         if (newRawEntries.length > 0) {
+            // ── 날짜 자동 롤오버 ──
+            // 시간은 단조 증가하므로, 시각이 "거꾸로 줄어드는" 순간 = 자정 통과(+1일).
+            // 기존 데이터가 있으면 그 마지막(최신) 시각에서 이어받고(사진 간), 없으면 입력 시작 날짜부터.
+            const parseTs = (t: any): Date | null => {
+                const d = new Date(String(t ?? '').replace(/\//g, '-').replace(' ', 'T'));
+                return isNaN(d.getTime()) ? null : d;
+            };
+            let runningDate: Date;
+            let lastMinutes = -1;
+            let latest: Date | null = null;
+            for (const e of (activeJob.processedOcrData || [])) {
+                const d = parseTs(e.time);
+                if (d && (!latest || d > latest)) latest = d;
+            }
+            if (latest) {
+                runningDate = new Date(latest.getFullYear(), latest.getMonth(), latest.getDate());
+                lastMinutes = latest.getHours() * 60 + latest.getMinutes();
+            } else {
+                runningDate = parseTs(`${singleAnalysisDate} 00:00`) || new Date();
+            }
+
             const newExtractedEntries: ExtractedEntry[] = newRawEntries.map((rawEntry: RawEntryUnion) => {
                 let primaryValue = '', tpValue: string | undefined = undefined;
                 // AI가 스키마(STRING)와 달리 숫자(시마즈 등)를 반환할 수 있어 문자열 강제변환 — .match/.includes 오류 방지
@@ -933,7 +954,6 @@ ${timeRules}
                 const aiTime = String(rawEntry.time ?? '');
                 let timePart = "00:00"; // Default
                 // Robustly find HH:MM:SS or HH:MM, not matching parts of dates like '24' in '2024'.
-                // Looks for a time pattern preceded by a space, 'T', or the start of the string.
                 const timeMatch = aiTime.match(/(?:\s|T|^)(\d{1,2}:\d{2}(?::\d{2})?)/);
                 if (timeMatch && timeMatch[1]) {
                     timePart = timeMatch[1];
@@ -941,9 +961,21 @@ ${timeRules}
                     console.warn(`AI response "${aiTime}" did not contain a recognizable time component. Defaulting to '00:00'.`);
                 }
 
-                const finalTimestamp = `${singleAnalysisDate} ${timePart}`;
-                
-                return { id: genUUID(), time: finalTimestamp.replace(/-/g, '/'), value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
+                // 시각이 직전보다 줄면 자정 통과 → 날짜 +1
+                const hm = timePart.split(':');
+                const curMinutes = (parseInt(hm[0], 10) || 0) * 60 + (parseInt(hm[1], 10) || 0);
+                if (lastMinutes >= 0 && curMinutes < lastMinutes) {
+                    runningDate = new Date(runningDate);
+                    runningDate.setDate(runningDate.getDate() + 1);
+                }
+                lastMinutes = curMinutes;
+
+                const y = runningDate.getFullYear();
+                const mo = String(runningDate.getMonth() + 1).padStart(2, '0');
+                const d = String(runningDate.getDate()).padStart(2, '0');
+                const finalTimestamp = `${y}/${mo}/${d} ${timePart}`;
+
+                return { id: genUUID(), time: finalTimestamp, value: primaryValue, valueTP: tpValue, identifier: undefined, identifierTP: undefined, isRuleMatched: false };
             });
 
             const combinedData = [...(activeJob.processedOcrData || []), ...newExtractedEntries];
