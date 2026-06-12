@@ -1120,7 +1120,22 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                       key={h}
                       className="px-3 py-2 text-xs font-medium text-slate-300 uppercase tracking-wider text-left sticky top-0 bg-slate-700/50 first:text-center"
                     >
-                      {h}
+                      {h === 'No.' ? (
+                        <span className="inline-flex flex-col items-center gap-0.5 leading-none">
+                          <input
+                            type="checkbox"
+                            checked={applications.length > 0 && applications.every(a => selectedAppIds.has(a.id))}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedAppIds(new Set(applications.map(a => a.id)));
+                              else setSelectedAppIds(new Set());
+                            }}
+                            className="w-3.5 h-3.5 accent-red-500 cursor-pointer"
+                            aria-label="전체 선택"
+                            title="전체 선택 / 해제"
+                          />
+                          <span className="text-[9px] normal-case tracking-normal">전체</span>
+                        </span>
+                      ) : h}
                     </th>
                   ),
                 )}
