@@ -1,6 +1,7 @@
 // claydoxApiService.ts
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import type { ExtractedEntry, ExtraPhotoItem } from '../shared/types';
+import type { SensorType } from '../types/csvGraph';
 import {
   IDENTIFIER_OPTIONS,
   TN_IDENTIFIERS,

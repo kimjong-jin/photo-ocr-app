@@ -1819,7 +1819,15 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
           {/* 현장 계수 카메라 */}
           {isFieldCountCameraOpen && (
             <CameraView
-              onPhotoCaptured={handleFieldCountPhotoCaptured}
+              onCapture={(file, base64, mimeType) => {
+                const photo = {
+                  uid: `fc-${Date.now()}-${Math.random()}`,
+                  file,
+                  base64,
+                  mimeType
+                };
+                handleFieldCountPhotoCaptured(photo);
+              }}
               onClose={() => setIsFieldCountCameraOpen(false)}
             />
           )}

@@ -2941,7 +2941,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     <MapView
                       latitude={coords.lat}
                       longitude={coords.lng}
-                      address={currentGpsAddress?.trim() ?? ''}
                       onAddressSelect={(addr, lat, lng) => { setCurrentGpsAddress(addr); setCoords({ lat, lng }); }}
                     />
                   </div>

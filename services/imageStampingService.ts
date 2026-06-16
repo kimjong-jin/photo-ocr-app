@@ -172,7 +172,7 @@ function drawEmptyStroke(
 ) {
   ctx.save();
   ctx.strokeStyle = opt?.color ?? 'rgba(0,0,0,0.15)';
-  ctx.lineWidth = opt?.width ?? 1;
+  ctx.lineWidth = opt?.lineWidth ?? 1;
   if (opt?.dash?.length) ctx.setLineDash(opt.dash);
   ctx.strokeRect(x, y, w, h);
   ctx.restore();

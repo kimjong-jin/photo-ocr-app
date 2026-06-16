@@ -67,6 +67,8 @@ export interface StructuralJob {
   applicant_name?: string;
   applicant_phone?: string;
   maintenance_company?: string;
+  inspectionStartDate?: string;
+  inspectionEndDate?: string;
 }
 
 // ── 추가 사진자료 ─────────────────────────────────────────

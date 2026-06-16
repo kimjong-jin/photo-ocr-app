@@ -10,12 +10,12 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, 'src'),
-        components: path.resolve(__dirname, 'src/components'),
-        structural: path.resolve(__dirname, 'src/structural'),
-        shared: path.resolve(__dirname, 'src/shared'),
-        services: path.resolve(__dirname, 'src/services'),
-        types: path.resolve(__dirname, 'src/types'),
+        '@': path.resolve(__dirname, '.'),
+        components: path.resolve(__dirname, 'components'),
+        structural: path.resolve(__dirname, 'structural'),
+        shared: path.resolve(__dirname, 'shared'),
+        services: path.resolve(__dirname, 'services'),
+        types: path.resolve(__dirname, 'types'),
       },
       dedupe: ['react', 'react-dom'],
       extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json'],

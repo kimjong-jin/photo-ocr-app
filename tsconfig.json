@@ -20,13 +20,23 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "components/*": ["components/*"],
+      "structural/*": ["structural/*"],
+      "shared/*": ["shared/*"],
+      "services/*": ["services/*"],
+      "types/*": ["types/*"]
+    }
   },
   "include": [
     "components",
     "services",
     "shared",
-    "src"
+    "src",
+    "global.d.ts"
   ],
   "exclude": [
     "node_modules",
