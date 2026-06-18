@@ -911,6 +911,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 바로접속: https://aicalc.work/?pw=${pw}
 비밀번호: ${pw}
 
+※ 데이터를 직접 입력하시려면 화면 상단 [주사용자 전환] 버튼을 먼저 눌러주세요.
+   (누르지 않으면 확인(읽기)만 가능합니다)
 ※ 정도검사 계산 확인용으로 유지관리 담당자에게 전달해 주시기 바랍니다.`;
 
       await sendKakaoTalkMessage(message, app.applicant_phone);
