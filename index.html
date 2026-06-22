@@ -318,6 +318,23 @@
     /* 이메일 전송 버튼 (✉): 진한 파랑으로 */
     html[data-bg="light"] button.text-cyan-400 { color: #0369a1 !important; }
     html[data-bg="light"] button.text-cyan-400:hover { color: #075985 !important; background-color: rgba(3,105,161,0.12) !important; }
+
+    /* ── P5(CSV 그래프) 데이터 표: 전역 배경/글씨색 테마와 무관하게 항상 흰 바탕 + 진한 글씨 ──
+       (화면 가독성 + KTL 전송 캡처 공통. 전역 [data-bg]/[data-text] !important 규칙을 동일 특이도+후순위로 이김) */
+    html .csv-data-table,
+    html[data-bg] .csv-data-table,
+    html[data-text] .csv-data-table,
+    html .csv-data-table *,
+    html[data-bg] .csv-data-table *,
+    html[data-text] .csv-data-table * {
+      background-color: #ffffff !important;
+      color: #1f2937 !important;
+      border-color: #e2e8f0 !important;
+      text-shadow: none !important;
+    }
+    /* 강조: 흰 배경에서 읽히는 진한 톤 (응답=주황, 지정/항목=파랑) */
+    html .csv-data-table .text-amber-400, html[data-bg] .csv-data-table .text-amber-400, html[data-text] .csv-data-table .text-amber-400 { color: #b45309 !important; }
+    html .csv-data-table .text-sky-400,   html[data-bg] .csv-data-table .text-sky-400,   html[data-text] .csv-data-table .text-sky-400   { color: #0369a1 !important; }
   </style>
   <script>
     (function() {

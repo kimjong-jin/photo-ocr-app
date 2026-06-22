@@ -1775,7 +1775,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
         </div>
       </div>
 
-      <div ref={tableRef} className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden relative">
+      <div ref={tableRef} className="csv-data-table bg-slate-800 rounded-lg border border-slate-700 overflow-hidden relative">
         <table className="min-w-full text-xs">
           <thead className="bg-slate-700/50 text-slate-400 uppercase">
             <tr>
