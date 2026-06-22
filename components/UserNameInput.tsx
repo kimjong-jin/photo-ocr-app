@@ -153,7 +153,6 @@ const UserNameInput: React.FC<UserNameInputProps> = ({ onLoginSuccess }) => {
             {loading ? '인증 중...' : '로그인'}
           </ActionButton>
         </form>
-        <p className="text-center text-[10px] text-slate-500 mt-3 select-none">build 0622-session-unified</p>
       </div>
     </div>
   );
