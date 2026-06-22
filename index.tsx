@@ -92,31 +92,16 @@ const AppWrapper: React.FC = () => {
   useEffect(() => { handleLogoutRef.current = handleLogout; }, [handleLogout]);
 
   useEffect(() => {
-    let validationIntervalId: number | undefined;
     let heartbeatIntervalId: number | undefined;
 
     if (currentUserData?.sessionId && currentUserData.name) {
       const currentTabSessionId = currentUserData.sessionId;
       const currentUserName = currentUserData.name;
 
-      validationIntervalId = window.setInterval(() => {
-        const raw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
-        if (!raw) {
-          handleLogout(true, "세션 정보를 찾을 수 없어 로그아웃됩니다.");
-          return;
-        }
-        try {
-          const sessions: ActiveSessions = JSON.parse(raw);
-          const me = sessions[currentUserName];
-          if (!me) {
-            handleLogout(true, "세션이 만료되었거나 다른 관리자에 의해 종료되었습니다.");
-          } else if (me.sessionId !== currentTabSessionId) {
-            handleLogout(true, me.forceLogoutReason || "다른 위치에서 로그인하여 현재 세션이 종료되었습니다.");
-          }
-        } catch {
-          handleLogout(true, "세션 검증 중 오류가 발생하여 로그아웃됩니다.");
-        }
-      }, SESSION_VALIDATION_INTERVAL);
+      // [제거] localStorage 기반 자가 로그아웃 검사.
+      // 같은 브라우저(모바일 사파리 등)의 다른 탭/재접속이 공유 localStorage의 sessionId를
+      // 덮어쓰면 "다른 위치에서 로그인"으로 오인해 스스로 튕기던 버그의 원인이었음.
+      // → 같은 기기 멀티탭 허용. 실제 강제 종료는 아래 heartbeat의 서버 forceLogout만으로 처리.
 
       heartbeatIntervalId = window.setInterval(async () => {
         const raw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
@@ -143,7 +128,6 @@ const AppWrapper: React.FC = () => {
     }
 
     return () => {
-      if (validationIntervalId) clearInterval(validationIntervalId);
       if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
     };
   }, [currentUserData, handleLogout]);
