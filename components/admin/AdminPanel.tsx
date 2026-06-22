@@ -2,21 +2,25 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { UserRole } from '../UserNameInput';
 import { ActionButton } from '../ActionButton';
 
-const ACTIVE_SESSIONS_KEY = 'photoLogApp_ActiveSessions';
-const ADMIN_PANEL_REFRESH_INTERVAL = 10000; // 10 seconds
+const ADMIN_PANEL_REFRESH_INTERVAL = 15000; // 15초
 
-interface ActiveSessionEntry {
-  role: UserRole;
-  sessionId: string;
-  lastSeen: number;
-  forceLogoutReason?: string;
+interface ServerSession {
+  session_id: string;
+  user_name: string;
+  ip: string;
+  user_agent: string;
+  last_seen: number;
+  created_at: number;
+  force_logout: number;
+  location: string;
 }
-type ActiveSessions = Record<string, ActiveSessionEntry>;
 
 interface UserToList {
   name: string;
   role: UserRole;
   lastSeen: number;
+  location: string;
+  sessionCount: number;
 }
 
 interface AdminPanelProps {
@@ -27,74 +31,75 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ adminUserName }) => {
   const [usersToList, setUsersToList] = useState<UserToList[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchActiveUsers = useCallback(() => {
+  const fetchActiveUsers = useCallback(async () => {
     try {
-      const activeSessionsRaw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
-      if (!activeSessionsRaw) {
+      // 서버에서 실제 세션 목록을 가져옴 (localStorage 의존 제거)
+      const res = await fetch('/api/admin-sessions');
+      if (!res.ok) {
+        // 관리자 API 미구현 또는 권한 부족 시 빈 목록
         setUsersToList([]);
         return;
       }
-      const activeSessions: ActiveSessions = JSON.parse(activeSessionsRaw);
+      const sessions: ServerSession[] = await res.json();
       const now = Date.now();
-      const STALE_SESSION_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+      const STALE_THRESHOLD = 5 * 60 * 1000; // 5분
 
-      const loadedUsers: UserToList[] = Object.entries(activeSessions)
-        .filter(([name, sessionData]) => {
-            // Filter out the admin themselves
-            if (name === adminUserName) return false;
-            // Filter out stale sessions (e.g., browser closed without logout)
-            if (now - sessionData.lastSeen > STALE_SESSION_THRESHOLD) {
-                // Optionally, could also trigger a cleanup of this stale session from ACTIVE_SESSIONS_KEY here
-                // but that's more complex if multiple admin tabs are open.
-                // For now, just don't display it.
-                return false;
-            }
-            return true;
-        })
-        .map(([name, sessionData]) => ({
-          name,
-          role: sessionData.role,
-          lastSeen: sessionData.lastSeen,
-        }))
-        .sort((a,b) => b.lastSeen - a.lastSeen); // Show most recent first
+      // 사용자별 그룹핑 (동일 사용자 멀티 세션 → 1행)
+      const userMap = new Map<string, UserToList>();
+      for (const s of sessions) {
+        if (s.user_name === adminUserName) continue;
+        if (now - s.last_seen > STALE_THRESHOLD) continue;
 
-      setUsersToList(loadedUsers);
+        const existing = userMap.get(s.user_name);
+        if (existing) {
+          existing.sessionCount++;
+          if (s.last_seen > existing.lastSeen) {
+            existing.lastSeen = s.last_seen;
+            existing.location = s.location || '';
+          }
+        } else {
+          userMap.set(s.user_name, {
+            name: s.user_name,
+            role: 'user',
+            lastSeen: s.last_seen,
+            location: s.location || '',
+            sessionCount: 1,
+          });
+        }
+      }
+
+      setUsersToList(Array.from(userMap.values()).sort((a, b) => b.lastSeen - a.lastSeen));
       setError(null);
     } catch (e) {
-      console.error("Error fetching or parsing active sessions:", e);
+      console.error("Error fetching active sessions from server:", e);
       setError("활성 사용자 목록을 가져오는 중 오류가 발생했습니다.");
       setUsersToList([]);
     }
   }, [adminUserName]);
 
   useEffect(() => {
-    fetchActiveUsers(); // Initial fetch
+    fetchActiveUsers();
     const intervalId = setInterval(fetchActiveUsers, ADMIN_PANEL_REFRESH_INTERVAL);
     return () => clearInterval(intervalId);
   }, [fetchActiveUsers]);
 
-  const handleForceLogout = useCallback((userNameToLogout: string) => {
-    if (window.confirm(`${userNameToLogout} 사용자를 강제로 로그아웃하시겠습니까?`)) {
-      try {
-        const activeSessionsRaw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
-        if (!activeSessionsRaw) {
-          setError("활성 세션 데이터를 찾을 수 없습니다.");
-          return;
-        }
-        const activeSessions: ActiveSessions = JSON.parse(activeSessionsRaw);
-        if (activeSessions[userNameToLogout]) {
-          activeSessions[userNameToLogout].sessionId = self.crypto.randomUUID() + '_forced_logout';
-          activeSessions[userNameToLogout].forceLogoutReason = "관리자에 의해 강제 로그아웃되었습니다.";
-          localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(activeSessions));
-          fetchActiveUsers(); // Refresh list immediately
-          alert(`${userNameToLogout} 사용자의 세션이 무효화되었습니다. 해당 사용자는 다음 활동 시 로그아웃됩니다.`);
-        } else {
-          setError(`${userNameToLogout} 사용자를 활성 세션 목록에서 찾을 수 없습니다.`);
-        }
-      } catch (e) {
-        console.error("Error forcing logout:", e);
-        setError("강제 로그아웃 처리 중 오류가 발생했습니다.");
+  const handleForceLogout = useCallback(async (userNameToLogout: string) => {
+    if (!window.confirm(`${userNameToLogout} 사용자를 강제로 로그아웃하시겠습니까?`)) return;
+    try {
+      const res = await fetch('/api/admin-sessions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName: userNameToLogout }),
+      });
+      if (res.ok) {
+        alert(`${userNameToLogout} 사용자의 세션이 종료 요청되었습니다.`);
+        fetchActiveUsers();
+      } else {
+        setError('강제 로그아웃 요청 실패');
       }
+    } catch (e) {
+      console.error("Error forcing logout:", e);
+      setError("강제 로그아웃 처리 중 오류가 발생했습니다.");
     }
   }, [fetchActiveUsers]);
 
@@ -114,8 +119,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ adminUserName }) => {
               <div>
                 <span className="font-medium text-slate-100">{user.name}</span>
                 <span className="text-xs text-slate-400 ml-2">({user.role})</span>
+                {user.location && <span className="text-xs text-slate-400 ml-2">{user.location}</span>}
                 <p className="text-xs text-slate-500">
                   마지막 활동: {new Date(user.lastSeen).toLocaleString()}
+                  {user.sessionCount > 1 && ` · ${user.sessionCount}개 세션`}
                 </p>
               </div>
               <ActionButton
