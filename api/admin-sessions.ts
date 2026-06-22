@@ -8,6 +8,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
+  // 관리자 재인증: x-admin-pass 가 관리자 키와 일치해야만 진행 (세션목록 공개 노출 방지)
+  const pass = req.headers['x-admin-pass'];
+  if (!CALC_KEY || pass !== CALC_KEY) {
+    return res.status(401).json({ error: '관리자 인증 필요' });
+  }
+
   try {
     if (req.method === 'GET') {
       const r = await fetch(`${MAC}/api/sessions`, {
