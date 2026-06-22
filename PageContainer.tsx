@@ -268,8 +268,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
           if (data.forceLogout) {
-            // 관리자 강제 종료 시: IndexedDB 캐시는 삭제하지 않고 경고만 표시
-            setDraftMessage({ type: 'error', text: '관리자에 의해 세션이 종료되었습니다. 작업 내용은 캐시에 보존됩니다.' });
+            // 관리자 강제 종료: 알림 후 실제 로그아웃 (작업 IndexedDB 캐시는 onLogout이 건드리지 않아 보존됨)
+            alert('관리자에 의해 세션이 종료되었습니다. 작업 내용은 캐시에 보존됩니다.');
+            onLogout();
           }
         }
       } catch {
