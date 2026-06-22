@@ -32,17 +32,17 @@ const AppWrapper: React.FC = () => {
   const [isLoadingSession, setIsLoadingSession] = useState<boolean>(true);
 
   useEffect(() => {
-    const savedUserDataRaw = sessionStorage.getItem(LOGGED_IN_USER_DATA_KEY);
+    const savedUserDataRaw = localStorage.getItem(LOGGED_IN_USER_DATA_KEY);
     if (savedUserDataRaw) {
       try {
         const savedUserData = JSON.parse(savedUserDataRaw) as StoredUserData;
         if (savedUserData.name && savedUserData.role && savedUserData.sessionId && savedUserData.contact) {
           setCurrentUserData(savedUserData);
         } else {
-          sessionStorage.removeItem(LOGGED_IN_USER_DATA_KEY);
+          localStorage.removeItem(LOGGED_IN_USER_DATA_KEY);
         }
       } catch {
-        sessionStorage.removeItem(LOGGED_IN_USER_DATA_KEY);
+        localStorage.removeItem(LOGGED_IN_USER_DATA_KEY);
       }
     }
     setIsLoadingSession(false);
@@ -52,7 +52,7 @@ const AppWrapper: React.FC = () => {
     const newSessionId = self.crypto.randomUUID();
     const userDataForTab: StoredUserData = { name, role, contact, sessionId: newSessionId };
     setCurrentUserData(userDataForTab);
-    sessionStorage.setItem(LOGGED_IN_USER_DATA_KEY, JSON.stringify(userDataForTab));
+    localStorage.setItem(LOGGED_IN_USER_DATA_KEY, JSON.stringify(userDataForTab));
 
     const activeSessionsRaw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
     const activeSessions: ActiveSessions = activeSessionsRaw ? JSON.parse(activeSessionsRaw) : {};
@@ -68,7 +68,7 @@ const AppWrapper: React.FC = () => {
     const nameToLogout = currentUserData?.name;
     const sidToLogout = currentUserData?.sessionId;
     setCurrentUserData(null);
-    sessionStorage.removeItem(LOGGED_IN_USER_DATA_KEY);
+    localStorage.removeItem(LOGGED_IN_USER_DATA_KEY);
 
     if (sidToLogout) {
       fetch('/api/sessions', { method: 'DELETE', headers: {'Content-Type':'application/json'},
