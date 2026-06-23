@@ -28,7 +28,7 @@ async function forward(req: VercelRequest, res: VercelResponse) {
 
   const options: RequestInit = {
     method: req.method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-studio-secret': process.env.STUDIO_SECRET || '' },
   };
 
   if (req.method !== 'GET' && req.method !== 'DELETE') {

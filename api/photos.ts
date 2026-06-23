@@ -55,6 +55,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const response = await axios.get(targetUrl, {
         responseType: 'arraybuffer',
         timeout: 15000,
+        headers: { 'x-studio-secret': process.env.STUDIO_SECRET || '' },
       });
       const contentType = response.headers['content-type'] ?? 'application/json';
       res.setHeader('Content-Type', contentType);
@@ -71,6 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         headers: {
           'content-type': contentType,
           'content-length': rawBody.length,
+          'x-studio-secret': process.env.STUDIO_SECRET || '',
         },
         timeout: 30000,
         maxBodyLength: 50 * 1024 * 1024,
@@ -78,7 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(response.status).json(response.data);
 
     } else if (req.method === 'DELETE') {
-      const response = await axios.delete(targetUrl, { timeout: 10000 });
+      const response = await axios.delete(targetUrl, { timeout: 10000, headers: { 'x-studio-secret': process.env.STUDIO_SECRET || '' } });
       return res.status(response.status).json(response.data);
     }
 
