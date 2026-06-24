@@ -141,6 +141,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
 
   // ✅ DB에 저장된 위치 전부를 현장명 라벨로 표시. 좌표 있으면 그대로, 좌표 없고 주소만 있으면 지오코딩.
   //    검색 무관(먹는물 배수지 등도 가능). 라벨 클릭 → 그 위치·주소 재사용(같은 현장 중복/주소 불일치 방지)
+  //    동일 좌표에 여러 개가 있을 경우 겹치지 않도록 그룹화하여 표시.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !window.kakao?.maps) return;
@@ -149,42 +150,83 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
     let cancelled = false;
     const geocoder = window.kakao.maps.services ? new window.kakao.maps.services.Geocoder() : null;
 
-    const placeOverlay = (loc: any, lat: number, lng: number) => {
+    const placeOverlayGroup = (items: any[], lat: number, lng: number) => {
       if (cancelled || !lat || !lng) return;
       const pos = new window.kakao.maps.LatLng(lat, lng);
       const el = document.createElement("div");
       el.style.cssText =
         "background:#111827;color:#fff;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid #10b981;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer;transform:translateY(-4px);";
-      el.textContent = `📍 ${loc.siteName || loc.id}`;
-      el.title = `${loc.id}\n${loc.address || ""}\n클릭 → 이 위치·주소 사용`;
+
+      const labels = items.map((item) => item.siteName || item.id).filter(Boolean);
+      const uniqueLabels = [...new Set(labels)];
+      el.textContent = `📍 ${uniqueLabels.join(" / ")}`;
+
+      const tooltips = items.map((item) => `${item.id}${item.address ? ` (${item.address})` : ''}`).join("\n");
+      el.title = `${tooltips}\n클릭 → 이 위치·주소 사용`;
+
       el.addEventListener("click", () => {
         const marker = markerRef.current;
         if (marker) marker.setPosition(pos);
         map.setCenter(pos);
-        if (loc.address) {
-          setCurrentGpsAddress(loc.address);
-          onSelectRef.current?.(loc.address, lat, lng);
+        const firstWithAddress = items.find((item) => item.address);
+        if (firstWithAddress?.address) {
+          setCurrentGpsAddress(firstWithAddress.address);
+          onSelectRef.current?.(firstWithAddress.address, lat, lng);
         }
       });
-      const overlay = new window.kakao.maps.CustomOverlay({ position: pos, content: el, yAnchor: 1.4, zIndex: 5, clickable: true });
+      const overlay = new window.kakao.maps.CustomOverlay({
+        position: pos,
+        content: el,
+        yAnchor: 1.4,
+        zIndex: 5,
+        clickable: true,
+      });
       overlay.setMap(map);
       overlaysRef.current.push(overlay);
     };
 
-    (savedLocations || []).forEach((loc) => {
-      if (!loc) return;
-      if (loc.lat && loc.lng) {
-        placeOverlay(loc, loc.lat, loc.lng);
-      } else if (loc.address && geocoder) {
-        // 좌표 없는 DB 위치: 주소를 지오코딩해서 마커 표시
-        geocoder.addressSearch(loc.address.trim(), (result: any[], status: any) => {
-          if (cancelled) return;
-          if (status === window.kakao.maps.services.Status.OK && result[0]) {
-            placeOverlay(loc, parseFloat(result[0].y), parseFloat(result[0].x));
-          }
-        });
-      }
-    });
+    const resolveAndDraw = async () => {
+      const resolvedList: { loc: any; lat: number; lng: number }[] = [];
+      const geocodePromises = (savedLocations || []).map(async (loc) => {
+        if (!loc) return;
+        if (loc.lat && loc.lng) {
+          resolvedList.push({ loc, lat: loc.lat, lng: loc.lng });
+        } else if (loc.address && geocoder) {
+          return new Promise<void>((resolve) => {
+            geocoder.addressSearch(loc.address.trim(), (result: any[], status: any) => {
+              if (!cancelled && status === window.kakao.maps.services.Status.OK && result[0]) {
+                resolvedList.push({
+                  loc,
+                  lat: parseFloat(result[0].y),
+                  lng: parseFloat(result[0].x),
+                });
+              }
+              resolve();
+            });
+          });
+        }
+      });
+
+      await Promise.all(geocodePromises);
+      if (cancelled) return;
+
+      // Group resolved locations by coordinates (6 decimal places is ~10cm precision)
+      const groups: Record<string, { lat: number; lng: number; items: any[] }> = {};
+      resolvedList.forEach(({ loc, lat, lng }) => {
+        const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+        if (!groups[key]) {
+          groups[key] = { lat, lng, items: [] };
+        }
+        groups[key].items.push(loc);
+      });
+
+      // Draw overlays
+      Object.values(groups).forEach(({ lat, lng, items }) => {
+        placeOverlayGroup(items, lat, lng);
+      });
+    };
+
+    resolveAndDraw();
 
     return () => { cancelled = true; };
   }, [savedLocations, mapReady]);
