@@ -191,7 +191,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
           if (!isValidFormat) return { receipt_no: rcpn, exists: false, ktlInfo: null };
           try {
             const limsclientId = hasSequence ? rcpn : `${rcpn}-1`;
-            const res = await fetch(`https://mobile.ktl.re.kr/labview/api/limsclient/${limsclientId}`);
+            const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(limsclientId)}`);
             const data = await res.json();
             const isSuccess = data.Success === true || data.Success === 'true' || data.Success === 'True';
             let ktlInfo: KtlDetail | null = null;
