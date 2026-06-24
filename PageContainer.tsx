@@ -2894,7 +2894,19 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                           ].find(j => j.receiptNumber?.startsWith(baseId))?.siteLocation || siteName || '';
                           // 분야 자동 분류: 항목(TU·Cl=먹는물, 그외=수질) 기준. 못 정하면 빈값(서버가 기존 유지)
                           const autoCat = fieldFromItem(itemForReceipt(id));
-                          await saveLocation({ id, address: currentGpsAddress.trim(), lat, lng, savedAt: Date.now(), siteName: matchedSite, category: autoCat });
+                          // 꼬리번호(-N) 위치: 세부 시설 명칭 입력(배수지·정수장·여과지 등) → 현장명 뒤 괄호로.
+                          // 먹는물은 꼬리번호별로 시설이 달라서 어느 시설인지 구분 필요. base(-01)는 안 물어봄.
+                          let siteForLoc = matchedSite;
+                          if (id.split('-').length >= 4) {
+                            const label = window.prompt(
+                              `"${id}" 세부 위치 명칭을 입력하세요.\n배수지·정수장·여과지 등 — 현장명 뒤에 괄호로 붙습니다.\n예: ${matchedSite || '(현장명)'}(○○배수지)`,
+                              ''
+                            );
+                            if (label === null) return; // 취소 → 저장 안 함 (finally가 isLocSaving 해제)
+                            const t = label.trim();
+                            siteForLoc = t ? `${matchedSite}(${t})` : matchedSite;
+                          }
+                          await saveLocation({ id, address: currentGpsAddress.trim(), lat, lng, savedAt: Date.now(), siteName: siteForLoc, category: autoCat });
                           const all = await getAllLocations();
                           setLocationList(all);
                           // 저장 후 위치(주소) 자동 초기화 — 주소가 다음 작업에 잘못 따라붙는 것 방지
