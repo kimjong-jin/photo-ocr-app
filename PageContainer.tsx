@@ -194,6 +194,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [locDetailInput, setLocDetailInput] = useState('');
   const [isLocSaving, setIsLocSaving] = useState(false);
   const [locFieldFilter, setLocFieldFilter] = useState<'없음' | '전체' | '수질' | '먹는물'>('없음');
+  const [locYearFilter, setLocYearFilter] = useState<number | '전체'>('전체');   // 검사 년도 필터(접수번호 앞2자리)
   const [allLocations, setAllLocations] = useState<LocationEntry[]>([]);   // 지도 마커용: 전체 사용자 위치(참고)
   const [locationList, setLocationList] = useState<LocationEntry[]>([]);
 
@@ -577,6 +578,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     if (byItem) return byItem;
     return loc.id.split('-').length >= 4 ? '먹는물' : '수질'; // 폴백: 세부번호 유무
   };
+  // 검사 년도 = 접수번호 앞 2자리 (26-=2026)
+  const yearOfId = (id: string): number => { const yy = parseInt(String(id).slice(0, 2), 10); return isNaN(yy) ? 0 : 2000 + yy; };
+  const availableYears = Array.from(new Set(allLocations.map(l => yearOfId(l.id)).filter(Boolean))).sort((a, b) => b - a);
 
   const toggleSection = useCallback((sectionName: string) => {
     setOpenSections(prev => prev.includes(sectionName)
@@ -2949,7 +2953,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 ) : (
                   <div className="space-y-1 max-h-52 overflow-y-auto">
                     {[...locationList]
-                      .filter(loc => locFieldFilter === '전체' || locFieldFilter === '없음' || fieldOf(loc) === locFieldFilter)
+                      .filter(loc => (locFieldFilter === '전체' || locFieldFilter === '없음' || fieldOf(loc) === locFieldFilter) && (locYearFilter === '전체' || yearOfId(loc.id) === locYearFilter))
                       .sort((a, b) => {
                         const idxA = applications.findIndex(ap => ap.receipt_no === a.id.split('-').slice(0,3).join('-') || ap.receipt_no === a.id);
                         const idxB = applications.findIndex(ap => ap.receipt_no === b.id.split('-').slice(0,3).join('-') || ap.receipt_no === b.id);
@@ -3060,9 +3064,27 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                             }`}
                           >{f}</button>
                         ))}
+                        {availableYears.length > 0 && (
+                          <select
+                            value={locYearFilter}
+                            onChange={e => setLocYearFilter(e.target.value === '전체' ? '전체' : Number(e.target.value))}
+                            title="검사 년도 (접수번호 앞2자리)"
+                            className="ml-1 px-1 py-0.5 text-[10px] rounded border bg-slate-800/60 border-slate-700/40 text-slate-300"
+                          >
+                            <option value="전체">전체년도</option>
+                            {availableYears.map(y => <option key={y} value={y}>{y}년</option>)}
+                          </select>
+                        )}
                       </div>
                     )}
                   </div>
+                  {/* 신호등 범례 — 마커 보일 때만 */}
+                  {locFieldFilter !== '없음' && (
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] text-slate-400 pt-0.5">
+                      <span>🟢 정상</span><span>🟡 임박</span><span>🔴 지연·미신청</span><span>⚠️ 수질 꼬리오류</span>
+                      <span className="text-slate-600">· 수질 1년 / 먹는물 2년 주기</span>
+                    </div>
+                  )}
                   <input
                     type="text"
                     id="current-gps-address"
@@ -3099,7 +3121,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       latitude={coords.lat}
                       longitude={coords.lng}
                       onAddressSelect={(addr, lat, lng) => { setCurrentGpsAddress(addr); setCoords({ lat, lng }); }}
-                      savedLocations={(locFieldFilter === '없음' ? [] : allLocations.filter(l => ((l.lat && l.lng) || l.address?.trim()) && (locFieldFilter === '전체' || fieldOf(l) === locFieldFilter))).map(l => {
+                      savedLocations={(locFieldFilter === '없음' ? [] : allLocations.filter(l => ((l.lat && l.lng) || l.address?.trim()) && (locFieldFilter === '전체' || fieldOf(l) === locFieldFilter) && (locYearFilter === '전체' || yearOfId(l.id) === locYearFilter))).map(l => {
                         const baseId = l.id.split('-').slice(0, 3).join('-');
                         const appMatch = applications.find(a => a.receipt_no === baseId || a.receipt_no === l.id);
                         const resolvedSiteName = overrideFor(l.id) || l.siteName || appMatch?.site_name || '';
