@@ -3065,7 +3065,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       latitude={coords.lat}
                       longitude={coords.lng}
                       onAddressSelect={(addr, lat, lng) => { setCurrentGpsAddress(addr); setCoords({ lat, lng }); }}
-                      savedLocations={locationList.filter(l => ((l.lat && l.lng) || l.address?.trim()) && (locFieldFilter === '전체' || fieldOf(l) === locFieldFilter)).map(l => ({ id: l.id, lat: l.lat, lng: l.lng, siteName: l.siteName, address: l.address }))}
+                      savedLocations={locationList.filter(l => ((l.lat && l.lng) || l.address?.trim()) && (locFieldFilter === '전체' || fieldOf(l) === locFieldFilter)).map(l => {
+                        const baseId = l.id.split('-').slice(0, 3).join('-');
+                        const appMatch = applications.find(a => a.receipt_no === baseId || a.receipt_no === l.id);
+                        const resolvedSiteName = overrideFor(l.id) || l.siteName || appMatch?.site_name || '';
+                        return { id: l.id, lat: l.lat, lng: l.lng, siteName: resolvedSiteName, address: l.address };
+                      })}
                     />
                   </div>
                 )}
