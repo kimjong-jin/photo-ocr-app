@@ -19,6 +19,8 @@ export interface JobStatusEntry {
   p5Sent: boolean;
   updatedAt: number;
   siteName?: string;
+  siteOverride?: string;     // 관리자가 작업관리에서 명시한 현장명 — 공통정보보다 우선
+  siteOverrideAt?: number;
 }
 
 export type PageKey = 'p1Sent' | 'p2Sent' | 'p3Sent' | 'p4Sent' | 'p5Sent';
@@ -94,6 +96,27 @@ export async function saveJobStatus(entry: JobStatusEntry): Promise<void> {
   if (idx >= 0) all[idx] = entry;
   else all.push(entry);
   lsSave(all);
+}
+
+/** 관리자 현장명 override 설정/해제 (빈 문자열 = 해제 → 다시 공통정보 우선).
+ *  자동 저장 경로와 분리된 별도 필드라, 항목 토글 등 일반 저장에 영향받지 않음. */
+export async function setSiteOverride(receiptNo: string, siteName: string, userName = ''): Promise<boolean> {
+  const body = { receiptNo, userName, action: 'site-override', siteName };
+  if (await isServerOk()) {
+    try {
+      const res = await fetch(API_BASE, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (res.ok) return true;
+    } catch { _serverOk = false; }
+  }
+  // 폴백: localStorage
+  const all = lsGetAll();
+  const idx = all.findIndex(e => e.receiptNo === receiptNo);
+  if (idx >= 0) all[idx] = { ...all[idx], siteOverride: siteName, siteOverrideAt: Date.now() };
+  else all.push({ receiptNo, userName, p1Sent:false, p2Sent:false, p3Sent:false, p4Sent:false, p5Sent:false, updatedAt: Date.now(), siteOverride: siteName, siteOverrideAt: Date.now() });
+  lsSave(all);
+  return true;
 }
 
 /** 접수번호 삭제 */

@@ -32,7 +32,7 @@ import { getKakaoAddress, searchAddressByKeyword, enforceFullRegionPrefix } from
 import { getAllLocations, saveLocation, deleteLocation, deleteLocationsByBase, reverseGeocode, getCurrentPosition, isValidReceiptId, setLocationUserName, type LocationEntry } from './services/locationService';
 import ApplicationOcrSection, { type Application } from './components/ApplicationOcrSection';
 import { supabase } from './services/supabaseClient';
-import { getAllJobStatuses, saveJobStatus, deleteJobStatus, type JobStatusEntry } from './services/jobStatusService';
+import { getAllJobStatuses, saveJobStatus, deleteJobStatus, setSiteOverride, type JobStatusEntry } from './services/jobStatusService';
 import ExtraPhotoModal from './components/ExtraPhotoModal';
 import type { ExtraPhotoItem } from './shared/types';
 
@@ -524,6 +524,17 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const finalSiteLocation = useMemo(() => siteName.trim(), [siteName]);
 
+  // 관리자가 작업관리에서 지정한 현장명 override (공통정보보다 우선). 접수번호 정확/베이스 매칭, 없으면 ''.
+  const overrideFor = (rn: string): string => {
+    if (!rn) return '';
+    const base = (x: string) => x.split('-').slice(0, 3).join('-');
+    const b = base(rn);
+    for (const s of jobStatuses) {
+      if (s.siteOverride && (s.receiptNo === rn || base(s.receiptNo) === b)) return s.siteOverride;
+    }
+    return '';
+  };
+
   const toggleSection = useCallback((sectionName: string) => {
     setOpenSections(prev => prev.includes(sectionName)
       ? prev.filter(s => s !== sectionName)
@@ -909,14 +920,14 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
               return uploadPhotoToServer(receiptToSave, photo, pageCode, {
                 userName,
                 comment,
-                siteLocation: job.siteLocation || siteName,
+                siteLocation: overrideFor(receiptToSave) || job.siteLocation || siteName,
                 selectedItem: job.selectedItem || job.mainItemKey || pageCode,
                 inspectionDate: job.inspectionStartDate || job.postInspectionDate || '',
                 // 위치 자동 저장: GPS 주소가 있으면 업로드 시 서버에 저장
                 address:  currentGpsAddress.trim() || undefined,
                 lat:      coords?.lat,
                 lng:      coords?.lng,
-                siteName: siteName.trim() || undefined,
+                siteName: overrideFor(receiptToSave) || siteName.trim() || undefined,
               }).catch(e => console.warn(`[${pageCode} 사진저장 실패]`, e.message));
             })
           );
@@ -1034,7 +1045,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             const comment = photo.uid ? (job.photoComments || {})[photo.uid] : undefined;
             return uploadPhotoToServer(receipt, photo, pageCode, {
               userName, comment,
-              siteLocation: job.siteLocation || siteName,
+              siteLocation: overrideFor(receipt) || job.siteLocation || siteName,
               selectedItem: job.selectedItem || job.mainItemKey || pageCode,
               inspectionDate: job.inspectionStartDate || job.postInspectionDate || '',
               address:  currentGpsAddress.trim() || undefined,
@@ -2585,12 +2596,29 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       });
                     };
 
-                    // 접수번호(그룹)의 현장명 찾기: 저장된 작업상태 → 현재 세션 작업 → 신청목록 순
+                    // 관리자 현장명 수정(override). 공통정보보다 우선, 비우면 해제. 최신 입력이 우선.
+                    const handleEditGroupSite = async (parentKey: string, _children: string[], currentSite: string) => {
+                      const input = window.prompt(
+                        `"${parentKey}" 현장명을 입력하세요.\n(비우고 확인 → 관리자 지정 해제, 다시 공통정보 우선)`,
+                        currentSite || '');
+                      if (input === null) return;   // 취소
+                      const val = input.trim();
+                      const ok = await setSiteOverride(parentKey, val, userName);
+                      if (!ok) { alert('현장명 저장 실패'); return; }
+                      const at = Date.now();
+                      setJobStatuses(prev => {
+                        const idx = prev.findIndex(s => s.receiptNo === parentKey);
+                        if (idx >= 0) { const n = [...prev]; n[idx] = { ...n[idx], siteOverride: val, siteOverrideAt: at }; return n; }
+                        return [...prev, { receiptNo: parentKey, userName, p1Sent:false, p2Sent:false, p3Sent:false, p4Sent:false, p5Sent:false, updatedAt: at, siteOverride: val, siteOverrideAt: at }];
+                      });
+                    };
+
+                    // 접수번호(그룹) 현장명 우선순위: 관리자 override → (작업 중)공통정보 → 세션 작업 → 신청목록
                     const getGroupSiteName = (parentKey: string, children: string[]): string => {
-                      for (const rn of children) {
-                        const js = jobStatuses.find(s => s.receiptNo === rn && s.siteName);
-                        if (js?.siteName) return js.siteName;
-                      }
+                      const ov = overrideFor(parentKey) || children.map(overrideFor).find(Boolean);
+                      if (ov) return ov;                                                   // 1) 관리자 override
+                      if ((parentKey === receiptNumber || children.includes(receiptNumber)) && finalSiteLocation)
+                        return finalSiteLocation;                                          // 2) 현재 작업 중 공통정보
                       const allJobs: any[] = [
                         ...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs,
                         ...(drinkingWaterJobs as any[]), ...(csvGraphJobs as any[]),
@@ -2651,6 +2679,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                                     <span className="font-bold text-sky-300">{parentKey}</span>
                                     {groupSite && <span className="text-slate-300 font-normal ml-1.5">· {groupSite}</span>}
                                   </span>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); handleEditGroupSite(parentKey, children, groupSite); }}
+                                    className="shrink-0 px-1.5 py-0.5 text-[10px] text-slate-500 hover:text-sky-300 hover:bg-sky-900/30 rounded border border-transparent hover:border-sky-700/40 transition-colors"
+                                    title={`"${parentKey}" 현장명 수정 (관리자 지정 → 공통정보보다 우선)`}
+                                  >✏️</button>
                                   <button
                                     onClick={e => { e.stopPropagation(); handleDeleteGroup(parentKey, children); }}
                                     className="shrink-0 px-1.5 py-0.5 text-[10px] text-slate-500 hover:text-red-400 hover:bg-red-900/30 rounded border border-transparent hover:border-red-700/40 transition-colors"
@@ -2878,12 +2911,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                             })()}
                             {loc.id}
                             {(() => {
-                              // 우선순위: 1) 현재 작업 중 공통 정보 2) DB 저장값 3) applications.site_name
+                              // 우선순위: 1) 관리자 override 2) 현재 작업 중 공통정보 3) DB 저장값 4) applications.site_name
                               const baseId = loc.id.split('-').slice(0,3).join('-');
                               const appMatch = applications.find(a => a.receipt_no === baseId || a.receipt_no === loc.id);
-                              const displayName = (loc.id === receiptNumber && finalSiteLocation)
-                                ? finalSiteLocation
-                                : (loc.siteName || appMatch?.site_name || '');
+                              const displayName = overrideFor(loc.id)
+                                || ((loc.id === receiptNumber && finalSiteLocation)
+                                  ? finalSiteLocation
+                                  : (loc.siteName || appMatch?.site_name || ''));
                               return displayName
                                 ? <span className="ml-1.5 text-[10px] font-normal text-slate-400">{displayName}</span>
                                 : null;

@@ -1334,7 +1334,7 @@ Required output:
               if (isValidFormat) {
                 // 이미 시퀀스 포함 시 그대로, 없으면 -1 추가
                 const limsclientId = hasSequence ? rcpn : `${rcpn}-1`;
-                const res = await fetch(`https://mobile.ktl.re.kr/labview/api/limsclient/${limsclientId}`);
+                const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(limsclientId)}`);
                 const data = await res.json();
                 if (data.Success !== true) {
                   ktlReceiptWarning = `🚨 접수번호 KTL 미등록: "${baseRcpn}"은(는) KTL 시스템에 존재하지 않는 접수번호입니다. 그래도 전송하시겠습니까?`;
@@ -1458,7 +1458,7 @@ Required output:
             }
             try {
                 const limsclientId = hasSequence ? rcpn : `${rcpn}-1`;
-                const res = await fetch(`https://mobile.ktl.re.kr/labview/api/limsclient/${limsclientId}`);
+                const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(limsclientId)}`);
                 const data = await res.json();
                 if (data.Success !== true) {
                     allWarnings.unshift(`🚨 KTL 미등록 접수번호: "${baseRcpn}" - KTL 시스템에 존재하지 않습니다.`);
