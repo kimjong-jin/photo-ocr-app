@@ -6,7 +6,7 @@ interface MapViewProps {
   longitude: number;
   onAddressSelect?: (address: string, lat: number, lng: number) => void;
   /** 이미 저장된 위치들 — 지도에 현장명 라벨로 표시(클릭 시 그 위치·주소 재사용) */
-  savedLocations?: { id: string; lat: number; lng: number; siteName?: string; address?: string }[];
+  savedLocations?: { id: string; lat: number; lng: number; siteName?: string; address?: string; category?: string }[];
 }
 
 const DEFAULT_LAT = 37.5665;
@@ -154,18 +154,23 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
       if (cancelled || !lat || !lng) return;
       const pos = new window.kakao.maps.LatLng(lat, lng);
       const el = document.createElement("div");
-      // 반투명 라벨 — 지도를 가리지 않고 '참고용'으로만. 마우스 오버 시 또렷하게.
+      // 수질인데 꼬리번호(-N)가 붙은 비정상 데이터 → 빨강 경고. 그 외엔 분야색(먹는물=파랑/수질=초록) 테두리.
+      // 반투명 라벨 — 지도를 가리지 않고 '참고용'. 마우스 오버 시 또렷하게.
+      const hasTailError = items.some((it) => it.category === '수질' && String(it.id).split('-').length >= 4);
+      const cat = items.find((it) => it.category)?.category;
+      const borderColor = hasTailError ? '#ef4444' : cat === '먹는물' ? 'rgba(59,130,246,0.75)' : 'rgba(16,185,129,0.6)';
+      const bgColor = hasTailError ? 'rgba(127,29,29,0.72)' : 'rgba(17,24,39,0.55)';
       el.style.cssText =
-        "background:rgba(17,24,39,0.55);color:#fff;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid rgba(16,185,129,0.6);box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;transform:translateY(-4px);opacity:0.65;transition:opacity .15s;";
+        `background:${bgColor};color:#fff;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid ${borderColor};box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;transform:translateY(-4px);opacity:0.65;transition:opacity .15s;`;
       el.addEventListener("mouseenter", () => { el.style.opacity = "1"; });
       el.addEventListener("mouseleave", () => { el.style.opacity = "0.65"; });
 
       const labels = items.map((item) => item.siteName || item.id).filter(Boolean);
       const uniqueLabels = [...new Set(labels)];
-      el.textContent = `📍 ${uniqueLabels.join(" / ")}`;
+      el.textContent = `${hasTailError ? '⚠️' : '📍'} ${uniqueLabels.join(" / ")}`;
 
       const tooltips = items.map((item) => `${item.id}${item.address ? ` (${item.address})` : ''}`).join("\n");
-      el.title = `${tooltips}\n클릭 → 이 위치·주소 사용`;
+      el.title = `${hasTailError ? '⚠️ 수질 꼬리번호 오류 — 접수번호 확인 필요\n' : ''}${tooltips}\n클릭 → 이 위치·주소 사용`;
 
       el.addEventListener("click", () => {
         const marker = markerRef.current;

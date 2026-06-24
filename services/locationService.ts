@@ -188,7 +188,12 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
   try {
     const res = await fetch(
       `https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${lng}&y=${lat}`,
-      { headers: { Authorization: `KakaoAK ${(import.meta as any).env?.VITE_KAKAO_REST_API_KEY || ''}` } }
+      {
+        headers: {
+          Authorization: `KakaoAK ${(import.meta as any).env?.VITE_KAKAO_REST_API_KEY || ''}`,
+          'Accept-Language': 'ko-KR,ko;q=0.9'
+        }
+      }
     );
     if (!res.ok) throw new Error('geocode fail');
     const data = await res.json();

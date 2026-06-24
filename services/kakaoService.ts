@@ -168,7 +168,10 @@ async function safeFetch(
     await rateLimit();
 
     const res = await fetch(url, {
-      headers: { Authorization: `KakaoAK ${apiKey}` },
+      headers: {
+        Authorization: `KakaoAK ${apiKey}`,
+        'Accept-Language': 'ko-KR,ko;q=0.9'
+      },
       signal: controller?.signal,
     });
 

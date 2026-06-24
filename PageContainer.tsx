@@ -3103,7 +3103,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         const baseId = l.id.split('-').slice(0, 3).join('-');
                         const appMatch = applications.find(a => a.receipt_no === baseId || a.receipt_no === l.id);
                         const resolvedSiteName = overrideFor(l.id) || l.siteName || appMatch?.site_name || '';
-                        return { id: l.id, lat: l.lat, lng: l.lng, siteName: resolvedSiteName, address: l.address };
+                        return { id: l.id, lat: l.lat, lng: l.lng, siteName: resolvedSiteName, address: l.address, category: fieldOf(l) };
                       })}
                     />
                   </div>
