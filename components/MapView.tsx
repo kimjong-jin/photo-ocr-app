@@ -154,12 +154,20 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
       if (cancelled || !lat || !lng) return;
       const pos = new window.kakao.maps.LatLng(lat, lng);
       const el = document.createElement("div");
-      // 수질인데 꼬리번호(-N)가 붙은 비정상 데이터 → 빨강 경고. 그 외엔 분야색(먹는물=파랑/수질=초록) 테두리.
-      // 반투명 라벨 — 지도를 가리지 않고 '참고용'. 마우스 오버 시 또렷하게.
-      const hasTailError = items.some((it) => it.category === '수질' && String(it.id).split('-').length >= 4);
+      // 신호등: 검사 주기(수질 1년/먹는물 2년) 대비 마지막 검사 경과로 색. 같은 현장(좌표 클러스터)의 최신 검사년 기준.
+      // 초록=정상 / 노랑=검사 임박 / 빨강=지연·미신청 의심. 수질 꼬리번호 오류는 ⚠️로 별도 표시.
+      const currentYear = new Date().getFullYear();
+      const yearOf = (id: string) => { const yy = parseInt(String(id).slice(0, 2), 10); return isNaN(yy) ? 0 : 2000 + yy; };
+      const latestYear = Math.max(0, ...items.map((it) => yearOf(it.id)));
       const cat = items.find((it) => it.category)?.category;
-      const borderColor = hasTailError ? '#ef4444' : cat === '먹는물' ? 'rgba(59,130,246,0.75)' : 'rgba(16,185,129,0.6)';
-      const bgColor = hasTailError ? 'rgba(127,29,29,0.72)' : 'rgba(17,24,39,0.55)';
+      const cycle = cat === '먹는물' ? 2 : 1;
+      const gap = latestYear ? currentYear - latestYear : 99;
+      const light = gap <= cycle - 1 ? '정상' : gap === cycle ? '임박' : '지연';
+      const hasTailError = items.some((it) => it.category === '수질' && String(it.id).split('-').length >= 4);
+      const lightColor = light === '정상' ? '#10b981' : light === '임박' ? '#f59e0b' : '#ef4444';
+      const lightBg = light === '정상' ? 'rgba(6,78,59,0.5)' : light === '임박' ? 'rgba(120,53,15,0.5)' : 'rgba(127,29,29,0.6)';
+      const borderColor = hasTailError ? '#ef4444' : lightColor;
+      const bgColor = hasTailError ? 'rgba(127,29,29,0.72)' : lightBg;
       el.style.cssText =
         `background:${bgColor};color:#fff;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid ${borderColor};box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;transform:translateY(-4px);opacity:0.65;transition:opacity .15s;`;
       el.addEventListener("mouseenter", () => { el.style.opacity = "1"; });
@@ -167,10 +175,15 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
 
       const labels = items.map((item) => item.siteName || item.id).filter(Boolean);
       const uniqueLabels = [...new Set(labels)];
-      el.textContent = `${hasTailError ? '⚠️' : '📍'} ${uniqueLabels.join(" / ")}`;
+      const lightIcon = hasTailError ? '⚠️' : light === '지연' ? '🔴' : light === '임박' ? '🟡' : '🟢';
+      el.textContent = `${lightIcon} ${uniqueLabels.join(" / ")}`;
 
       const tooltips = items.map((item) => `${item.id}${item.address ? ` (${item.address})` : ''}`).join("\n");
-      el.title = `${hasTailError ? '⚠️ 수질 꼬리번호 오류 — 접수번호 확인 필요\n' : ''}${tooltips}\n클릭 → 이 위치·주소 사용`;
+      const statusTxt = light === '지연' ? '⚠️ 지연/미신청 의심' : light === '임박' ? '검사 임박' : '정상';
+      el.title =
+        `${hasTailError ? '⚠️ 수질 꼬리번호 오류 — 접수번호 확인 필요\n' : ''}` +
+        `최근 검사 ${latestYear || '?'}년 · ${statusTxt} (${cat || '수질'} ${cycle}년주기)\n` +
+        `${tooltips}\n클릭 → 이 위치·주소 사용`;
 
       el.addEventListener("click", () => {
         const marker = markerRef.current;
