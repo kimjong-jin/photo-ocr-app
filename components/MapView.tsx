@@ -5,18 +5,22 @@ interface MapViewProps {
   latitude: number;
   longitude: number;
   onAddressSelect?: (address: string, lat: number, lng: number) => void;
+  /** 이미 저장된 위치들 — 지도에 현장명 라벨로 표시(클릭 시 그 위치·주소 재사용) */
+  savedLocations?: { id: string; lat: number; lng: number; siteName?: string; address?: string }[];
 }
 
 const DEFAULT_LAT = 37.5665;
 const DEFAULT_LNG = 126.978;
 
-const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect }) => {
+const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect, savedLocations }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   // ✅ map/marker는 ref로 유지 (재렌더/의존성 문제 줄임)
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   const clickListenerRef = useRef<any>(null);
+  const overlaysRef = useRef<any[]>([]);
+  const [mapReady, setMapReady] = useState(false);
 
   const [searchInput, setSearchInput] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -90,6 +94,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
 
         mapRef.current = mapInstance;
         markerRef.current = markerInstance;
+        setMapReady(true);
       });
     };
 
@@ -133,6 +138,36 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect 
     map.setCenter(coords);
     marker.setPosition(coords);
   }, [latitude, longitude]);
+
+  // ✅ 저장된 위치들을 현장명 라벨로 표시 (검색 무관 — 저장 좌표·이름 그대로. 먹는물 배수지 등도 가능)
+  //    라벨 클릭 → 그 위치·주소를 바로 사용(같은 현장 중복/주소 불일치 방지)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !window.kakao?.maps) return;
+    overlaysRef.current.forEach((o) => o.setMap(null));
+    overlaysRef.current = [];
+    (savedLocations || []).forEach((loc) => {
+      if (!loc || !loc.lat || !loc.lng) return;
+      const pos = new window.kakao.maps.LatLng(loc.lat, loc.lng);
+      const el = document.createElement("div");
+      el.style.cssText =
+        "background:#111827;color:#fff;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid #10b981;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer;transform:translateY(-4px);";
+      el.textContent = `📍 ${loc.siteName || loc.id}`;
+      el.title = `${loc.id}\n${loc.address || ""}\n클릭 → 이 위치·주소 사용`;
+      el.addEventListener("click", () => {
+        const marker = markerRef.current;
+        if (marker) marker.setPosition(pos);
+        map.setCenter(pos);
+        if (loc.address) {
+          setCurrentGpsAddress(loc.address);
+          onSelectRef.current?.(loc.address, loc.lat, loc.lng);
+        }
+      });
+      const overlay = new window.kakao.maps.CustomOverlay({ position: pos, content: el, yAnchor: 1.4, zIndex: 5, clickable: true });
+      overlay.setMap(map);
+      overlaysRef.current.push(overlay);
+    });
+  }, [savedLocations, mapReady]);
 
   // ✅ 검색 실행
   const handleSearch = async () => {

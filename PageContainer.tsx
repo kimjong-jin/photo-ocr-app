@@ -2866,7 +2866,19 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                           const matchedSite = [
                             ...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs, ...(drinkingWaterJobs as any[])
                           ].find(j => j.receiptNumber?.startsWith(baseId))?.siteLocation || siteName || '';
-                          await saveLocation({ id, address: currentGpsAddress.trim(), lat, lng, savedAt: Date.now(), siteName: matchedSite });
+                          // 세부번호(-N) 위치: 현장명 뒤에 괄호 명칭을 추가로 받아 구분 (예: 창녕군청(정수장))
+                          let siteForLoc = matchedSite;
+                          const hasSeq = id.split('-').length >= 4;
+                          if (hasSeq) {
+                            const label = window.prompt(
+                              `"${id}" 세부 위치 명칭을 입력하세요.\n현장명 뒤에 괄호로 붙습니다: ${matchedSite || '(현장명)'}(○○)\n예: 정수장, 1호기, 배수지명 등`,
+                              ''
+                            );
+                            if (label === null) return; // 취소 → 저장 안 함 (finally가 isLocSaving 해제)
+                            const t = label.trim();
+                            siteForLoc = t ? `${matchedSite}(${t})` : matchedSite;
+                          }
+                          await saveLocation({ id, address: currentGpsAddress.trim(), lat, lng, savedAt: Date.now(), siteName: siteForLoc });
                           const all = await getAllLocations();
                           setLocationList(all);
                           // 저장 후 위치(주소) 자동 초기화 — 주소가 다음 작업에 잘못 따라붙는 것 방지
@@ -3008,6 +3020,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       latitude={coords.lat}
                       longitude={coords.lng}
                       onAddressSelect={(addr, lat, lng) => { setCurrentGpsAddress(addr); setCoords({ lat, lng }); }}
+                      savedLocations={locationList.filter(l => l.lat && l.lng).map(l => ({ id: l.id, lat: l.lat, lng: l.lng, siteName: l.siteName, address: l.address }))}
                     />
                   </div>
                 )}
