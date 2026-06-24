@@ -835,6 +835,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       if (allItems.size <= 1) {
         setDraftMessage({ type: 'error', text: '저장할 데이터가 없습니다.' });
         setIsSaving(false);
+        isSavingRef.current = false;
         return;
       }
 
