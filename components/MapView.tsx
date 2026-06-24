@@ -139,16 +139,19 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
     marker.setPosition(coords);
   }, [latitude, longitude]);
 
-  // ✅ 저장된 위치들을 현장명 라벨로 표시 (검색 무관 — 저장 좌표·이름 그대로. 먹는물 배수지 등도 가능)
-  //    라벨 클릭 → 그 위치·주소를 바로 사용(같은 현장 중복/주소 불일치 방지)
+  // ✅ DB에 저장된 위치 전부를 현장명 라벨로 표시. 좌표 있으면 그대로, 좌표 없고 주소만 있으면 지오코딩.
+  //    검색 무관(먹는물 배수지 등도 가능). 라벨 클릭 → 그 위치·주소 재사용(같은 현장 중복/주소 불일치 방지)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !window.kakao?.maps) return;
     overlaysRef.current.forEach((o) => o.setMap(null));
     overlaysRef.current = [];
-    (savedLocations || []).forEach((loc) => {
-      if (!loc || !loc.lat || !loc.lng) return;
-      const pos = new window.kakao.maps.LatLng(loc.lat, loc.lng);
+    let cancelled = false;
+    const geocoder = window.kakao.maps.services ? new window.kakao.maps.services.Geocoder() : null;
+
+    const placeOverlay = (loc: any, lat: number, lng: number) => {
+      if (cancelled || !lat || !lng) return;
+      const pos = new window.kakao.maps.LatLng(lat, lng);
       const el = document.createElement("div");
       el.style.cssText =
         "background:#111827;color:#fff;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid #10b981;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer;transform:translateY(-4px);";
@@ -160,13 +163,30 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
         map.setCenter(pos);
         if (loc.address) {
           setCurrentGpsAddress(loc.address);
-          onSelectRef.current?.(loc.address, loc.lat, loc.lng);
+          onSelectRef.current?.(loc.address, lat, lng);
         }
       });
       const overlay = new window.kakao.maps.CustomOverlay({ position: pos, content: el, yAnchor: 1.4, zIndex: 5, clickable: true });
       overlay.setMap(map);
       overlaysRef.current.push(overlay);
+    };
+
+    (savedLocations || []).forEach((loc) => {
+      if (!loc) return;
+      if (loc.lat && loc.lng) {
+        placeOverlay(loc, loc.lat, loc.lng);
+      } else if (loc.address && geocoder) {
+        // 좌표 없는 DB 위치: 주소를 지오코딩해서 마커 표시
+        geocoder.addressSearch(loc.address.trim(), (result: any[], status: any) => {
+          if (cancelled) return;
+          if (status === window.kakao.maps.services.Status.OK && result[0]) {
+            placeOverlay(loc, parseFloat(result[0].y), parseFloat(result[0].x));
+          }
+        });
+      }
     });
+
+    return () => { cancelled = true; };
   }, [savedLocations, mapReady]);
 
   // ✅ 검색 실행
