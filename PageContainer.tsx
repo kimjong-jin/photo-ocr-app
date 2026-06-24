@@ -193,6 +193,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [locReceiptInput, setLocReceiptInput] = useState('');
   const [locDetailInput, setLocDetailInput] = useState('');
   const [isLocSaving, setIsLocSaving] = useState(false);
+  const [locFieldFilter, setLocFieldFilter] = useState<'전체' | '수질' | '먹는물'>('전체');
   const [locationList, setLocationList] = useState<LocationEntry[]>([]);
 
   // 로그인한 사용자 이름을 위치 서비스에 주입 → 사용자별 위치 분리
@@ -550,6 +551,27 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       if (s.siteOverride && (s.receiptNo === rn || base(s.receiptNo) === b)) return s.siteOverride;
     }
     return '';
+  };
+
+  // ── 위치 분야(수질/먹는물) ──────────────────────────────────
+  // 항목 기준: TU·Cl·TU/CL = 먹는물, 나머지(TOC·TN·TP·SS·pH·COD·DO) = 수질. 사용자 수정(category) 우선.
+  const fieldFromItem = (item?: string): '수질' | '먹는물' | '' => {
+    const c = String(item || '').toUpperCase().replace(/\s/g, '');
+    if (!c) return '';
+    return (c === 'TU' || c === 'CL' || c === 'TU/CL') ? '먹는물' : '수질';
+  };
+  const itemForReceipt = (id: string): string => {
+    const baseId = id.split('-').slice(0, 3).join('-');
+    const j: any = [
+      ...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs, ...(drinkingWaterJobs as any[]), ...(csvGraphJobs as any[]),
+    ].find((j: any) => j.receiptNumber === id || j.receiptNumber?.startsWith(baseId));
+    return j?.mainItemKey || j?.selectedItem || '';
+  };
+  const fieldOf = (loc: { id: string; category?: string }): '수질' | '먹는물' => {
+    if (loc.category === '수질' || loc.category === '먹는물') return loc.category; // 사용자 수정 우선
+    const byItem = fieldFromItem(itemForReceipt(loc.id));
+    if (byItem) return byItem;
+    return loc.id.split('-').length >= 4 ? '먹는물' : '수질'; // 폴백: 세부번호 유무
   };
 
   const toggleSection = useCallback((sectionName: string) => {
@@ -2866,7 +2888,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                           const matchedSite = [
                             ...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs, ...(drinkingWaterJobs as any[])
                           ].find(j => j.receiptNumber?.startsWith(baseId))?.siteLocation || siteName || '';
-                          await saveLocation({ id, address: currentGpsAddress.trim(), lat, lng, savedAt: Date.now(), siteName: matchedSite });
+                          // 분야 자동 분류: 항목(TU·Cl=먹는물, 그외=수질) 기준. 못 정하면 빈값(서버가 기존 유지)
+                          const autoCat = fieldFromItem(itemForReceipt(id));
+                          await saveLocation({ id, address: currentGpsAddress.trim(), lat, lng, savedAt: Date.now(), siteName: matchedSite, category: autoCat });
                           const all = await getAllLocations();
                           setLocationList(all);
                           // 저장 후 위치(주소) 자동 초기화 — 주소가 다음 작업에 잘못 따라붙는 것 방지
@@ -2886,12 +2910,30 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                   </div>
                 </div>
 
+                {/* 분야 필터 (수질/먹는물/전체) */}
+                {locationList.length > 0 && (
+                  <div className="flex items-center gap-1 mb-1">
+                    {(['전체', '수질', '먹는물'] as const).map(f => (
+                      <button
+                        key={f}
+                        onClick={() => setLocFieldFilter(f)}
+                        className={`px-2 py-0.5 text-[10px] font-semibold rounded-md border transition-colors ${
+                          locFieldFilter === f
+                            ? (f === '먹는물' ? 'bg-blue-600 border-blue-500 text-white' : f === '수질' ? 'bg-teal-600 border-teal-500 text-white' : 'bg-slate-600 border-slate-500 text-white')
+                            : 'bg-slate-800/60 border-slate-700/40 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >{f}{f !== '전체' ? ` ${locationList.filter(l => fieldOf(l) === f).length}` : ` ${locationList.length}`}</button>
+                    ))}
+                  </div>
+                )}
+
                 {/* 저장된 위치 목록 */}
                 {locationList.length === 0 ? (
                   <p className="text-center text-[11px] text-slate-600 py-1">저장된 위치 없음</p>
                 ) : (
                   <div className="space-y-1 max-h-52 overflow-y-auto">
                     {[...locationList]
+                      .filter(loc => locFieldFilter === '전체' || fieldOf(loc) === locFieldFilter)
                       .sort((a, b) => {
                         const idxA = applications.findIndex(ap => ap.receipt_no === a.id.split('-').slice(0,3).join('-') || ap.receipt_no === a.id);
                         const idxB = applications.findIndex(ap => ap.receipt_no === b.id.split('-').slice(0,3).join('-') || ap.receipt_no === b.id);
@@ -2956,6 +2998,21 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                           </p>
                           <p className="text-[10px] text-slate-400 truncate">{loc.address}</p>
                         </button>
+                        {/* 분야 배지 — 클릭 시 수질↔먹는물 수동 전환(override 저장) */}
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const next = fieldOf(loc) === '먹는물' ? '수질' : '먹는물';
+                            await saveLocation({ ...loc, category: next });
+                            setLocationList(await getAllLocations());
+                          }}
+                          title="분야 전환 (수질 ↔ 먹는물)"
+                          className={`shrink-0 px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
+                            fieldOf(loc) === '먹는물'
+                              ? 'bg-blue-900/50 border-blue-600/60 text-blue-200'
+                              : 'bg-teal-900/50 border-teal-600/60 text-teal-200'
+                          }`}
+                        >{fieldOf(loc)}</button>
                         <button
                           onClick={async () => {
                             if (!window.confirm(`"${loc.id}" 위치를 영구 삭제하시겠습니까?`)) return;
@@ -3008,7 +3065,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       latitude={coords.lat}
                       longitude={coords.lng}
                       onAddressSelect={(addr, lat, lng) => { setCurrentGpsAddress(addr); setCoords({ lat, lng }); }}
-                      savedLocations={locationList.filter(l => (l.lat && l.lng) || l.address?.trim()).map(l => ({ id: l.id, lat: l.lat, lng: l.lng, siteName: l.siteName, address: l.address }))}
+                      savedLocations={locationList.filter(l => ((l.lat && l.lng) || l.address?.trim()) && (locFieldFilter === '전체' || fieldOf(l) === locFieldFilter)).map(l => ({ id: l.id, lat: l.lat, lng: l.lng, siteName: l.siteName, address: l.address }))}
                     />
                   </div>
                 )}

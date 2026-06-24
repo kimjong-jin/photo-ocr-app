@@ -16,6 +16,7 @@ export interface LocationEntry {
   lng: number;
   savedAt: number;
   siteName?: string; // 현장명 (저장 시 함께 보관)
+  category?: string; // 분야: '수질' | '먹는물' (항목 기반 자동분류, 사용자 수정 가능)
 }
 
 // ── 현재 로그인 사용자 이름 (PageContainer에서 주입) ─────────────

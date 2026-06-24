@@ -154,8 +154,11 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
       if (cancelled || !lat || !lng) return;
       const pos = new window.kakao.maps.LatLng(lat, lng);
       const el = document.createElement("div");
+      // 반투명 라벨 — 지도를 가리지 않고 '참고용'으로만. 마우스 오버 시 또렷하게.
       el.style.cssText =
-        "background:#111827;color:#fff;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid #10b981;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer;transform:translateY(-4px);";
+        "background:rgba(17,24,39,0.55);color:#fff;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid rgba(16,185,129,0.6);box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;transform:translateY(-4px);opacity:0.65;transition:opacity .15s;";
+      el.addEventListener("mouseenter", () => { el.style.opacity = "1"; });
+      el.addEventListener("mouseleave", () => { el.style.opacity = "0.65"; });
 
       const labels = items.map((item) => item.siteName || item.id).filter(Boolean);
       const uniqueLabels = [...new Set(labels)];
