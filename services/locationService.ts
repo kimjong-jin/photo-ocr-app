@@ -116,6 +116,20 @@ export async function getAllLocations(): Promise<LocationEntry[]> {
   return idbGetAll();
 }
 
+/** 지도 마커용: 전체 사용자 위치 조회 (참고용). 목록/저장은 본인 것만 쓰는 getAllLocations 사용. */
+export async function getAllLocationsAllUsers(): Promise<LocationEntry[]> {
+  if (await isServerAvailable()) {
+    try {
+      const res = await fetch(`${API_BASE}?all=1`);
+      if (!res.ok) throw new Error('server error');
+      return await res.json() as LocationEntry[];
+    } catch {
+      _serverAvailable = false;
+    }
+  }
+  return idbGetAll();   // 폴백: 로컬(본인 것만)
+}
+
 export async function saveLocation(entry: LocationEntry): Promise<void> {
   const un = getUN();
   if (!un) { await idbPut(entry); return; }

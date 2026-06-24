@@ -29,7 +29,7 @@ import {
 } from './shared/StructuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
 import { getKakaoAddress, searchAddressByKeyword, enforceFullRegionPrefix } from './services/kakaoService';
-import { getAllLocations, saveLocation, deleteLocation, deleteLocationsByBase, reverseGeocode, getCurrentPosition, isValidReceiptId, setLocationUserName, type LocationEntry } from './services/locationService';
+import { getAllLocations, getAllLocationsAllUsers, saveLocation, deleteLocation, deleteLocationsByBase, reverseGeocode, getCurrentPosition, isValidReceiptId, setLocationUserName, type LocationEntry } from './services/locationService';
 import ApplicationOcrSection, { type Application } from './components/ApplicationOcrSection';
 import { supabase } from './services/supabaseClient';
 import { getAllJobStatuses, saveJobStatus, deleteJobStatus, setSiteOverride, type JobStatusEntry } from './services/jobStatusService';
@@ -194,6 +194,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [locDetailInput, setLocDetailInput] = useState('');
   const [isLocSaving, setIsLocSaving] = useState(false);
   const [locFieldFilter, setLocFieldFilter] = useState<'전체' | '수질' | '먹는물'>('전체');
+  const [allLocations, setAllLocations] = useState<LocationEntry[]>([]);   // 지도 마커용: 전체 사용자 위치(참고)
   const [locationList, setLocationList] = useState<LocationEntry[]>([]);
 
   // 로그인한 사용자 이름을 위치 서비스에 주입 → 사용자별 위치 분리
@@ -206,6 +207,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   }, [userName]);
 
   useEffect(() => { if (!userName) getAllLocations().then(setLocationList); }, []);
+
+  // 지도 마커용: 전체 사용자 위치(참고용) — 본인 목록(locationList) 변경 시마다 갱신
+  useEffect(() => { getAllLocationsAllUsers().then(setAllLocations); }, [locationList]);
 
   const [openSections, setOpenSections] = useState<string[]>([]);
 
@@ -3028,7 +3032,25 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
                 {/* 현재 작업 GPS 주소 직접 입력 */}
                 <div className="border-t border-slate-700/40 pt-2 space-y-1.5">
-                  <p className="text-[10px] text-slate-500">현재 작업 GPS 주소</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] text-slate-500">현재 작업 GPS 주소</p>
+                    {locationList.length > 0 && (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[9px] text-slate-500">지도:</span>
+                        {(['전체', '수질', '먹는물'] as const).map(f => (
+                          <button
+                            key={f}
+                            onClick={() => setLocFieldFilter(f)}
+                            className={`px-1.5 py-0.5 text-[10px] font-semibold rounded border transition-colors ${
+                              locFieldFilter === f
+                                ? (f === '먹는물' ? 'bg-blue-600 border-blue-500 text-white' : f === '수질' ? 'bg-teal-600 border-teal-500 text-white' : 'bg-slate-600 border-slate-500 text-white')
+                                : 'bg-slate-800/60 border-slate-700/40 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >{f}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <input
                     type="text"
                     id="current-gps-address"
@@ -3065,7 +3087,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       latitude={coords.lat}
                       longitude={coords.lng}
                       onAddressSelect={(addr, lat, lng) => { setCurrentGpsAddress(addr); setCoords({ lat, lng }); }}
-                      savedLocations={locationList.filter(l => ((l.lat && l.lng) || l.address?.trim()) && (locFieldFilter === '전체' || fieldOf(l) === locFieldFilter)).map(l => {
+                      savedLocations={allLocations.filter(l => ((l.lat && l.lng) || l.address?.trim()) && (locFieldFilter === '전체' || fieldOf(l) === locFieldFilter)).map(l => {
                         const baseId = l.id.split('-').slice(0, 3).join('-');
                         const appMatch = applications.find(a => a.receipt_no === baseId || a.receipt_no === l.id);
                         const resolvedSiteName = overrideFor(l.id) || l.siteName || appMatch?.site_name || '';
