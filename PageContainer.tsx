@@ -39,6 +39,17 @@ import type { ExtraPhotoItem } from './shared/types';
 type Page = 'photoLog' | 'drinkingWater' | 'fieldCount' | 'structuralCheck' | 'kakaoTalk' | 'csvGraph';
 export type ApiMode = 'gemini' | 'vllm';
 
+export function normalizeReceiptNumberComponent(str: string): string {
+  if (!str) return '';
+  // 1) Full-width numbers to half-width numbers
+  let normalized = str.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+  // 2) Full-width hyphens, en-dash, em-dash, minus to standard hyphen
+  normalized = normalized.replace(/[－—–−]/g, '-');
+  // 3) Strip all spaces and non-breaking spaces
+  normalized = normalized.replace(/[\s\u00a0\u3000]/g, '');
+  return normalized;
+}
+
 interface PageContainerProps {
   userName: string;
   userRole: UserRole;
@@ -107,8 +118,14 @@ const TrashIcon: React.FC = () => (
 
 const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userContact, onLogout }) => {
   const [activePage, setActivePage] = useState<Page>('structuralCheck');
-  const [receiptNumberCommon, setReceiptNumberCommon] = useState('');
-  const [receiptNumberDetail, setReceiptNumberDetail] = useState('');
+  const [receiptNumberCommon, _setReceiptNumberCommon] = useState('');
+  const [receiptNumberDetail, _setReceiptNumberDetail] = useState('');
+  const setReceiptNumberCommon = useCallback((val: string) => {
+    _setReceiptNumberCommon(normalizeReceiptNumberComponent(val));
+  }, []);
+  const setReceiptNumberDetail = useCallback((val: string) => {
+    _setReceiptNumberDetail(normalizeReceiptNumberComponent(val).replace(/[^0-9]/g, ''));
+  }, []);
   const [siteName, setSiteName] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
