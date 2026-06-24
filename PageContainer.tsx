@@ -193,7 +193,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [locReceiptInput, setLocReceiptInput] = useState('');
   const [locDetailInput, setLocDetailInput] = useState('');
   const [isLocSaving, setIsLocSaving] = useState(false);
-  const [locFieldFilter, setLocFieldFilter] = useState<'전체' | '수질' | '먹는물'>('전체');
+  const [locFieldFilter, setLocFieldFilter] = useState<'없음' | '전체' | '수질' | '먹는물'>('없음');
   const [allLocations, setAllLocations] = useState<LocationEntry[]>([]);   // 지도 마커용: 전체 사용자 위치(참고)
   const [locationList, setLocationList] = useState<LocationEntry[]>([]);
 
@@ -2917,7 +2917,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 {/* 분야 필터 (수질/먹는물/전체) */}
                 {locationList.length > 0 && (
                   <div className="flex items-center gap-1 mb-1">
-                    {(['전체', '수질', '먹는물'] as const).map(f => (
+                    {(['없음', '전체', '수질', '먹는물'] as const).map(f => (
                       <button
                         key={f}
                         onClick={() => setLocFieldFilter(f)}
@@ -2926,7 +2926,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                             ? (f === '먹는물' ? 'bg-blue-600 border-blue-500 text-white' : f === '수질' ? 'bg-teal-600 border-teal-500 text-white' : 'bg-slate-600 border-slate-500 text-white')
                             : 'bg-slate-800/60 border-slate-700/40 text-slate-400 hover:text-slate-200'
                         }`}
-                      >{f}{f !== '전체' ? ` ${locationList.filter(l => fieldOf(l) === f).length}` : ` ${locationList.length}`}</button>
+                      >{(f === '수질' || f === '먹는물') ? `${f} ${locationList.filter(l => fieldOf(l) === f).length}` : f === '전체' ? `${f} ${locationList.length}` : f}</button>
                     ))}
                   </div>
                 )}
@@ -2937,7 +2937,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 ) : (
                   <div className="space-y-1 max-h-52 overflow-y-auto">
                     {[...locationList]
-                      .filter(loc => locFieldFilter === '전체' || fieldOf(loc) === locFieldFilter)
+                      .filter(loc => locFieldFilter === '전체' || locFieldFilter === '없음' || fieldOf(loc) === locFieldFilter)
                       .sort((a, b) => {
                         const idxA = applications.findIndex(ap => ap.receipt_no === a.id.split('-').slice(0,3).join('-') || ap.receipt_no === a.id);
                         const idxB = applications.findIndex(ap => ap.receipt_no === b.id.split('-').slice(0,3).join('-') || ap.receipt_no === b.id);
@@ -3037,7 +3037,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     {locationList.length > 0 && (
                       <div className="flex items-center gap-1">
                         <span className="text-[9px] text-slate-500">지도:</span>
-                        {(['전체', '수질', '먹는물'] as const).map(f => (
+                        {(['없음', '전체', '수질', '먹는물'] as const).map(f => (
                           <button
                             key={f}
                             onClick={() => setLocFieldFilter(f)}
@@ -3087,7 +3087,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       latitude={coords.lat}
                       longitude={coords.lng}
                       onAddressSelect={(addr, lat, lng) => { setCurrentGpsAddress(addr); setCoords({ lat, lng }); }}
-                      savedLocations={allLocations.filter(l => ((l.lat && l.lng) || l.address?.trim()) && (locFieldFilter === '전체' || fieldOf(l) === locFieldFilter)).map(l => {
+                      savedLocations={(locFieldFilter === '없음' ? [] : allLocations.filter(l => ((l.lat && l.lng) || l.address?.trim()) && (locFieldFilter === '전체' || fieldOf(l) === locFieldFilter))).map(l => {
                         const baseId = l.id.split('-').slice(0, 3).join('-');
                         const appMatch = applications.find(a => a.receipt_no === baseId || a.receipt_no === l.id);
                         const resolvedSiteName = overrideFor(l.id) || l.siteName || appMatch?.site_name || '';
