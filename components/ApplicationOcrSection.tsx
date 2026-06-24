@@ -93,6 +93,16 @@ const PlusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
+// 접수번호 정규화: 전각숫자→반각, 비표준 하이픈→'-', 모든 공백(NBSP 포함) 제거.
+// (PageContainer.normalizeReceiptNumberComponent 와 동일 규칙 — 순환 import 방지 위해 로컬 복제)
+function normalizeReceiptNo(str?: string): string {
+  if (!str) return '';
+  let n = String(str).replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+  n = n.replace(/[－—–−]/g, '-');
+  n = n.replace(/[\s 　]/g, '');
+  return n;
+}
+
 const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   userName,
   userContact,
@@ -541,11 +551,21 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
 
       const ocrResult = {
         ...rawOcrResult,
+        receipt_no: normalizeReceiptNo(rawOcrResult.receipt_no),
         site_name: sanitizeSiteName(rawOcrResult.site_name),
         representative_name: cleanPersonName(rawOcrResult.representative_name),
         applicant_name: cleanPersonName(rawOcrResult.applicant_name),
         applicant_phone: normalizeMobile(rawOcrResult.applicant_phone),
       };
+
+      // 본인 중복 차단: 같은 사용자가 이미 보유한 접수번호는 불가 (다른 관리자는 같은 번호 보유 가능)
+      const ocrDup = applications.find(
+        (a) => (a.user_name || '') === userName && normalizeReceiptNo(a.receipt_no) === ocrResult.receipt_no,
+      );
+      if (ocrResult.receipt_no && ocrDup) {
+        setError(`이미 ${userName}님이 접수번호 '${ocrResult.receipt_no}'를 보유 중입니다 — 본인 중복은 불가합니다. (다른 관리자는 같은 번호 보유 가능)`);
+        return;
+      }
 
       const newApp = {
         ...ocrResult,
@@ -667,12 +687,19 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       setError('접수번호와 현장명은 필수 항목입니다.');
       return;
     }
+    const newRcpn = normalizeReceiptNo(newApplicationData.receipt_no);
+    // 본인 중복 차단: 같은 사용자가 이미 보유한 접수번호는 불가 (다른 관리자는 같은 번호 보유 가능)
+    if (applications.find((a) => (a.user_name || '') === userName && normalizeReceiptNo(a.receipt_no) === newRcpn)) {
+      setError(`이미 ${userName}님이 접수번호 '${newRcpn}'를 보유 중입니다 — 본인 중복은 불가합니다.`);
+      return;
+    }
     clearMessages();
     setIsProcessing(true);
 
     try {
       const dataToInsert: any = {
         ...newApplicationData,
+        receipt_no: newRcpn,
         user_name: userName,
         queue_slot: newApplicationData.queue_slot
           ? Number(newApplicationData.queue_slot)
@@ -823,8 +850,17 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     const { id: appId, created_at, user_name, ...dataToUpdate } =
       editedData as Application;
 
+    const editRcpn = normalizeReceiptNo(dataToUpdate.receipt_no);
+    // 본인 중복 차단: 이 행의 소유자가 (이 행을 제외하고) 같은 접수번호를 이미 보유하면 불가
+    const owner = applications.find((a) => a.id === id)?.user_name || '';
+    if (editRcpn && applications.find((a) => a.id !== id && (a.user_name || '') === owner && normalizeReceiptNo(a.receipt_no) === editRcpn)) {
+      setError(`${owner || '이 사용자'}님이 이미 접수번호 '${editRcpn}'를 보유 중입니다 — 본인 중복은 불가합니다.`);
+      return;
+    }
+
     const finalData = {
       ...dataToUpdate,
+      ...(dataToUpdate.receipt_no !== undefined ? { receipt_no: editRcpn } : {}),
       queue_slot: dataToUpdate.queue_slot
         ? Number(dataToUpdate.queue_slot)
         : null,
