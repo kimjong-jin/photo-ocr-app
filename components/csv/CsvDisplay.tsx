@@ -833,7 +833,10 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
           ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2;
           ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-          ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 9px Inter'; ctx.textAlign = 'center';
+          ctx.font = 'bold 9px Inter'; ctx.textAlign = 'center';
+          ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 3;
+          ctx.strokeText(label, px, py - 12);
+          ctx.fillStyle = '#f8fafc';
           ctx.fillText(label, px, py - 12); ctx.restore();
         }
       });
