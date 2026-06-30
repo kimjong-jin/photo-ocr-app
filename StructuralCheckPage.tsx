@@ -377,21 +377,32 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
   currentGpsAddress, locationList = [], applications, selectedApplication, onSaveDraft, onLoadDraft, onSaveAllDrafts, onLoadAllDrafts, draftMessage, isSavingDraft, isLoadingDraft,
   onOpenExtraPhotoModal,
 }) => {
-  // 접수번호별 "등록된" 전송 주소: 정확 일치 → 베이스(-01) 폴백. 없으면 '' (폼 폴백 없음 — 일괄에서 타 접수번호 주소 오발송 방지)
+  // 먹는물 판정: 위치 category 우선, 없으면 항목(TU·Cl) 기준. 먹는물은 꼬리번호마다 위치가 달라 베이스 폴백 금지.
+  const isDrinkingId = useCallback((receipt: string): boolean => {
+    const loc = locationList.find(l => l.id === receipt);
+    if (loc?.category === '먹는물') return true;
+    if (loc?.category === '수질') return false;
+    const job: any = jobs.find((j: any) => j.receiptNumber === receipt);
+    const code = String(job?.mainItemKey || job?.selectedItem || '').toUpperCase().replace(/\s/g, '');
+    return code === 'TU' || code === 'CL' || code === 'TU/CL';
+  }, [locationList, jobs]);
+  // 접수번호별 "등록된" 전송 주소: 정확 일치 → (수질만)베이스(-01) 폴백. 먹는물은 정확매칭만(폴백 시 타 시설 주소 오발송 방지). 없으면 ''.
   const resolveSendAddress = useCallback((receipt: string): string => {
     if (!receipt) return '';
     const exact = locationList.find(l => l.id === receipt);
     if (exact?.address?.trim()) return exact.address.trim();
+    if (isDrinkingId(receipt)) return '';   // 먹는물: 베이스 폴백 금지
     const base = receipt.split('-').slice(0, 3).join('-');
     const baseMatch = locationList.find(l => l.id === base);
     return (baseMatch?.address || '').trim();
-  }, [locationList]);
-  // 등록된 위치(정확/베이스)가 있는지 — 누락 알람용
+  }, [locationList, isDrinkingId]);
+  // 등록된 위치가 있는지 — 누락 알람용. 먹는물은 정확매칭만, 수질은 베이스 폴백 허용.
   const hasRegisteredLocation = useCallback((receipt: string): boolean => {
     if (!receipt) return false;
+    if (isDrinkingId(receipt)) return !!locationList.find(l => l.id === receipt && l.address?.trim());
     const base = receipt.split('-').slice(0, 3).join('-');
     return !!locationList.find(l => (l.id === receipt || l.id === base) && l.address?.trim());
-  }, [locationList]);
+  }, [locationList, isDrinkingId]);
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const activeJobFileInputRef = useRef<HTMLInputElement>(null);
   const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
