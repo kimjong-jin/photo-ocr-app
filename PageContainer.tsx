@@ -702,7 +702,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   // 접수번호가 바뀌면 위치 도우미 입력 + 저장된 위치 자동 로드
   useEffect(() => {
     if (!receiptNumber) return;
-    setLocReceiptInput(receiptNumber);
+    // 수질은 현장 1곳이라 위치는 베이스(-01)로 저장 → 세부번호 떼고 채움.
+    // 먹는물(TU·Cl)은 시설별 위치라 세부번호 그대로 유지.
+    const fld = fieldFromItem(newItemKey) || fieldFromItem(itemForReceipt(receiptNumber));
+    const locId = (fld === '먹는물') ? receiptNumber : receiptNumber.split('-').slice(0, 3).join('-');
+    setLocReceiptInput(locId);
 
     // 저장된 목록에서 이 접수번호(또는 base)로 매칭되는 위치 자동 로드
     const exact = locationList.find(l => l.id === receiptNumber);
@@ -723,7 +727,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         if (matched.lat && matched.lng) setCoords({ lat: matched.lat, lng: matched.lng });
       });
     }
-  }, [receiptNumber, locationList]);
+  }, [receiptNumber, locationList, newItemKey]);
 
   const getReceiptNumberForSaveLoad = useCallback(() => {
     let rn: string | null = receiptNumber;
