@@ -2875,14 +2875,22 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         const id = (locReceiptInput.trim() || receiptNumber);
                         if (!isValidReceiptId(id)) { alert(`올바르지 않은 형식: ${id}`); return; }
                         // 같은 베이스(-01)의 위치가 이미 있으면 중복 저장 경고 (같은 현장 주소 여러 건 쌓임 방지)
-                        const newBase = id.split('-').slice(0, 3).join('-');
-                        const dupBaseLoc = locationList.find(l => l.id !== id && l.id.split('-').slice(0, 3).join('-') === newBase && (l.address || '').trim());
+                        // 단, 먹는물(세부 번호가 있거나 먹는물 분야)의 경우는 각 세부 접수번호별로 개별 위치를 저장하는 것이 정상이므로 경고를 생략함
+                        const autoCat = fieldFromItem(itemForReceipt(id));
+                        const isDrinkingWater = autoCat === '먹는물' || id.split('-').length >= 4;
+
+                        let dupBaseLoc = null;
+                        if (!isDrinkingWater) {
+                          const newBase = id.split('-').slice(0, 3).join('-');
+                          dupBaseLoc = locationList.find(l => l.id !== id && l.id.split('-').slice(0, 3).join('-') === newBase && (l.address || '').trim());
+                        }
+
                         if (dupBaseLoc) {
                           const ok = window.confirm(
-                            `⚠️ 같은 접수번호(${newBase})의 위치가 이미 저장돼 있습니다:\n` +
+                            `⚠️ 같은 접수번호(${id.split('-').slice(0, 3).join('-')})의 위치가 이미 저장돼 있습니다:\n` +
                             `· ${dupBaseLoc.id} → ${dupBaseLoc.address}\n\n` +
                             `중복 저장하면 같은 현장 주소가 여러 건으로 쌓입니다.\n` +
-                            `보통 베이스(${newBase})로 한 번만 저장하면 하위 세부(-1, -2 …) 전체에 적용됩니다.\n\n` +
+                            `보통 베이스(${id.split('-').slice(0, 3).join('-')})로 한 번만 저장하면 하위 세부(-1, -2 …) 전체에 적용됩니다.\n\n` +
                             `[취소] 저장 안 함 · [확인] 그래도 저장`
                           );
                           if (!ok) return;
