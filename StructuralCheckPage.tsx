@@ -1391,6 +1391,12 @@ Required output:
       setKtlPreflightModalOpen(false);
       return;
     }
+    // 먹는물(TU·Cl)은 전송 전 세부번호(-N) 필수 — 베이스만이면 차단(확정 단계라 강제)
+    if (isDrinkingId(activeJob.receiptNumber) && activeJob.receiptNumber.split('-').length < 4) {
+      alert(`🚰 먹는물은 시설별 세부번호(-1, -2 …)를 지정한 뒤 전송해야 합니다.\n"${activeJob.receiptNumber}" 에 세부번호를 붙여주세요.`);
+      setKtlPreflightModalOpen(false);
+      return;
+    }
     setKtlPreflightModalOpen(false);
 
     const onProgress = (message: string) => {
@@ -1496,6 +1502,14 @@ Required output:
                 `⚠ 전송 전 확인 필요한 항목이 있습니다:\n\n${allWarnings.join('\n')}\n\n그래도 전송하시겠습니까?`
             );
             if (!proceed) return;
+        }
+
+        // 먹는물(TU·Cl) 세부번호(-N) 필수 — 베이스만인 건 있으면 전송 차단(확정 단계)
+        const drinkingBaseOnly = Array.from(new Set(jobs.map(j => j.receiptNumber).filter(Boolean)))
+            .filter(rn => isDrinkingId(rn) && rn.split('-').length < 4);
+        if (drinkingBaseOnly.length > 0) {
+            alert(`🚰 먹는물은 시설별 세부번호(-1, -2 …)를 지정해야 전송됩니다.\n세부번호 없는 건 (${drinkingBaseOnly.length}):\n- ${drinkingBaseOnly.join('\n- ')}`);
+            return;
         }
 
         // 접수번호별 전송 주소(위치 도우미) 누락 검사
