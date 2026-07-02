@@ -1463,17 +1463,28 @@ Required output:
         });
 
         // KTL 실시간 접수번호 존재 여부 확인 (배치)
-        const uniqueReceipts = [...new Set(jobs.map(j => j.receiptNumber?.trim()).filter(Boolean))];
-        for (const rcpn of uniqueReceipts) {
+        // baseRcpn(26-XXXXXX-01) 기준으로 중복 제거 → 같은 현장의 세부번호(-1,-2)가 여러 개 있어도 KTL 조회는 1회
+        const uniqueBaseRcpnMap = new Map<string, string>(); // baseRcpn → 대표 rcpn(KTL 조회용)
+        jobs.forEach(j => {
+            const rcpn = j.receiptNumber?.trim();
+            if (!rcpn) return;
             const parts = rcpn.split('-');
             const hasSequence = parts.length === 4;
-            const baseRcpn = hasSequence ? parts.slice(0, 3).join('-') : rcpn;
+            const base = hasSequence ? parts.slice(0, 3).join('-') : rcpn;
+            if (!uniqueBaseRcpnMap.has(base)) {
+                uniqueBaseRcpnMap.set(base, rcpn); // 베이스당 첫 번째 rcpn만 보관
+            }
+        });
+        for (const [baseRcpn, rcpn] of uniqueBaseRcpnMap.entries()) {
+            const parts = rcpn.split('-');
+            const hasSequence = parts.length === 4;
             const isValidFormat = /^\d{2}-\d{6}-\d{2}$/.test(baseRcpn);
             if (!isValidFormat) {
                 allWarnings.unshift(`🚨 유효하지 않은 접수번호 형식: "${rcpn}"`);
                 continue;
             }
             try {
+                // 세부번호가 있으면 그대로, 없으면 -1 붙여 KTL 조회
                 const limsclientId = hasSequence ? rcpn : `${rcpn}-1`;
                 const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(limsclientId)}`);
                 const data = await res.json();
