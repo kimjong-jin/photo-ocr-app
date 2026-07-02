@@ -1343,11 +1343,14 @@ Required output:
               const baseRcpn = hasSequence ? parts.slice(0, 3).join('-') : rcpn;
               const isValidFormat = /^\d{2}-\d{6}-\d{2}$/.test(baseRcpn);
               if (isValidFormat) {
-                // 이미 시퀀스 포함 시 그대로, 없으면 -1 추가
-                const limsclientId = hasSequence ? rcpn : `${rcpn}-1`;
+                // 존재확인은 항상 base-1로 probe (모든 유효 접수번호는 -1 회차 보유. 내부 세부번호는
+                // KTL 회차와 안 맞을 수 있어 오탐 발생 → base-1 고정)
+                const limsclientId = `${baseRcpn}-1`;
                 const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(limsclientId)}`);
                 const data = await res.json();
-                if (data.Success !== true) {
+                // Success 타입 불안정(true / "false") — 명시적 false일 때만 미등록. 애매/오류 응답은 오탐 방지 위해 통과.
+                const notFound = data && (data.Success === false || data.Success === 'false');
+                if (notFound) {
                   ktlReceiptWarning = `🚨 접수번호 KTL 미등록: "${baseRcpn}"은(는) KTL 시스템에 존재하지 않는 접수번호입니다. 그래도 전송하시겠습니까?`;
                 }
               } else {
@@ -1476,19 +1479,18 @@ Required output:
             }
         });
         for (const [baseRcpn, rcpn] of uniqueBaseRcpnMap.entries()) {
-            const parts = rcpn.split('-');
-            const hasSequence = parts.length === 4;
             const isValidFormat = /^\d{2}-\d{6}-\d{2}$/.test(baseRcpn);
             if (!isValidFormat) {
                 allWarnings.unshift(`🚨 유효하지 않은 접수번호 형식: "${rcpn}"`);
                 continue;
             }
             try {
-                // 세부번호가 있으면 그대로, 없으면 -1 붙여 KTL 조회
-                const limsclientId = hasSequence ? rcpn : `${rcpn}-1`;
+                // 존재확인은 항상 base-1로 probe (내부 세부번호가 KTL 회차와 안 맞아 생기는 오탐 방지)
+                const limsclientId = `${baseRcpn}-1`;
                 const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(limsclientId)}`);
                 const data = await res.json();
-                if (data.Success !== true) {
+                // 명시적 false일 때만 미등록. 애매/이상 응답은 오탐 방지 위해 통과.
+                if (data && (data.Success === false || data.Success === 'false')) {
                     allWarnings.unshift(`🚨 KTL 미등록 접수번호: "${baseRcpn}" - KTL 시스템에 존재하지 않습니다.`);
                 }
             } catch {

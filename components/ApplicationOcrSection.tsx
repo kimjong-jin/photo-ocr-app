@@ -200,7 +200,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
           const isValidFormat = /^\d{2}-\d{6}-\d{2}$/.test(baseRcpn);
           if (!isValidFormat) return { receipt_no: rcpn, exists: false, ktlInfo: null };
           try {
-            const limsclientId = hasSequence ? rcpn : `${rcpn}-1`;
+            // 존재확인은 항상 base-1로 probe (내부 세부번호가 KTL 회차와 안 맞아 생기는 오탐 방지)
+            const limsclientId = `${baseRcpn}-1`;
             const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(limsclientId)}`);
             const data = await res.json();
             const isSuccess = data.Success === true || data.Success === 'true' || data.Success === 'True';
