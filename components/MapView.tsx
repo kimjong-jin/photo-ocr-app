@@ -26,6 +26,12 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [currentGpsAddress, setCurrentGpsAddress] = useState<string>("");
 
+  // 지도 제공자 토글: 카카오(편집)·네이버·구글(보기)
+  const [mapProvider, setMapProvider] = useState<'kakao' | 'naver' | 'google'>('kakao');
+  const naverContainerRef = useRef<HTMLDivElement>(null);
+  const naverMapRef = useRef<any>(null);
+  const naverMarkerRef = useRef<any>(null);
+
   // ✅ 최신 콜백 유지 (effect deps에서 빼도 최신 함수 호출)
   const onSelectRef = useRef<MapViewProps["onAddressSelect"]>(onAddressSelect);
   useEffect(() => {
@@ -301,9 +307,98 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
     setSearchResults([]);
   };
 
+  // 네이버 지도(NCP) — 'naver' 선택 시 SDK 로드 후 초기화/센터 갱신
+  useEffect(() => {
+    if (mapProvider !== 'naver') return;
+    const cid = import.meta.env.VITE_NAVER_MAPS_CLIENT_ID;
+    if (!cid) { console.warn('[MapView] VITE_NAVER_MAPS_CLIENT_ID 미설정'); return; }
+    const lat = latitude || DEFAULT_LAT, lng = longitude || DEFAULT_LNG;
+    const init = () => {
+      const nmaps = (window as any).naver?.maps;
+      if (!nmaps || !naverContainerRef.current) return;
+      const c = new nmaps.LatLng(lat, lng);
+      if (!naverMapRef.current) {
+        naverMapRef.current = new nmaps.Map(naverContainerRef.current, { center: c, zoom: 16 });
+        naverMarkerRef.current = new nmaps.Marker({ position: c, map: naverMapRef.current });
+      } else {
+        naverMapRef.current.setCenter(c);
+        naverMarkerRef.current.setPosition(c);
+      }
+    };
+    if ((window as any).naver?.maps) { init(); return; }
+    let s = document.getElementById('naver-map-script') as HTMLScriptElement | null;
+    if (!s) {
+      s = document.createElement('script');
+      s.id = 'naver-map-script';
+      s.src = `https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${cid}`;
+      s.onload = init;
+      document.head.appendChild(s);
+    } else {
+      s.addEventListener('load', init);
+      setTimeout(init, 400);
+    }
+  }, [mapProvider, latitude, longitude]);
+
+  // GPS: 현재 위치 잡아 카카오 지도 센터/마커 + 주소 역지오코딩
+  const handleGps = useCallback(() => {
+    if (!navigator.geolocation) { alert('GPS 미지원 기기입니다.'); return; }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        if (mapRef.current && markerRef.current && window.kakao?.maps) {
+          const c = new window.kakao.maps.LatLng(lat, lng);
+          mapRef.current.setCenter(c); markerRef.current.setPosition(c);
+        }
+        if (naverMapRef.current && (window as any).naver?.maps) {
+          const nc = new (window as any).naver.maps.LatLng(lat, lng);
+          naverMapRef.current.setCenter(nc); naverMarkerRef.current?.setPosition(nc);
+        }
+        await reverseGeocodeSafe(lat, lng);
+      },
+      () => alert('현재 위치를 가져올 수 없습니다. (위치 권한 확인)'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }, [reverseGeocodeSafe]);
+
+  const gLat = latitude || DEFAULT_LAT, gLng = longitude || DEFAULT_LNG;
+  const googleKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
+
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
-      <div ref={mapContainerRef} style={{ width: "100%", height: "400px" }} />
+      <div style={{ position: "relative", width: "100%", height: "400px" }}>
+        <div ref={mapContainerRef} style={{ width: "100%", height: "400px", display: mapProvider === 'kakao' ? 'block' : 'none' }} />
+        {/* 네이버 지도 (보기용) */}
+        <div ref={naverContainerRef} style={{ position: "absolute", inset: 0, display: mapProvider === 'naver' ? 'block' : 'none' }} />
+        {/* 구글 지도 (iframe 임베드, 보기용) */}
+        {mapProvider === 'google' && (
+          googleKey ? (
+            <iframe
+              title="google-map"
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}
+              loading="lazy"
+              src={`https://www.google.com/maps/embed/v1/view?key=${googleKey}&center=${gLat},${gLng}&zoom=16&maptype=roadmap`}
+            />
+          ) : (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#888", fontSize: 13 }}>구글 지도 키 미설정</div>
+          )
+        )}
+        {/* 제공자 토글 + GPS (우상단) */}
+        <div style={{ position: "absolute", top: 10, right: 10, zIndex: 11, display: "flex", gap: 4 }}>
+          {([['kakao', '카카오', '#FEE500', '#3c1e1e'], ['naver', '네이버', '#03C75A', '#fff'], ['google', '구글', '#4285F4', '#fff']] as const).map(([p, label, bg, fg]) => (
+            <button key={p} onClick={() => setMapProvider(p)}
+              style={{ padding: "5px 9px", fontSize: 12, fontWeight: 700, borderRadius: 6, border: mapProvider === p ? '2px solid #111' : '1px solid rgba(0,0,0,0.2)', background: mapProvider === p ? bg : 'rgba(255,255,255,0.85)', color: mapProvider === p ? fg : '#333', cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }}>
+              {label}
+            </button>
+          ))}
+          <button onClick={handleGps} title="현재 위치(GPS)"
+            style={{ padding: "5px 9px", fontSize: 12, fontWeight: 700, borderRadius: 6, border: '1px solid rgba(0,0,0,0.2)', background: "rgba(255,255,255,0.9)", color: "#2563eb", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }}>📍GPS</button>
+        </div>
+        {mapProvider !== 'kakao' && (
+          <div style={{ position: "absolute", bottom: 8, left: 8, zIndex: 11, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 10, padding: "2px 6px", borderRadius: 4 }}>
+            {mapProvider === 'naver' ? '네이버' : '구글'} 보기 · 편집(클릭선택)은 카카오에서
+          </div>
+        )}
+      </div>
 
       <div
         style={{
