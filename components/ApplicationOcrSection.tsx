@@ -61,6 +61,9 @@ function buildSiteSearchTerms(raw: string): string[] {
   return [...new Set(ordered)].filter(t => t && t.length >= 2);
 }
 
+// 먹는물 여부: 접수번호에 세부순번(-N)이 붙어 4파트면 먹는물(주소·현장 역검색 제외, 대표자·대표전화만)
+const isEatWaterReceipt = (receiptNo: string): boolean => (receiptNo || '').split('-').length === 4;
+
 // 한국 전화번호 하이픈 포맷: '0522310114' → '052-231-0114'
 function formatKoreanPhone(raw: string): string {
   const s = (raw || '').trim();
@@ -1053,10 +1056,11 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     const phone = top?.phone || (res.ai?.phone || '');
     const address = top?.road_address_name || top?.address_name || (res.ai?.address ? enforceFullRegionPrefix(res.ai.address) : '');
     const rep = res.ai?.representative || '';
+    const eatWater = isEatWaterReceipt(app.receipt_no); // 먹는물은 주소 제외
     let n = 0;
     if (rep && await applyField(app, 'representative_name', rep, true)) n++;
     if (phone && await applyField(app, 'representative_phone', phone, true)) n++;
-    if (address && await applyField(app, 'site_address', address, true)) n++;
+    if (address && !eatWater && await applyField(app, 'site_address', address, true)) n++;
     if (n > 0) { clearMessages(); setSuccessMessage(`검증 항목 ${n}개 전체 적용(저장) 완료`); }
   };
 
@@ -1535,8 +1539,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                       <td className="px-3 py-2 text-slate-300 align-top w-24 max-w-[7rem] overflow-hidden">
                         <div className="flex items-start gap-1">
                           <span className="break-words min-w-0" title={app.representative_name}>{app.representative_name}</span>
-                          {/* 수질(베이스 접수번호)만 역검색 버튼 노출 — 먹는물(세부순번 -N, 4파트)은 직접 확인하므로 제외 */}
-                          {(app.receipt_no || '').split('-').length !== 4 && (
+                          {/* 🔍 역검색: 수질=현장·주소·대표자·대표전화 전부 / 먹는물(세부순번 -N)=대표자·대표전화만 */}
+                          {true && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleCompanyLookup(app, e); }}
                               disabled={lookupId === app.id}
@@ -1574,7 +1578,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                               <button onClick={() => setLookupOpenId(null)} className="text-slate-400 hover:text-white text-base px-2 py-0.5 -my-0.5">✕</button>
                             </div>
                             <p className="text-[10px] text-amber-400 mb-2 leading-tight">
-                              현장명 “{app.site_name}” 기준. <b>적용</b>을 누르면 그 칸에 <b>바로 덮어쓰기(저장)</b>됩니다 — 현장·주소·대표자·대표전화. (신청인/휴대폰은 변경 안 함. 대표전화는 유선번호, 010 아님)
+                              현장명 “{app.site_name}” 기준. <b>적용</b>을 누르면 바로 덮어쓰기(저장). {isEatWaterReceipt(app.receipt_no) ? <>먹는물(세부 {app.receipt_no.split('-').pop()})이라 <b>대표자·대표전화만</b> — 주소·현장은 직접 확인.</> : <>현장·주소·대표자·대표전화.</>} (신청인/휴대폰은 변경 안 함)
                             </p>
                             {/* 카카오 = 현장 위치(주소)·대표전화. 대표전화칸에만 적용, 신청인 휴대폰칸엔 절대 안 씀. */}
                             <div className="mb-2">
@@ -1586,11 +1590,12 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                   <div key={i} className="py-1 border-b border-slate-800 last:border-0">
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[11px] text-slate-200 truncate">{k.place_name}</span>
-                                      {k.place_name && (
+                                      {k.place_name && !isEatWaterReceipt(app.receipt_no) && (
                                         <button onClick={() => applyField(app, 'site_name', k.place_name)}
                                           className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="현장(현장명)에 덮어쓰기">현장 적용 ↩</button>
                                       )}
                                     </div>
+                                    {!isEatWaterReceipt(app.receipt_no) && (
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[10px] text-slate-400 truncate">📍 {k.road_address_name || k.address_name || '주소 없음'}</span>
                                       {(k.road_address_name || k.address_name) && (
@@ -1598,6 +1603,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                           className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="현장 주소에 덮어쓰기">주소 적용 ↩</button>
                                       )}
                                     </div>
+                                    )}
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[10px] text-slate-400">📞 {k.phone || '번호 없음'}</span>
                                       {k.phone && (
@@ -1636,6 +1642,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                       >대표전화 적용 ↩</button>
                                     )}
                                   </div>
+                                  {!isEatWaterReceipt(app.receipt_no) && (
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-[11px] text-slate-300">주소: <b className="text-slate-100 break-words">{lookupResult[app.id].ai!.address ? enforceFullRegionPrefix(lookupResult[app.id].ai!.address) : '—'}</b></span>
                                     {lookupResult[app.id].ai!.address && (
@@ -1646,6 +1653,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                       >주소 적용 ↩</button>
                                     )}
                                   </div>
+                                  )}
                                   {lookupResult[app.id].ai!.companyName && (
                                     <div className="text-[10px] text-slate-500">법인: {lookupResult[app.id].ai!.companyName}</div>
                                   )}
