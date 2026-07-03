@@ -20,7 +20,8 @@ function regionOf(addr: string): string {
 function phoneRegionOk(addr: string, phone: string): boolean {
   const d = (phone || '').replace(/[^\d]/g, '');
   if (!d) return true;
-  if (/^(1588|1544|1566|1577|1600|1661|1670|1899|1800|1811|080|070)/.test(d)) return true;
+  // 지역번호 없는 특수번호는 대조 예외(허용): 전국대표(15xx/16xx/18xx), 인터넷(070), 개인(050X), 수신자부담(080)
+  if (/^(15\d\d|16\d\d|18\d\d|070|050|080)/.test(d)) return true;
   if (d.startsWith('010')) return false;
   const expected = regionOf(addr);
   if (!expected) return true; // 주소 지역 모르면 통과
