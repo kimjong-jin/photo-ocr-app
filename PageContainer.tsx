@@ -1995,9 +1995,26 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       setIsFetchingAddress(false);
     };
 
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
-      enableHighAccuracy: true, timeout: 10000, maximumAge: 0,
-    });
+    // 고정밀 우선 시도 → 실패(맥 데스크톱 등 kCLErrorLocationUnknown)면 저정밀+캐시허용으로 1회 재시도
+    const tryGet = (highAccuracy: boolean) => {
+      navigator.geolocation.getCurrentPosition(
+        onSuccess,
+        (error) => {
+          if (highAccuracy && error.code !== error.PERMISSION_DENIED) {
+            console.warn("GPS 고정밀 실패 → 저정밀·캐시허용으로 재시도");
+            tryGet(false);
+            return;
+          }
+          onError(error);
+        },
+        {
+          enableHighAccuracy: highAccuracy,
+          timeout: highAccuracy ? 8000 : 15000,
+          maximumAge: highAccuracy ? 0 : 60000,
+        }
+      );
+    };
+    tryGet(true);
   }, []);
 
   const handleSearchAddress = useCallback(async () => {
