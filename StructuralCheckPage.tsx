@@ -358,7 +358,7 @@ interface StructuralCheckPageProps {
   onDeleteJob: (jobId: string) => void;
   currentGpsAddress: string;
   /** 위치 도우미에 저장된 주소 목록 (접수번호별 전송 주소 매칭용) */
-  locationList?: { id: string; address: string; lat?: number; lng?: number }[];
+  locationList?: { id: string; address: string; lat?: number; lng?: number; category?: string }[];
   applications: Application[];
   selectedApplication: Application | null;
   onSaveDraft?: (receipt?: string) => void;  // 빠른 저장 버튼용
