@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { ActionButton } from './ActionButton';
 import { ImageInput, ImageInfo } from './ImageInput';
 import { Spinner } from './Spinner';
@@ -1232,7 +1233,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                       '현장': 'w-48',
                       '대표자': 'w-24',
                       '대표전화': 'w-28',
-                      '신청인': 'w-22',
+                      '신청인': 'w-[5.5rem]',
                       '휴대폰': 'w-28',
                       '이메일': 'w-40',
                     };
@@ -1478,7 +1479,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                             </button>
                           )}
                         </div>
-                        {lookupOpenId === app.id && lookupResult[app.id] && (
+                        {lookupOpenId === app.id && lookupResult[app.id] && createPortal(
                           <div
                             className={`fixed z-[9999] bg-slate-900 border border-slate-600 rounded-lg shadow-2xl p-3 text-left font-sans normal-case whitespace-normal max-h-[75vh] overflow-y-auto ${lookupAnchor ? 'w-80 max-w-[92vw]' : 'w-[94vw]'}`}
                             style={lookupAnchor
@@ -1548,7 +1549,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                 <div className="text-[11px] text-slate-500">{lookupId === app.id ? '조회 중…' : '추정 결과 없음'}</div>
                               )}
                             </div>
-                          </div>
+                          </div>,
+                          document.body,
                         )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-300 min-w-[8rem]">
