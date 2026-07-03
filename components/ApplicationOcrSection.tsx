@@ -1651,7 +1651,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                           )}
                                         </div>
                                         <div className="text-[10px] text-slate-300">📍 카카오: {kk?.address || '—'}</div>
-                                        {nn && <div className="text-[10px] text-slate-300">📍 네이버: {nn.address || '—'}</div>}
+                                        <div className="text-[10px] text-slate-300">📍 네이버: {nn?.address || '—'}</div>
                                         <div className="text-[10px] text-slate-300">📍 구글: {gg?.address || '—'}</div>
                                       </div>
                                       {/* 전화 대조 */}
@@ -1664,7 +1664,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                           )}
                                         </div>
                                         <div className="text-[10px] text-slate-300">📞 카카오: {kk?.phone || '—'}</div>
-                                        {nn && <div className="text-[10px] text-slate-300">📞 네이버: {nn.phone || '—'}</div>}
+                                        <div className="text-[10px] text-slate-300">📞 네이버: {nn?.phone || '—'}</div>
                                         <div className="text-[10px] text-slate-300">📞 구글: {gg?.phone || '—'}</div>
                                       </div>
                                     </div>
