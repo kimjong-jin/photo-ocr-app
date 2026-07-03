@@ -9,6 +9,7 @@ import {
   isValidReceiptId,
   getServerStatus,
 } from '../services/locationService';
+import { buildMapLinks } from '../services/mapLinks';
 
 interface LocationManagerProps {
   onSelectLocation?: (entry: LocationEntry) => void;
@@ -268,6 +269,20 @@ export const LocationManager: React.FC<LocationManagerProps> = ({ onSelectLocati
                     </p>
                     <p className="text-[10px] text-slate-400 truncate">{loc.address || '주소 없음'}</p>
                   </button>
+
+                  {/* 지도 교차검증: 카카오·네이버·구글 (좌표 있으면 정확한 핀) */}
+                  {(loc.address || loc.siteName) && (() => {
+                    const m = buildMapLinks({ address: loc.address, lat: loc.lat, lng: loc.lng, name: loc.siteName });
+                    const cls = 'shrink-0 px-1 py-0.5 rounded text-[9px] font-bold leading-none';
+                    const stop = (e: React.MouseEvent) => e.stopPropagation();
+                    return (
+                      <div className="shrink-0 flex items-center gap-0.5" onClick={stop}>
+                        <a href={m.kakao} target="_blank" rel="noopener noreferrer" onClick={stop} title="카카오맵에서 보기" className={`${cls} bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/40`}>카</a>
+                        <a href={m.naver} target="_blank" rel="noopener noreferrer" onClick={stop} title="네이버맵에서 보기" className={`${cls} bg-green-500/20 text-green-300 hover:bg-green-500/40`}>네</a>
+                        <a href={m.google} target="_blank" rel="noopener noreferrer" onClick={stop} title="구글맵에서 보기" className={`${cls} bg-blue-500/20 text-blue-300 hover:bg-blue-500/40`}>구</a>
+                      </div>
+                    );
+                  })()}
 
                   {/* 수정 버튼 */}
                   <button
