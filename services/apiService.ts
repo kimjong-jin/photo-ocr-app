@@ -39,19 +39,27 @@ function trim(s: string) { return (s ?? "").trim(); }
 function hasDetailSegment(no: string) { return /-\d+$/.test(trim(no)); } // 끝이 "-숫자"
 
 // ===== 엔드포인트 (env → 폴백) =====
-const RAW_SAVE_URL =
-  process.env.SAVE_TEMP_API_URL ?? "https://api-2rhr2hjjjq-uc.a.run.app/save-temp";
-const RAW_LOAD_URL =
-  process.env.LOAD_TEMP_API_URL ?? "https://api-2rhr2hjjjq-uc.a.run.app/load-temp";
+// 기본값을 Mac Studio 프록시(같은 도메인 상대경로 /api/save-temp,/api/load-temp)로 이전 — 구 Firebase/Firestore Cloud Run 폐기.
+const RAW_SAVE_URL = process.env.SAVE_TEMP_API_URL ?? "/api/save-temp";
+const RAW_LOAD_URL = process.env.LOAD_TEMP_API_URL ?? "/api/load-temp";
 
-// 잘못 설정된 경로 자동 교정 (예: load에서 /save-temp로 나가려 할 때)
-function ensurePath(urlStr: string, desiredPath: "/save-temp" | "/load-temp") {
+function isAbsolute(u: string) { return /^https?:\/\//i.test(u); }
+
+// 경로 교정. 상대경로(Vercel 프록시)면 desiredPath 그대로 사용, 절대 URL이면 pathname 교정.
+function ensurePath(urlStr: string, desiredPath: "/api/save-temp" | "/api/load-temp") {
+  if (!isAbsolute(urlStr)) return desiredPath;
   const u = new URL(urlStr);
   if (u.pathname !== desiredPath) {
     console.warn(`[apiService] 경로 교정: ${u.pathname} → ${desiredPath}`);
     u.pathname = desiredPath;
   }
   return u.toString();
+}
+
+// 상대/절대 모두 안전하게 URL 객체 생성 (searchParams 조작용)
+function toURL(urlStr: string) {
+  const base = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+  return isAbsolute(urlStr) ? new URL(urlStr) : new URL(urlStr, base);
 }
 
 async function fetchJson(input: RequestInfo | URL, init?: RequestInit) {
@@ -75,7 +83,7 @@ export const callSaveTempApi = async (
   if (!hasDetailSegment(receipt))
     throw new Error(`세부번호가 포함된 접수번호가 필요합니다 (받은 값: "${receipt}")`);
 
-  const SAVE_TEMP_API_URL = ensurePath(RAW_SAVE_URL, "/save-temp");
+  const SAVE_TEMP_API_URL = ensurePath(RAW_SAVE_URL, "/api/save-temp");
   console.log("[SAVE] 호출:", SAVE_TEMP_API_URL, {
     ...payload,
     receipt_no: receipt,
@@ -115,7 +123,7 @@ export const callLoadTempApi = async (
   if (!hasDetailSegment(receipt))
     throw new Error(`세부번호가 포함된 접수번호가 필요합니다 (받은 값: "${receipt}")`);
 
-  const LOAD_TEMP_API_URL = ensurePath(RAW_LOAD_URL, "/load-temp");
+  const LOAD_TEMP_API_URL = ensurePath(RAW_LOAD_URL, "/api/load-temp");
   console.log("[LOAD] 호출:", LOAD_TEMP_API_URL, receipt);
 
   const notFoundError = new Error(
@@ -123,7 +131,7 @@ export const callLoadTempApi = async (
   );
 
   // 1) GET + snake_case
-  const url1 = new URL(LOAD_TEMP_API_URL);
+  const url1 = toURL(LOAD_TEMP_API_URL);
   url1.searchParams.append("receipt_no", receipt);
   if (userName) url1.searchParams.append("user_name", userName);
   url1.searchParams.append("_", Date.now().toString()); // 캐시무효
@@ -139,7 +147,7 @@ export const callLoadTempApi = async (
   // 2) 실패 시 GET + camelCase
   if (!res.ok) {
     console.warn("[LOAD] receipt_no 실패 → receiptNo로 재시도");
-    const url2 = new URL(LOAD_TEMP_API_URL);
+    const url2 = toURL(LOAD_TEMP_API_URL);
     url2.searchParams.append("receiptNo", receipt);
     if (userName) url2.searchParams.append("user_name", userName);
     url2.searchParams.append("_", Date.now().toString());
