@@ -1526,21 +1526,21 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-slate-300 align-top max-w-[13rem]">
-                        <div className="whitespace-nowrap">{app.site_name}</div>
+                      <td className="px-3 py-2 text-slate-300 align-top w-48 max-w-[12rem] overflow-hidden">
+                        <div className="break-words" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={app.site_name}>{app.site_name}</div>
                         {app.site_address && (
                           <div className="text-[10px] text-slate-500 mt-0.5 break-words" title={app.site_address}>📍 {app.site_address}</div>
                         )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
-                        <div className="flex items-center gap-1.5">
-                          <span>{app.representative_name}</span>
+                      <td className="px-3 py-2 text-slate-300 align-top w-24 max-w-[7rem] overflow-hidden">
+                        <div className="flex items-start gap-1">
+                          <span className="break-words min-w-0" title={app.representative_name}>{app.representative_name}</span>
                           {/* 수질(베이스 접수번호)만 역검색 버튼 노출 — 먹는물(세부순번 -N, 4파트)은 직접 확인하므로 제외 */}
                           {(app.receipt_no || '').split('-').length !== 4 && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleCompanyLookup(app, e); }}
                               disabled={lookupId === app.id}
-                              className="p-1 text-sky-400 hover:text-sky-300 rounded-full transition-colors hover:bg-sky-600/30 disabled:opacity-50"
+                              className="shrink-0 p-1 text-sky-400 hover:text-sky-300 rounded-full transition-colors hover:bg-sky-600/30 disabled:opacity-50"
                               title="현장명으로 대표전화·대표자 역검색 (확인용)"
                               aria-label="회사 정보 역검색"
                             >
