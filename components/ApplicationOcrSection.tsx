@@ -336,30 +336,37 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     return () => window.removeEventListener('applicationsUpdated', handleUpdate);
   }, [loadApplications]);
 
+  // 최신 applications를 ref로 보관 (effect 재실행 없이 현재값만 읽기 위함)
+  const applicationsRef = useRef(applications);
+  applicationsRef.current = applications;
+
+  // 작업폼의 현장명(siteNameToSync)을 저장된 목록의 해당 접수에 동기화.
+  // ⚠️ deps에서 applications 제거 — 넣으면 '목록에서 현장명 직접 수정'이 applications 변경을 유발해
+  //    이 effect가 재실행되며 옛 siteNameToSync로 되돌리는 롤백 버그(크롬에서 재현)를 일으킴.
+  //    siteNameToSync가 '실제로 바뀔 때'만 동기화하고, 현재값은 ref로 읽는다.
   useEffect(() => {
     const syncSiteName = async () => {
-      if (appIdToSync !== null && supabase) {
-        const appToUpdate = applications.find((app) => app.id === appIdToSync);
-        if (appToUpdate && appToUpdate.site_name !== siteNameToSync) {
-          const { error } = await supabase
-            .from('applications')
-            .update({ site_name: siteNameToSync })
-            .eq('id', appIdToSync);
-
-          if (!error) {
-            setApplications((prevApps) =>
-              prevApps.map((app) =>
-                app.id === appIdToSync ? { ...app, site_name: siteNameToSync } : app,
-              ),
-            );
-          } else {
-            console.error('Failed to sync site name to Supabase:', error);
-          }
-        }
+      if (appIdToSync === null || !supabase) return;
+      if (!siteNameToSync) return; // 빈 값으로 기존 현장명을 지우지 않음
+      const appToUpdate = applicationsRef.current.find((app) => app.id === appIdToSync);
+      if (!appToUpdate || appToUpdate.site_name === siteNameToSync) return; // 이미 같으면 skip
+      const { error } = await supabase
+        .from('applications')
+        .update({ site_name: siteNameToSync })
+        .eq('id', appIdToSync);
+      if (!error) {
+        setApplications((prevApps) =>
+          prevApps.map((app) =>
+            app.id === appIdToSync ? { ...app, site_name: siteNameToSync } : app,
+          ),
+        );
+      } else {
+        console.error('Failed to sync site name to Supabase:', error);
       }
     };
     syncSiteName();
-  }, [siteNameToSync, appIdToSync, applications, setApplications]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteNameToSync, appIdToSync, setApplications]);
 
   useEffect(() => {
     const syncReceiptNumber = async () => {
