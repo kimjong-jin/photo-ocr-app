@@ -454,9 +454,14 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
     googleOverlaysRef.current = [];
     overlayGroups.forEach((g) => {
       const meta = groupMeta(g.items);
+      // 빨간 기본핀 대신 신호등 색 작은 원(흰 테두리), 이름은 진한 검정 글씨(가독성)
+      const svgUrl = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="7" fill="${meta.borderColor}" stroke="#fff" stroke-width="2.5"/></svg>`
+      );
       const marker = new gm.Marker({
         position: { lat: g.lat, lng: g.lng }, map: googleMapRef.current, title: meta.tooltip,
-        label: { text: `${meta.icon} ${meta.name}`, color: meta.borderColor, fontSize: '11px', fontWeight: '700' },
+        icon: { url: svgUrl, scaledSize: new gm.Size(22, 22), anchor: new gm.Point(11, 11), labelOrigin: new gm.Point(11, 28) },
+        label: { text: meta.name, color: '#111827', fontSize: '11px', fontWeight: '800' },
       });
       marker.addListener('click', () => {
         googleMapRef.current.setCenter({ lat: g.lat, lng: g.lng });
