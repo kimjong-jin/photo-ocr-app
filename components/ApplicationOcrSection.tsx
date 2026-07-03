@@ -1319,7 +1319,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                     const widthMap: Record<string, string> = {
                       'No.': 'w-12',
                       '접수번호': 'w-36',
-                      '현장': 'w-56',
+                      '현장': 'w-64',
                       '대표자': 'w-28',
                       '대표전화': 'w-28',
                       '신청인': 'w-[5.5rem]',
@@ -1547,7 +1547,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-slate-300 align-top w-56 max-w-[14rem] overflow-hidden">
+                      <td className="px-3 py-2 text-slate-300 align-top w-64 max-w-[16rem] overflow-hidden">
                         <div className="break-words text-xs leading-tight" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={app.site_name}>{app.site_name}</div>
 
                       </td>
