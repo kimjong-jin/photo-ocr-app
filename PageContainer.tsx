@@ -1762,6 +1762,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       }
     }
 
+    // 세부(-N) 항목 생성 시, 잘못 남아있는 3파트 base 위치도우미를 삭제.
+    // ※ 세부 위치(-01-1)는 절대 삭제 안 함 — 오직 3파트 base(-01)만. (deleteLocationsByBase는 세부까지 지우므로 안 씀)
+    {
+      const _rp = receiptNumber.trim().split('-');
+      if (_rp.length === 4) {
+        deleteLocation(_rp.slice(0, 3).join('-')).catch(() => {});
+      }
+    }
+
     if (activePage === 'photoLog' || activePage === 'fieldCount') {
       const newJob: PhotoLogJob = {
         id: self.crypto.randomUUID(),
