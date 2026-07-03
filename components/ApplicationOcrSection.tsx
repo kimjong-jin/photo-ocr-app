@@ -168,9 +168,13 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   const [lookupResult, setLookupResult] = useState<Record<number, {
     kakao: { phone: string; place_name: string; road_address_name?: string; address_name?: string }[];
     ai: { representative: string; phone: string; address: string; companyName: string; confidence: string; note: string } | null;
-    // 🗺️ 카카오 vs 구글 대조 (place-consensus)
+    // 🗺️ 카카오 vs 구글 vs 네이버 대조 (place-consensus)
     consensus?: {
-      sources: { kakao: { name: string; address: string; phone: string } | null; google: { name: string; address: string; phone: string } | null };
+      sources: {
+        kakao: { name: string; address: string; phone: string } | null;
+        google: { name: string; address: string; phone: string } | null;
+        naver: { name: string; address: string; phone: string } | null;
+      };
       consensus: { address: string; phone: string; addressAgree: boolean; phoneAgree: boolean; note: string };
     } | null;
     consensusLoading?: boolean;
@@ -1621,9 +1625,10 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                               const cs = r?.consensus?.consensus;
                               const kk = r?.consensus?.sources?.kakao;
                               const gg = r?.consensus?.sources?.google;
+                              const nn = r?.consensus?.sources?.naver;
                               return (
                                 <div className="mb-2 rounded-md border border-slate-700 bg-slate-800/40 p-2">
-                                  <div className="text-[11px] text-slate-300 mb-1 font-semibold">🗺️ 카카오 vs 구글 대조 {cs?.note && <span className="font-normal text-slate-500">— {cs.note}</span>}</div>
+                                  <div className="text-[11px] text-slate-300 mb-1 font-semibold">🗺️ 지도 3사 대조 (합의) {cs?.note && <span className="font-normal text-slate-500">— {cs.note}</span>}</div>
                                   {r?.consensusLoading ? (
                                     <div className="text-[11px] text-slate-500">대조 중…</div>
                                   ) : !r?.consensus ? (
@@ -1640,18 +1645,20 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                           )}
                                         </div>
                                         <div className="text-[10px] text-slate-300">📍 카카오: {kk?.address || '—'}</div>
+                                        {nn && <div className="text-[10px] text-slate-300">📍 네이버: {nn.address || '—'}</div>}
                                         <div className="text-[10px] text-slate-300">📍 구글: {gg?.address || '—'}</div>
                                       </div>
                                       {/* 전화 대조 */}
                                       <div className="border-t border-slate-700/60 pt-1">
                                         <div className="flex items-center gap-1 mb-0.5">
                                           <span className="text-[10px] text-slate-400">대표전화</span>
-                                          <span className={`text-[9px] px-1 rounded ${cs!.phoneAgree ? 'bg-emerald-700/50 text-emerald-200' : 'bg-amber-700/50 text-amber-200'}`}>{cs!.phoneAgree ? '일치 ✓' : (kk?.phone && gg?.phone ? '불일치 ⚠' : '한쪽만')}</span>
+                                          <span className={`text-[9px] px-1 rounded ${cs!.phoneAgree ? 'bg-emerald-700/50 text-emerald-200' : 'bg-amber-700/50 text-amber-200'}`}>{cs!.phoneAgree ? '일치 ✓' : ((kk?.phone || nn?.phone) && gg?.phone ? '불일치 ⚠' : '한쪽만')}</span>
                                           {cs!.phone && (
                                             <button onClick={() => applyField(app, 'representative_phone', cs!.phone)} className="ml-auto shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline" title="대표전화에 덮어쓰기">대표전화 적용 ↩</button>
                                           )}
                                         </div>
                                         <div className="text-[10px] text-slate-300">📞 카카오: {kk?.phone || '—'}</div>
+                                        {nn && <div className="text-[10px] text-slate-300">📞 네이버: {nn.phone || '—'}</div>}
                                         <div className="text-[10px] text-slate-300">📞 구글: {gg?.phone || '—'}</div>
                                       </div>
                                     </div>
