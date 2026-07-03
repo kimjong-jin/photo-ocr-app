@@ -168,6 +168,12 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   const [lookupResult, setLookupResult] = useState<Record<number, {
     kakao: { phone: string; place_name: string; road_address_name?: string; address_name?: string }[];
     ai: { representative: string; phone: string; address: string; companyName: string; confidence: string; note: string } | null;
+    // 🗺️ 카카오 vs 구글 대조 (place-consensus)
+    consensus?: {
+      sources: { kakao: { name: string; address: string; phone: string } | null; google: { name: string; address: string; phone: string } | null };
+      consensus: { address: string; phone: string; addressAgree: boolean; phoneAgree: boolean; note: string };
+    } | null;
+    consensusLoading?: boolean;
     error?: string;
   }>>({});
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -990,6 +996,13 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     let done = 0;
     const finish = () => { if (++done >= 2) setLookupId(null); };
 
+    // 🗺️ 카카오 vs 구글 대조 (place-consensus) — 독립 실행, 스피너와 무관
+    setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), consensusLoading: true } }));
+    fetch(`/api/place-consensus?query=${encodeURIComponent(site)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(c => setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), consensus: c, consensusLoading: false } })))
+      .catch(() => setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), consensus: null, consensusLoading: false } })));
+
     // 카카오(빠름) — 현장명이 지저분해도(회사명+괄호 시설명 등) 후보를 순차 검색해 첫 결과 사용
     (async () => {
       for (const term of buildSiteSearchTerms(site)) {
@@ -1602,6 +1615,50 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                             <p className="text-[10px] text-amber-400 mb-2 leading-tight">
                               현장명 “{app.site_name}” 기준. <b>적용</b>을 누르면 바로 덮어쓰기(저장). {isEatWaterReceipt(app.receipt_no) ? <>먹는물(세부 {app.receipt_no.split('-').pop()})이라 <b>대표자·대표전화만</b> — 주소·현장은 직접 확인.</> : <>현장·주소·대표자·대표전화.</>} (신청인/휴대폰은 변경 안 함)
                             </p>
+                            {/* 🗺️ 카카오 vs 구글 대조 — 일치하면 신뢰↑, 불일치면 확인 필요. 외부페이지 안 열림, 데이터만 비교. */}
+                            {(() => {
+                              const r = lookupResult[app.id];
+                              const cs = r?.consensus?.consensus;
+                              const kk = r?.consensus?.sources?.kakao;
+                              const gg = r?.consensus?.sources?.google;
+                              return (
+                                <div className="mb-2 rounded-md border border-slate-700 bg-slate-800/40 p-2">
+                                  <div className="text-[11px] text-slate-300 mb-1 font-semibold">🗺️ 카카오 vs 구글 대조 {cs?.note && <span className="font-normal text-slate-500">— {cs.note}</span>}</div>
+                                  {r?.consensusLoading ? (
+                                    <div className="text-[11px] text-slate-500">대조 중…</div>
+                                  ) : !r?.consensus ? (
+                                    <div className="text-[11px] text-slate-500">대조 결과 없음</div>
+                                  ) : (
+                                    <div className="space-y-1.5">
+                                      {/* 주소 대조 */}
+                                      <div>
+                                        <div className="flex items-center gap-1 mb-0.5">
+                                          <span className="text-[10px] text-slate-400">주소</span>
+                                          <span className={`text-[9px] px-1 rounded ${cs!.addressAgree ? 'bg-emerald-700/50 text-emerald-200' : 'bg-amber-700/50 text-amber-200'}`}>{cs!.addressAgree ? '일치 ✓' : '불일치 ⚠'}</span>
+                                          {cs!.address && !isEatWaterReceipt(app.receipt_no) && (
+                                            <button onClick={() => saveAddressToLocation(app, cs!.address)} className="ml-auto shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="위치 도우미에 저장">주소 적용 ↩</button>
+                                          )}
+                                        </div>
+                                        <div className="text-[10px] text-slate-300">📍 카카오: {kk?.address || '—'}</div>
+                                        <div className="text-[10px] text-slate-300">📍 구글: {gg?.address || '—'}</div>
+                                      </div>
+                                      {/* 전화 대조 */}
+                                      <div className="border-t border-slate-700/60 pt-1">
+                                        <div className="flex items-center gap-1 mb-0.5">
+                                          <span className="text-[10px] text-slate-400">대표전화</span>
+                                          <span className={`text-[9px] px-1 rounded ${cs!.phoneAgree ? 'bg-emerald-700/50 text-emerald-200' : 'bg-amber-700/50 text-amber-200'}`}>{cs!.phoneAgree ? '일치 ✓' : (kk?.phone && gg?.phone ? '불일치 ⚠' : '한쪽만')}</span>
+                                          {cs!.phone && (
+                                            <button onClick={() => applyField(app, 'representative_phone', cs!.phone)} className="ml-auto shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline" title="대표전화에 덮어쓰기">대표전화 적용 ↩</button>
+                                          )}
+                                        </div>
+                                        <div className="text-[10px] text-slate-300">📞 카카오: {kk?.phone || '—'}</div>
+                                        <div className="text-[10px] text-slate-300">📞 구글: {gg?.phone || '—'}</div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             {/* 카카오 = 현장 위치(주소)·대표전화. 대표전화칸에만 적용, 신청인 휴대폰칸엔 절대 안 씀. */}
                             <div className="mb-2">
                               <div className="text-[11px] text-slate-400 mb-1">📍 위치·대표전화 (카카오 등록)</div>
