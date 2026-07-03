@@ -109,7 +109,7 @@ export const callSaveTempApi = async (
   }
   const json = await response.json();
   return {
-    message: json.message || "Firestore에 성공적으로 저장되었습니다.",
+    message: json.message || "Mac Studio에 성공적으로 저장되었습니다.",
   };
 };
 
