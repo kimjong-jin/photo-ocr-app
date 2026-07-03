@@ -1060,7 +1060,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     let n = 0;
     if (rep && await applyField(app, 'representative_name', rep, true)) n++;
     if (phone && await applyField(app, 'representative_phone', phone, true)) n++;
-    if (address && !eatWater && await applyField(app, 'site_address', address, true)) n++;
+    if (address && !eatWater) { /* 주소는 위치 도우미(locations)에서 관리 — applications에 저장 안 함 */ }
     if (n > 0) { clearMessages(); setSuccessMessage(`검증 항목 ${n}개 전체 적용(저장) 완료`); }
   };
 
@@ -1532,9 +1532,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                       </td>
                       <td className="px-3 py-2 text-slate-300 align-top w-48 max-w-[12rem] overflow-hidden">
                         <div className="break-words" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={app.site_name}>{app.site_name}</div>
-                        {app.site_address && (
-                          <div className="text-[10px] text-slate-500 mt-0.5 break-words" title={app.site_address}>📍 {app.site_address}</div>
-                        )}
+
                       </td>
                       <td className="px-3 py-2 text-slate-300 align-top w-24 max-w-[7rem] overflow-hidden">
                         <div className="flex items-start gap-1">
@@ -1596,12 +1594,9 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                       )}
                                     </div>
                                     {!isEatWaterReceipt(app.receipt_no) && (
-                                    <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
                                       <span className="text-[10px] text-slate-400 truncate">📍 {k.road_address_name || k.address_name || '주소 없음'}</span>
-                                      {(k.road_address_name || k.address_name) && (
-                                        <button onClick={() => applyField(app, 'site_address', k.road_address_name || k.address_name)}
-                                          className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="현장 주소에 덮어쓰기">주소 적용 ↩</button>
-                                      )}
+                                      {/* 주소는 위치 도우미에서 등록 — applications에 저장 안 함 */}
                                     </div>
                                     )}
                                     <div className="flex items-center justify-between gap-2">
@@ -1643,15 +1638,9 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                     )}
                                   </div>
                                   {!isEatWaterReceipt(app.receipt_no) && (
-                                  <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
                                     <span className="text-[11px] text-slate-300">주소: <b className="text-slate-100 break-words">{lookupResult[app.id].ai!.address ? enforceFullRegionPrefix(lookupResult[app.id].ai!.address) : '—'}</b></span>
-                                    {lookupResult[app.id].ai!.address && (
-                                      <button
-                                        onClick={() => applyField(app, 'site_address', enforceFullRegionPrefix(lookupResult[app.id].ai!.address))}
-                                        className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline"
-                                        title="현장 주소에 덮어쓰기"
-                                      >주소 적용 ↩</button>
-                                    )}
+                                    {/* 주소는 위치 도우미에서 등록 — applications에 저장 안 함 */}
                                   </div>
                                   )}
                                   {lookupResult[app.id].ai!.companyName && (
