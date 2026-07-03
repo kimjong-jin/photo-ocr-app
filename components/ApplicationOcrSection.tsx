@@ -9,6 +9,7 @@ import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
 import { searchAddressByKeyword, enforceFullRegionPrefix } from '../services/kakaoService';
+import { saveLocation } from '../services/locationService';
 import EmailModal from './EmailModal';
 
 export interface Application {
@@ -1047,7 +1048,22 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     return true;
   };
 
-  // '검증 후 전체 적용' — 대표자·대표전화·주소를 한 번에 저장(현장명은 공식명 보존 위해 개별 적용).
+  // 주소는 applications가 아니라 위치 도우미(locations)에 저장 → 접수번호(id)로 saveLocation. 서버가 지오코딩.
+  const saveAddressToLocation = async (app: Application, address: string, silent = false): Promise<boolean> => {
+    const addr = (address || '').trim();
+    const id = (app.receipt_no || '').trim();
+    if (!addr || !id) return false;
+    try {
+      await saveLocation({ id, address: addr, lat: 0, lng: 0, savedAt: Date.now(), siteName: app.site_name || '', category: isEatWaterReceipt(id) ? '먹는물' : '수질' });
+      if (!silent) { clearMessages(); setSuccessMessage(`위치 도우미에 주소 저장: ${id}`); }
+      return true;
+    } catch (e: any) {
+      setError('위치 저장 실패: ' + (e?.message || ''));
+      return false;
+    }
+  };
+
+  // '검증 후 전체 적용' — 대표자·대표전화(→applications) + 주소(→위치 도우미)를 한 번에. 현장명은 공식명 보존 위해 개별.
   // 전화·주소는 카카오(현장 직통) 우선, 없으면 AI. 대표자는 AI.
   const applyAllFromLookup = async (app: Application) => {
     const res = lookupResult[app.id];
@@ -1060,9 +1076,9 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     let n = 0;
     if (rep && await applyField(app, 'representative_name', rep, true)) n++;
     if (phone && await applyField(app, 'representative_phone', phone, true)) n++;
-    if (address && !eatWater) { /* 주소는 위치 도우미(locations)에서 관리 — applications에 저장 안 함 */ }
+    if (address && !eatWater && await saveAddressToLocation(app, address, true)) n++; // 주소 → 위치 도우미 생성
     setLookupOpenId(null); // 전체 적용 끝났으니 팝오버 닫기
-    if (n > 0) { clearMessages(); setSuccessMessage(`검증 항목 ${n}개 전체 적용(저장) 완료`); }
+    if (n > 0) { clearMessages(); setSuccessMessage(`검증 항목 ${n}개 전체 적용 완료 (주소는 위치 도우미)`); }
   };
 
   const handleSendKakao = async (app: Application) => {
@@ -1595,9 +1611,12 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                       )}
                                     </div>
                                     {!isEatWaterReceipt(app.receipt_no) && (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center justify-between gap-2">
                                       <span className="text-[10px] text-slate-400 truncate">📍 {k.road_address_name || k.address_name || '주소 없음'}</span>
-                                      {/* 주소는 위치 도우미에서 등록 — applications에 저장 안 함 */}
+                                      {(k.road_address_name || k.address_name) && (
+                                        <button onClick={() => saveAddressToLocation(app, k.road_address_name || k.address_name)}
+                                          className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="위치 도우미에 이 주소로 저장">주소 적용 ↩</button>
+                                      )}
                                     </div>
                                     )}
                                     <div className="flex items-center justify-between gap-2">
@@ -1639,9 +1658,12 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                     )}
                                   </div>
                                   {!isEatWaterReceipt(app.receipt_no) && (
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center justify-between gap-2">
                                     <span className="text-[11px] text-slate-300">주소: <b className="text-slate-100 break-words">{lookupResult[app.id].ai!.address ? enforceFullRegionPrefix(lookupResult[app.id].ai!.address) : '—'}</b></span>
-                                    {/* 주소는 위치 도우미에서 등록 — applications에 저장 안 함 */}
+                                    {lookupResult[app.id].ai!.address && (
+                                      <button onClick={() => saveAddressToLocation(app, enforceFullRegionPrefix(lookupResult[app.id].ai!.address))}
+                                        className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="위치 도우미에 이 주소로 저장">주소 적용 ↩</button>
+                                    )}
                                   </div>
                                   )}
                                   {lookupResult[app.id].ai!.companyName && (
