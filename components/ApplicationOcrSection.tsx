@@ -7,6 +7,7 @@ import { Type } from '@google/genai';
 import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
+import { searchAddressByKeyword } from '../services/kakaoService';
 import EmailModal from './EmailModal';
 
 export interface Application {
@@ -125,6 +126,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   const [selectedAppIds, setSelectedAppIds] = useState<Set<number>>(new Set()); // 선택 삭제용
   const [kakaoSendingId, setKakaoSendingId] = useState<number | null>(null);
   const [emailModalApp, setEmailModalApp] = useState<Application | null>(null);
+  // 🔍 회사 역검색(확인용) — 현장명 기준으로 대표전화/대표자 조회. 자동저장 아님, '적용' 눌러야 반영.
+  const [lookupId, setLookupId] = useState<number | null>(null);       // 조회 중인 app.id
+  const [lookupOpenId, setLookupOpenId] = useState<number | null>(null); // 팝오버 열린 app.id
+  const [lookupAnchor, setLookupAnchor] = useState<{ top: number; left: number } | null>(null); // 팝오버 고정위치(overflow 클리핑 회피)
+  const [lookupResult, setLookupResult] = useState<Record<number, {
+    kakao: { phone: string; place_name: string; road_address_name?: string; address_name?: string }[];
+    ai: { representative: string; phone: string; companyName: string; confidence: string; note: string } | null;
+    error?: string;
+  }>>({});
   const tableContainerRef = useRef<HTMLDivElement>(null);
   // KTL 실시간 접수번호 존재 여부: true=있음, false=없음, null=확인중
   const [receiptStatuses, setReceiptStatuses] = useState<Record<string, boolean | null>>({});
@@ -920,6 +930,50 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     }
   };
 
+  // 🔍 회사 역검색: 현장명 기준으로 카카오(정확한 전화)+AI(대표자 추정) 조회. 결과는 확인용, 자동저장 안 함.
+  const handleCompanyLookup = async (app: Application, ev?: React.MouseEvent) => {
+    if (lookupOpenId === app.id) { setLookupOpenId(null); return; }  // 이미 열려있으면 토글 닫기
+    const site = (app.site_name || '').trim();
+    if (!site) { setError('현장명이 없어 검색할 수 없습니다.'); return; }
+    // 버튼 위치 기준 고정좌표(overflow-auto 테이블에 안 잘리게 fixed 렌더)
+    const r = (ev?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect();
+    if (r) setLookupAnchor({ top: Math.min(r.bottom + 4, window.innerHeight - 20), left: Math.min(r.left, window.innerWidth - 340) });
+    setLookupId(app.id);
+    setLookupOpenId(app.id);
+    try {
+      const [kakaoDocs, aiRes] = await Promise.all([
+        searchAddressByKeyword(site).catch(() => [] as any[]),
+        fetch('/api/company-lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ siteName: site, address: '' }),
+        }).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      const kakao = (kakaoDocs || []).slice(0, 3).map((d: any) => ({
+        phone: d.phone || '', place_name: d.place_name || '',
+        road_address_name: d.road_address_name || '', address_name: d.address_name || '',
+      }));
+      setLookupResult(prev => ({ ...prev, [app.id]: { kakao, ai: aiRes, error: aiRes ? undefined : 'AI 조회 실패(전화는 카카오 참고)' } }));
+    } catch (e: any) {
+      setLookupResult(prev => ({ ...prev, [app.id]: { kakao: [], ai: null, error: e?.message || '조회 실패' } }));
+    } finally {
+      setLookupId(null);
+    }
+  };
+
+  // 팝오버에서 '대표자 적용' — 편집 상태로 열어 대표자칸만 채워줌(사용자가 저장 확인). 자동 커밋 아님.
+  // ※ 신청인/휴대폰(applicant_*)은 절대 건드리지 않음. 대표자(representative_name)만 대상.
+  const applyRepresentative = (app: Application, value: string) => {
+    if (!value) return;
+    if (editingId !== app.id) {
+      setEditingId(app.id);
+      setEditedData({ ...app, representative_name: value });
+    } else {
+      setEditedData(prev => ({ ...prev, representative_name: value }));
+    }
+    setLookupOpenId(null);
+  };
+
   const handleSendKakao = async (app: Application) => {
     if (!userContact) { setError('담당자 연락처 정보가 없습니다.'); return; }
     if (!app.applicant_phone) { setError('신청인 휴대폰 번호가 없습니다.'); return; }
@@ -1362,8 +1416,87 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                       <td className="px-3 py-2 whitespace-nowrap text-slate-300">
                         {app.site_name}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
-                        {app.representative_name}
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-300 relative">
+                        <div className="flex items-center gap-1.5">
+                          <span>{app.representative_name}</span>
+                          {/* 수질(베이스 접수번호)만 역검색 버튼 노출 — 먹는물(세부순번 -N, 4파트)은 직접 확인하므로 제외 */}
+                          {(app.receipt_no || '').split('-').length !== 4 && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCompanyLookup(app, e); }}
+                              disabled={lookupId === app.id}
+                              className="p-1 text-sky-400 hover:text-sky-300 rounded-full transition-colors hover:bg-sky-600/30 disabled:opacity-50"
+                              title="현장명으로 대표전화·대표자 역검색 (확인용)"
+                              aria-label="회사 정보 역검색"
+                            >
+                              {lookupId === app.id ? (
+                                <Spinner size="sm" />
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.35-5.4a6.75 6.75 0 11-13.5 0 6.75 6.75 0 0113.5 0z" />
+                                </svg>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        {lookupOpenId === app.id && lookupResult[app.id] && (
+                          <div
+                            className="fixed z-50 w-80 max-w-[85vw] bg-slate-900 border border-slate-600 rounded-lg shadow-xl p-3 text-left font-sans normal-case whitespace-normal"
+                            style={{ top: lookupAnchor?.top ?? 80, left: lookupAnchor?.left ?? 20 }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-semibold text-sky-300">🔍 역검색 결과 (확인용)</span>
+                              <button onClick={() => setLookupOpenId(null)} className="text-slate-400 hover:text-white text-xs px-1">✕</button>
+                            </div>
+                            <p className="text-[10px] text-amber-400 mb-2 leading-tight">
+                              현장명 “{app.site_name}” 기준. <b>대표자만</b> 적용 가능 — 위치·대표전화는 <b>참고용</b>입니다. (신청인/휴대폰은 변경 안 함)
+                            </p>
+                            {/* 카카오 = 현장 위치(주소)·대표전화 참고. 신청인 휴대폰칸엔 절대 안 씀. */}
+                            <div className="mb-2">
+                              <div className="text-[11px] text-slate-400 mb-1">📍 위치·대표전화 (참고용)</div>
+                              {lookupResult[app.id].kakao.length === 0 ? (
+                                <div className="text-[11px] text-slate-500">검색 결과 없음</div>
+                              ) : (
+                                lookupResult[app.id].kakao.map((k, i) => (
+                                  <div key={i} className="py-0.5">
+                                    <div className="text-[11px] text-slate-200 truncate">{k.place_name}</div>
+                                    <div className="text-[10px] text-slate-400 truncate">📍 {k.road_address_name || k.address_name || '주소 없음'}</div>
+                                    <div className="text-[10px] text-slate-400">📞 {k.phone || '번호 없음'}</div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                            {/* AI = 대표자 추정(확인 필수) */}
+                            <div className="border-t border-slate-700 pt-2">
+                              <div className="text-[11px] text-slate-400 mb-1">🤖 AI 추정 (⚠️ 확인 필수)</div>
+                              {lookupResult[app.id].error && !lookupResult[app.id].ai ? (
+                                <div className="text-[11px] text-rose-400">{lookupResult[app.id].error}</div>
+                              ) : lookupResult[app.id].ai ? (
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[11px] text-slate-300">대표자: <b className="text-slate-100">{lookupResult[app.id].ai!.representative || '—'}</b></span>
+                                    {lookupResult[app.id].ai!.representative && (
+                                      <button
+                                        onClick={() => applyRepresentative(app, lookupResult[app.id].ai!.representative)}
+                                        className="shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline"
+                                        title="대표자 편집칸에 적용"
+                                      >대표자 적용 ↩</button>
+                                    )}
+                                  </div>
+                                  {lookupResult[app.id].ai!.companyName && (
+                                    <div className="text-[10px] text-slate-500">법인: {lookupResult[app.id].ai!.companyName}</div>
+                                  )}
+                                  <div className="text-[10px] text-slate-500">신뢰도: {lookupResult[app.id].ai!.confidence}</div>
+                                  {lookupResult[app.id].ai!.note && (
+                                    <div className="text-[10px] text-amber-500/80 leading-tight">※ {lookupResult[app.id].ai!.note}</div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-slate-500">추정 결과 없음</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-300">
                         {app.applicant_name}
