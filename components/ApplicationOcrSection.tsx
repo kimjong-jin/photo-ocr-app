@@ -1650,7 +1650,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                             <button onClick={() => saveAddressToLocation(app, cs!.address)} className="ml-auto shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="위치 도우미에 저장">주소 적용 ↩</button>
                                           )}
                                         </div>
-                                        <div className="text-[10px] text-slate-300">📍 카카오: {kk?.address || '—'}</div>
+                                        <div className="text-[10px] text-slate-300">📍 카카오: {kk?.address || '—'}{(kk as any)?.jibun && <span className="text-slate-500"> · 구주소(지번): {(kk as any).jibun}</span>}</div>
                                         <div className="text-[10px] text-slate-300">📍 네이버: {nn?.address || '—'}</div>
                                         <div className="text-[10px] text-slate-300">📍 구글: {gg?.address || '—'}</div>
                                       </div>
