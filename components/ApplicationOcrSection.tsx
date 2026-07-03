@@ -1564,6 +1564,16 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                       >대표자 적용 ↩</button>
                                     )}
                                   </div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[11px] text-slate-300">대표전화: <b className="text-slate-100">{lookupResult[app.id].ai!.phone || '—'}</b></span>
+                                    {lookupResult[app.id].ai!.phone && (
+                                      <button
+                                        onClick={() => applyRepresentative(app, 'representative_phone', lookupResult[app.id].ai!.phone)}
+                                        className="shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline"
+                                        title="대표전화칸에 적용"
+                                      >대표전화 적용 ↩</button>
+                                    )}
+                                  </div>
                                   {lookupResult[app.id].ai!.companyName && (
                                     <div className="text-[10px] text-slate-500">법인: {lookupResult[app.id].ai!.companyName}</div>
                                   )}
