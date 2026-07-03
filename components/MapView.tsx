@@ -359,7 +359,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
       if (!g || !googleContainerRef.current) return;
       const c = { lat, lng };
       if (!googleMapRef.current) {
-        googleMapRef.current = new g.Map(googleContainerRef.current, { center: c, zoom: 16, streetViewControl: false, mapTypeControl: false });
+        googleMapRef.current = new g.Map(googleContainerRef.current, { center: c, zoom: 16, streetViewControl: false, mapTypeControl: false, gestureHandling: 'greedy', zoomControl: true });
         googleMarkerRef.current = new g.Marker({ position: c, map: googleMapRef.current });
         googleMapRef.current.addListener('click', (e: any) => {
           const p = e.latLng;
