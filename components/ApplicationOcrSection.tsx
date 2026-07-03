@@ -163,7 +163,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   const [lookupAnchor, setLookupAnchor] = useState<{ top: number; left: number } | null>(null); // 팝오버 고정위치(overflow 클리핑 회피)
   const [lookupResult, setLookupResult] = useState<Record<number, {
     kakao: { phone: string; place_name: string; road_address_name?: string; address_name?: string }[];
-    ai: { representative: string; phone: string; companyName: string; confidence: string; note: string } | null;
+    ai: { representative: string; phone: string; address: string; companyName: string; confidence: string; note: string } | null;
     error?: string;
   }>>({});
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -1617,6 +1617,16 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                         className="shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline"
                                         title="대표전화에 덮어쓰기"
                                       >대표전화 적용 ↩</button>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[11px] text-slate-300">주소: <b className="text-slate-100 break-words">{lookupResult[app.id].ai!.address ? enforceFullRegionPrefix(lookupResult[app.id].ai!.address) : '—'}</b></span>
+                                    {lookupResult[app.id].ai!.address && (
+                                      <button
+                                        onClick={() => applyField(app, 'site_address', enforceFullRegionPrefix(lookupResult[app.id].ai!.address))}
+                                        className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline"
+                                        title="현장 주소에 덮어쓰기"
+                                      >주소 적용 ↩</button>
                                     )}
                                   </div>
                                   {lookupResult[app.id].ai!.companyName && (
