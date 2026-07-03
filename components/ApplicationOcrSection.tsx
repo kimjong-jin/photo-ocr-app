@@ -8,7 +8,7 @@ import { Type } from '@google/genai';
 import { preprocessImageForGemini } from '../services/imageProcessingService';
 import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
-import { searchAddressByKeyword } from '../services/kakaoService';
+import { searchAddressByKeyword, enforceFullRegionPrefix } from '../services/kakaoService';
 import EmailModal from './EmailModal';
 
 export interface Application {
@@ -19,6 +19,7 @@ export interface Application {
   site_name: string; // 현장
   representative_name: string; // 대표자
   representative_phone?: string; // 대표전화 (현장 대표번호 — 신청인 휴대폰과 별개)
+  site_address?: string; // 현장 주소 (역검색 위치)
   applicant_name: string; // 신청인
   applicant_phone: string; // 휴대폰
   applicant_email: string; // 이메일
@@ -969,7 +970,9 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         if (docs && docs.length) {
           const kakao = docs.slice(0, 3).map((d: any) => ({
             phone: d.phone || '', place_name: d.place_name || '',
-            road_address_name: d.road_address_name || '', address_name: d.address_name || '',
+            // 카카오는 '경남'처럼 지역명을 축약 → 전체명('경상남도')으로 복원
+            road_address_name: enforceFullRegionPrefix(d.road_address_name || ''),
+            address_name: enforceFullRegionPrefix(d.address_name || ''),
           }));
           setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), kakao } }));
           return;
@@ -991,21 +994,28 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       .finally(() => { clearTimeout(to); finish(); });
   };
 
-  // 팝오버에서 '적용' — 편집 상태로 열어 대표 필드만 채워줌(사용자가 저장 확인). 자동 커밋 아님.
-  // ※ 신청인/휴대폰(applicant_*)은 절대 건드리지 않음. 대표자·대표전화(representative_*)만 대상.
-  const applyRepresentative = (
+  // 팝오버 '적용' = 그 필드를 DB에 즉시 덮어쓰기(낙관적 반영). 팝오버는 열어둬 여러 항목 연속 적용 가능.
+  // ※ 신청인/휴대폰(applicant_*)은 절대 대상 아님. 대표자·현장·대표전화·주소만.
+  const applyField = async (
     app: Application,
-    field: 'representative_name' | 'representative_phone',
+    field: 'representative_name' | 'representative_phone' | 'site_name' | 'site_address',
     value: string,
   ) => {
-    if (!value) return;
-    if (editingId !== app.id) {
-      setEditingId(app.id);
-      setEditedData({ ...app, [field]: value });
+    const v = (value || '').trim();
+    if (!v || !supabase) return;
+    const prevApps = applications;
+    setApplications(prev => prev.map(a => (a.id === app.id ? { ...a, [field]: v } : a))); // 낙관적 즉시 반영
+    const { error } = await supabase.from('applications').update({ [field]: v }).eq('id', app.id);
+    if (error) {
+      setApplications(prevApps); // 롤백
+      const colMissing = /column/i.test(error.message) && /exist/i.test(error.message);
+      setError(colMissing
+        ? `'${field}' 저장 실패 — DB에 컬럼이 없습니다. Supabase에서 컬럼을 추가하세요.`
+        : `'${field}' 적용 실패: ${error.message}`);
     } else {
-      setEditedData(prev => ({ ...prev, [field]: value }));
+      clearMessages();
+      setSuccessMessage('적용(저장)되었습니다.');
     }
-    setLookupOpenId(null);
   };
 
   const handleSendKakao = async (app: Application) => {
@@ -1474,8 +1484,11 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
-                        {app.site_name}
+                      <td className="px-3 py-2 text-slate-300 align-top max-w-[13rem]">
+                        <div className="whitespace-nowrap">{app.site_name}</div>
+                        {app.site_address && (
+                          <div className="text-[10px] text-slate-500 mt-0.5 break-words" title={app.site_address}>📍 {app.site_address}</div>
+                        )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-300">
                         <div className="flex items-center gap-1.5">
@@ -1519,7 +1532,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                               <button onClick={() => setLookupOpenId(null)} className="text-slate-400 hover:text-white text-base px-2 py-0.5 -my-0.5">✕</button>
                             </div>
                             <p className="text-[10px] text-amber-400 mb-2 leading-tight">
-                              현장명 “{app.site_name}” 기준. <b>대표자·대표전화만</b> 적용 가능(신청인/휴대폰은 변경 안 함). 대표전화는 현장 대표(유선)번호 — 010 휴대폰이 아님.
+                              현장명 “{app.site_name}” 기준. <b>적용</b>을 누르면 그 칸에 <b>바로 덮어쓰기(저장)</b>됩니다 — 현장·주소·대표자·대표전화. (신청인/휴대폰은 변경 안 함. 대표전화는 유선번호, 010 아님)
                             </p>
                             {/* 카카오 = 현장 위치(주소)·대표전화. 대표전화칸에만 적용, 신청인 휴대폰칸엔 절대 안 씀. */}
                             <div className="mb-2">
@@ -1528,17 +1541,26 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                 <div className="text-[11px] text-slate-500">{lookupId === app.id ? '조회 중…' : '검색 결과 없음'}</div>
                               ) : (
                                 lookupResult[app.id].kakao.map((k, i) => (
-                                  <div key={i} className="py-0.5">
-                                    <div className="text-[11px] text-slate-200 truncate">{k.place_name}</div>
-                                    <div className="text-[10px] text-slate-400 truncate">📍 {k.road_address_name || k.address_name || '주소 없음'}</div>
+                                  <div key={i} className="py-1 border-b border-slate-800 last:border-0">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[11px] text-slate-200 truncate">{k.place_name}</span>
+                                      {k.place_name && (
+                                        <button onClick={() => applyField(app, 'site_name', k.place_name)}
+                                          className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="현장(현장명)에 덮어쓰기">현장 적용 ↩</button>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] text-slate-400 truncate">📍 {k.road_address_name || k.address_name || '주소 없음'}</span>
+                                      {(k.road_address_name || k.address_name) && (
+                                        <button onClick={() => applyField(app, 'site_address', k.road_address_name || k.address_name)}
+                                          className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="현장 주소에 덮어쓰기">주소 적용 ↩</button>
+                                      )}
+                                    </div>
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[10px] text-slate-400">📞 {k.phone || '번호 없음'}</span>
                                       {k.phone && (
-                                        <button
-                                          onClick={() => applyRepresentative(app, 'representative_phone', k.phone)}
-                                          className="shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline"
-                                          title="대표전화칸에 적용"
-                                        >대표전화 적용 ↩</button>
+                                        <button onClick={() => applyField(app, 'representative_phone', k.phone)}
+                                          className="shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline" title="대표전화에 덮어쓰기">대표전화 적용 ↩</button>
                                       )}
                                     </div>
                                   </div>
@@ -1556,9 +1578,9 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                     <span className="text-[11px] text-slate-300">대표자: <b className="text-slate-100">{lookupResult[app.id].ai!.representative || '—'}</b></span>
                                     {lookupResult[app.id].ai!.representative && (
                                       <button
-                                        onClick={() => applyRepresentative(app, 'representative_name', lookupResult[app.id].ai!.representative)}
+                                        onClick={() => applyField(app, 'representative_name', lookupResult[app.id].ai!.representative)}
                                         className="shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline"
-                                        title="대표자 편집칸에 적용"
+                                        title="대표자에 덮어쓰기"
                                       >대표자 적용 ↩</button>
                                     )}
                                   </div>
@@ -1566,9 +1588,9 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                     <span className="text-[11px] text-slate-300">대표전화: <b className="text-slate-100">{lookupResult[app.id].ai!.phone || '—'}</b></span>
                                     {lookupResult[app.id].ai!.phone && (
                                       <button
-                                        onClick={() => applyRepresentative(app, 'representative_phone', lookupResult[app.id].ai!.phone)}
+                                        onClick={() => applyField(app, 'representative_phone', lookupResult[app.id].ai!.phone)}
                                         className="shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline"
-                                        title="대표전화칸에 적용"
+                                        title="대표전화에 덮어쓰기"
                                       >대표전화 적용 ↩</button>
                                     )}
                                   </div>
