@@ -61,6 +61,22 @@ function buildSiteSearchTerms(raw: string): string[] {
   return [...new Set(ordered)].filter(t => t && t.length >= 2);
 }
 
+// 한국 전화번호 하이픈 포맷: '0522310114' → '052-231-0114'
+function formatKoreanPhone(raw: string): string {
+  const s = (raw || '').trim();
+  const d = s.replace(/[^\d]/g, '');
+  if (!d) return s;
+  if (d.startsWith('02')) {                                   // 서울(지역번호 2자리)
+    if (d.length === 10) return `02-${d.slice(2, 6)}-${d.slice(6)}`;
+    if (d.length === 9)  return `02-${d.slice(2, 5)}-${d.slice(5)}`;
+    return s;
+  }
+  if (d.length === 8)  return `${d.slice(0, 4)}-${d.slice(4)}`;             // 1588-0000 대표번호
+  if (d.length === 11) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;   // 010/0503 등
+  if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;   // 052-231-0114
+  return s;
+}
+
 const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
@@ -969,7 +985,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         const docs = await searchAddressByKeyword(term).catch(() => [] as any[]);
         if (docs && docs.length) {
           const kakao = docs.slice(0, 3).map((d: any) => ({
-            phone: d.phone || '', place_name: d.place_name || '',
+            phone: formatKoreanPhone(d.phone || ''), place_name: d.place_name || '',
             // 카카오는 '경남'처럼 지역명을 축약 → 전체명('경상남도')으로 복원
             road_address_name: enforceFullRegionPrefix(d.road_address_name || ''),
             address_name: enforceFullRegionPrefix(d.address_name || ''),
@@ -1001,7 +1017,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     field: 'representative_name' | 'representative_phone' | 'site_name' | 'site_address',
     value: string,
   ) => {
-    const v = (value || '').trim();
+    let v = (value || '').trim();
+    if (field === 'representative_phone') v = formatKoreanPhone(v); // 저장값도 하이픈 포맷
     if (!v || !supabase) return;
     const prevApps = applications;
     setApplications(prev => prev.map(a => (a.id === app.id ? { ...a, [field]: v } : a))); // 낙관적 즉시 반영
@@ -1585,7 +1602,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                     )}
                                   </div>
                                   <div className="flex items-center justify-between gap-2">
-                                    <span className="text-[11px] text-slate-300">대표전화: <b className="text-slate-100">{lookupResult[app.id].ai!.phone || '—'}</b></span>
+                                    <span className="text-[11px] text-slate-300">대표전화: <b className="text-slate-100">{lookupResult[app.id].ai!.phone ? formatKoreanPhone(lookupResult[app.id].ai!.phone) : '—'}</b></span>
                                     {lookupResult[app.id].ai!.phone && (
                                       <button
                                         onClick={() => applyField(app, 'representative_phone', lookupResult[app.id].ai!.phone)}
