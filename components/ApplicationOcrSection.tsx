@@ -48,6 +48,18 @@ interface ApplicationOcrSectionProps {
   transmissionSummary?: Record<string, Record<string, boolean>>;
 }
 
+// 🔍 역검색 카카오 검색어 후보: 현장명이 "주식회사 블루골드 (용암공공폐수처리시설）"처럼
+// 회사명+괄호 시설명+전각문자로 지저분해도 검색되도록 후보를 우선순위대로 생성.
+// 순서: 괄호 안 실제 시설명 → 회사형태(주식회사 등) 제거 코어 → 괄호 밖 → 원본 전체.
+function buildSiteSearchTerms(raw: string): string[] {
+  const s = (raw || '').replace(/（/g, '(').replace(/）/g, ')').replace(/\s+/g, ' ').trim();
+  const inParen = (s.match(/\(([^)]*)\)/)?.[1] || '').trim();       // 괄호 안 = 실제 현장/시설명
+  const noParen = s.replace(/\([^)]*\)/g, '').trim();                // 괄호 밖 = 보통 회사명
+  const stripCo = noParen.replace(/(주식회사|유한회사|㈜|㈔|\(주\)|\(유\)|\(재\)|\(사\))/g, '').trim();
+  const ordered = [inParen, stripCo, noParen, s];
+  return [...new Set(ordered)].filter(t => t && t.length >= 2);
+}
+
 const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.24.03 3.22.077m3.22-.077L10.88 5.79m2.558 0c-.29.042-.58.083-.87.124" />
@@ -952,18 +964,24 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     let done = 0;
     const finish = () => { if (++done >= 2) setLookupId(null); };
 
-    // 카카오(빠름) — 도착 즉시 반영
-    searchAddressByKeyword(site).then((docs: any[]) => {
-      const kakao = (docs || []).slice(0, 3).map((d: any) => ({
-        phone: d.phone || '', place_name: d.place_name || '',
-        road_address_name: d.road_address_name || '', address_name: d.address_name || '',
-      }));
-      setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), kakao } }));
-    }).catch(() => {}).finally(finish);
+    // 카카오(빠름) — 현장명이 지저분해도(회사명+괄호 시설명 등) 후보를 순차 검색해 첫 결과 사용
+    (async () => {
+      for (const term of buildSiteSearchTerms(site)) {
+        const docs = await searchAddressByKeyword(term).catch(() => [] as any[]);
+        if (docs && docs.length) {
+          const kakao = docs.slice(0, 3).map((d: any) => ({
+            phone: d.phone || '', place_name: d.place_name || '',
+            road_address_name: d.road_address_name || '', address_name: d.address_name || '',
+          }));
+          setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), kakao } }));
+          return;
+        }
+      }
+    })().catch(() => {}).finally(finish);
 
-    // AI(느림) — 20초 타임아웃, 도착 즉시 반영
+    // AI(느림) — 28초 타임아웃, 도착 즉시 반영
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 20000);
+    const to = setTimeout(() => ctrl.abort(), 28000);
     fetch('/api/company-lookup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1481,6 +1499,11 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                         </div>
                         {lookupOpenId === app.id && lookupResult[app.id] && createPortal(
                           <div
+                            className="fixed inset-0 z-[9998]"
+                            onClick={() => setLookupOpenId(null)}  /* 바깥 탭 → 닫기 */
+                            style={lookupAnchor ? { background: 'transparent' } : { background: 'rgba(2,6,23,0.55)' }}
+                          >
+                          <div
                             className={`fixed z-[9999] bg-slate-900 border border-slate-600 rounded-lg shadow-2xl p-3 text-left font-sans normal-case whitespace-normal max-h-[75vh] overflow-y-auto ${lookupAnchor ? 'w-80 max-w-[92vw]' : 'w-[94vw]'}`}
                             style={lookupAnchor
                               ? { top: lookupAnchor.top, left: lookupAnchor.left, WebkitOverflowScrolling: 'touch' }
@@ -1549,6 +1572,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                 <div className="text-[11px] text-slate-500">{lookupId === app.id ? '조회 중…' : '추정 결과 없음'}</div>
                               )}
                             </div>
+                          </div>
                           </div>,
                           document.body,
                         )}
