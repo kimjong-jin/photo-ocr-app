@@ -3002,6 +3002,11 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         <button
                           className="flex-1 text-left min-w-0"
                           onClick={async () => {
+                            // 이미 작업중인 항목을 재클릭 → 해제(토글)
+                            if (locReceiptInput === loc.id) {
+                              setLocReceiptInput('');
+                              return;
+                            }
                             setLocReceiptInput(loc.id);
                             setCurrentGpsAddress(loc.address);
                             // 주소로 카카오 재검색해서 정확한 좌표로 지도 이동
