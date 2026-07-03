@@ -984,7 +984,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       for (const term of buildSiteSearchTerms(site)) {
         const docs = await searchAddressByKeyword(term).catch(() => [] as any[]);
         if (docs && docs.length) {
-          const kakao = docs.slice(0, 3).map((d: any) => ({
+          // 현장명과 가장 잘 맞는 결과만 남김(예: '고려제강 양산공장'에 '유산공장' 섞여 나오는 것 방지)
+          const siteTokens = site.replace(/\([^)]*\)/g, ' ').replace(/[^\w가-힣]/g, ' ')
+            .split(/\s+/).filter(t => t.length >= 2 && !/^(주식회사|유한회사|주식|회사)$/.test(t));
+          const scored = docs.map((d: any) => ({
+            d, score: siteTokens.reduce((n, t) => n + ((d.place_name || '').includes(t) ? 1 : 0), 0),
+          }));
+          const maxScore = Math.max(0, ...scored.map(s => s.score));
+          const best = (maxScore > 0 ? scored.filter(s => s.score === maxScore) : scored).slice(0, 3);
+          const kakao = best.map(({ d }) => ({
             phone: formatKoreanPhone(d.phone || ''), place_name: d.place_name || '',
             // 카카오는 '경남'처럼 지역명을 축약 → 전체명('경상남도')으로 복원
             road_address_name: enforceFullRegionPrefix(d.road_address_name || ''),
