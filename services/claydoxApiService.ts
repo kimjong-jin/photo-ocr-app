@@ -561,6 +561,7 @@ interface StructuralCheckPayloadForKtl {
   checklistImageFileName?: string;
   postInspectionDateValue?: string;
   representative_name?: string;
+  representative_phone?: string;
   applicant_name?: string;
   applicant_phone?: string;
   maintenance_company?: string;
@@ -596,6 +597,7 @@ const constructMergedLabviewItemForStructural = (
   const firstJobInGroup = jobsInGroup[0];
   if (firstJobInGroup) {
     if (firstJobInGroup.representative_name) mergedItems['대표자'] = firstJobInGroup.representative_name;
+    if (firstJobInGroup.representative_phone) mergedItems['대표전화'] = firstJobInGroup.representative_phone;
     if (firstJobInGroup.applicant_name) mergedItems['유지관리담당자'] = firstJobInGroup.applicant_name;
     if (firstJobInGroup.applicant_phone) mergedItems['유지관리담당자연락처'] = firstJobInGroup.applicant_phone;
     if (firstJobInGroup.maintenance_company) mergedItems['유지관리업체'] = firstJobInGroup.maintenance_company;
@@ -869,6 +871,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
   p_key?: string,
   selectedApplication?: {
     representative_name?: string;
+    representative_phone?: string;
     applicant_name?: string;
     applicant_phone?: string;
     maintenance_company?: string;
@@ -970,6 +973,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
     ...(selectedApplication
       ? {
           representative_name: selectedApplication.representative_name,
+          representative_phone: selectedApplication.representative_phone,
           applicant_name: selectedApplication.applicant_name,
           applicant_phone: selectedApplication.applicant_phone,
           maintenance_company: selectedApplication.maintenance_company,
@@ -1067,6 +1071,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
       postInspectionDateValue: job.postInspectionDate,
       // 배치 전송 시 주입된 신청 정보를 페이로드에 반영
       representative_name: job.representative_name,
+      representative_phone: job.representative_phone,
       applicant_name: job.applicant_name,
       applicant_phone: job.applicant_phone,
       maintenance_company: job.maintenance_company,

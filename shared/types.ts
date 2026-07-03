@@ -64,6 +64,7 @@ export interface StructuralJob {
   submissionMessage?: string;
   // 추가된 필드들 (일괄 전송 시 데이터 주입용)
   representative_name?: string;
+  representative_phone?: string;
   applicant_name?: string;
   applicant_phone?: string;
   maintenance_company?: string;

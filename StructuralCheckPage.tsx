@@ -1310,6 +1310,7 @@ Required output:
                     postInspectionDateValue: activeJob.postInspectionDate,
                     ...(selectedApplication && {
                         representative_name: selectedApplication.representative_name,
+                        representative_phone: selectedApplication.representative_phone,
                         applicant_name: selectedApplication.applicant_name,
                         applicant_phone: selectedApplication.applicant_phone,
                         maintenance_company: selectedApplication.maintenance_company,
@@ -1548,6 +1549,7 @@ Required output:
             return {
                 ...job,
                 representative_name: appData?.representative_name,
+                representative_phone: appData?.representative_phone,
                 applicant_name: appData?.applicant_name,
                 applicant_phone: appData?.applicant_phone,
                 maintenance_company: appData?.maintenance_company
