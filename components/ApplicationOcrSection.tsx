@@ -1061,6 +1061,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     if (rep && await applyField(app, 'representative_name', rep, true)) n++;
     if (phone && await applyField(app, 'representative_phone', phone, true)) n++;
     if (address && !eatWater) { /* 주소는 위치 도우미(locations)에서 관리 — applications에 저장 안 함 */ }
+    setLookupOpenId(null); // 전체 적용 끝났으니 팝오버 닫기
     if (n > 0) { clearMessages(); setSuccessMessage(`검증 항목 ${n}개 전체 적용(저장) 완료`); }
   };
 
