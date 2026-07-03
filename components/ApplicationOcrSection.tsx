@@ -1319,8 +1319,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                     const widthMap: Record<string, string> = {
                       'No.': 'w-12',
                       '접수번호': 'w-36',
-                      '현장': 'w-48',
-                      '대표자': 'w-24',
+                      '현장': 'w-56',
+                      '대표자': 'w-28',
                       '대표전화': 'w-28',
                       '신청인': 'w-[5.5rem]',
                       '휴대폰': 'w-28',
@@ -1511,7 +1511,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           {app.queue_slot}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-slate-200 font-mono align-top w-36 max-w-[9rem]">
+                      <td className="px-3 py-2 text-slate-200 font-mono align-top w-36 max-w-[9rem] overflow-hidden">
                         {app.id === appIdToSync && (
                           <span className="block text-[9px] leading-none text-sky-300 font-semibold mb-0.5">
                             작업중
@@ -1547,13 +1547,13 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-slate-300 align-top w-48 max-w-[12rem] overflow-hidden">
-                        <div className="break-words" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={app.site_name}>{app.site_name}</div>
+                      <td className="px-3 py-2 text-slate-300 align-top w-56 max-w-[14rem] overflow-hidden">
+                        <div className="break-words text-xs leading-tight" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={app.site_name}>{app.site_name}</div>
 
                       </td>
-                      <td className="px-3 py-2 text-slate-300 align-top w-24 max-w-[7rem] overflow-hidden">
+                      <td className="px-3 py-2 text-slate-300 align-top w-28 max-w-[7.5rem] overflow-hidden">
                         <div className="flex items-start gap-1">
-                          <span className="break-words min-w-0" title={app.representative_name}>{app.representative_name}</span>
+                          <span className="break-words min-w-0 text-xs leading-tight" title={app.representative_name}>{app.representative_name}</span>
                           {/* 🔍 역검색: 수질=현장·주소·대표자·대표전화 전부 / 먹는물(세부순번 -N)=대표자·대표전화만 */}
                           {true && (
                             <button
@@ -1690,22 +1690,22 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           document.body,
                         )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300 min-w-[8rem]">
-                        {app.representative_phone || <span className="text-slate-600">—</span>}
+                      <td className="px-3 py-2 text-slate-300 align-top w-28 max-w-[7rem] overflow-hidden">
+                        <div className="truncate text-xs leading-tight" title={app.representative_phone || ''}>{app.representative_phone || <span className="text-slate-600">—</span>}</div>
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
-                        {app.applicant_name}
+                      <td className="px-3 py-2 text-slate-300 align-top w-[5.5rem] max-w-[5.5rem] overflow-hidden">
+                        <div className="truncate text-xs leading-tight" title={app.applicant_name}>{app.applicant_name}</div>
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
-                        <div className="flex items-center gap-2">
-                          <span>{app.applicant_phone}</span>
+                      <td className="px-3 py-2 text-slate-300 align-top w-28 max-w-[7rem] overflow-hidden">
+                        <div className="flex items-center gap-1">
+                          <span className="truncate text-xs leading-tight min-w-0" title={app.applicant_phone}>{app.applicant_phone}</span>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleSendKakao(app);
                             }}
                             disabled={kakaoSendingId === app.id}
-                            className="p-1 text-yellow-400 hover:text-yellow-300 rounded-full transition-colors hover:bg-yellow-600/30 disabled:opacity-50"
+                            className="shrink-0 p-1 text-yellow-400 hover:text-yellow-300 rounded-full transition-colors hover:bg-yellow-600/30 disabled:opacity-50"
                             aria-label={`'${app.applicant_name}'에게 카카오톡 보내기`}
                           >
                             {kakaoSendingId === app.id ? (
@@ -1716,15 +1716,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           </button>
                         </div>
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate">{app.applicant_email}</span>
+                      <td className="px-3 py-2 text-slate-300 align-top w-40 max-w-[10rem] overflow-hidden">
+                        <div className="flex items-center gap-1">
+                          <span className="truncate text-xs leading-tight min-w-0" title={app.applicant_email}>{app.applicant_email}</span>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               setEmailModalApp(app);
                             }}
-                            className="p-1 text-cyan-400 hover:text-cyan-300 rounded-full transition-colors hover:bg-cyan-600/30 disabled:opacity-50 flex-shrink-0"
+                            className="shrink-0 p-1 text-cyan-400 hover:text-cyan-300 rounded-full transition-colors hover:bg-cyan-600/30 disabled:opacity-50"
                             aria-label={`'${app.applicant_name}'에게 이메일 보내기`}
                           >
                             <EmailIcon className="w-4 h-4" />
