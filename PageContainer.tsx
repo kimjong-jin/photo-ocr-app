@@ -2978,10 +2978,14 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 {locationList.length === 0 ? (
                   <p className="text-center text-[11px] text-slate-600 py-1">저장된 위치 없음</p>
                 ) : (
-                  <div className="space-y-1 max-h-52 overflow-y-auto">
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
                     {[...locationList]
                       .filter(loc => (locFieldFilter === '전체' || locFieldFilter === '없음' || fieldOf(loc) === locFieldFilter) && (locYearFilter === '전체' || yearOfId(loc.id) === locYearFilter))
                       .sort((a, b) => {
+                        // 클릭(작업중) 항목은 항상 맨 위로
+                        const selA = locReceiptInput === a.id ? 1 : 0;
+                        const selB = locReceiptInput === b.id ? 1 : 0;
+                        if (selA !== selB) return selB - selA;
                         const idxA = applications.findIndex(ap => ap.receipt_no === a.id.split('-').slice(0,3).join('-') || ap.receipt_no === a.id);
                         const idxB = applications.findIndex(ap => ap.receipt_no === b.id.split('-').slice(0,3).join('-') || ap.receipt_no === b.id);
                         if (idxA === -1 && idxB === -1) return 0;
@@ -3022,6 +3026,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         >
                           {/* 접수번호 + 현장명: 현재 작업중인 항목은 공통 정보 siteName을 실시간 반영 */}
                           <p className="text-[11px] font-bold text-sky-400 truncate">
+                            {locReceiptInput === loc.id && (
+                              <span className="mr-1 text-[9px] font-bold px-1 py-0.5 rounded bg-sky-500 text-white align-middle">작업중</span>
+                            )}
                             {/* No. 순번: applications 목록 기준 */}
                             {(() => {
                               const idx = applications.findIndex(a => a.receipt_no === loc.id.split('-').slice(0,3).join('-') || a.receipt_no === loc.id);
