@@ -935,34 +935,43 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   };
 
   // 🔍 회사 역검색: 현장명 기준으로 카카오(정확한 전화)+AI(대표자 추정) 조회. 결과는 확인용, 자동저장 안 함.
-  const handleCompanyLookup = async (app: Application, ev?: React.MouseEvent) => {
+  // 논블로킹: 팝오버를 즉시 열고 각 소스가 도착하는 대로 채움(스피너만 돌고 무반응하는 문제 방지). AI엔 20초 타임아웃.
+  const handleCompanyLookup = (app: Application, ev?: React.MouseEvent) => {
     if (lookupOpenId === app.id) { setLookupOpenId(null); return; }  // 이미 열려있으면 토글 닫기
     const site = (app.site_name || '').trim();
     if (!site) { setError('현장명이 없어 검색할 수 없습니다.'); return; }
-    // 버튼 위치 기준 고정좌표(overflow-auto 테이블에 안 잘리게 fixed 렌더)
+    // 모바일이면 하단 시트로(앵커=null), 데스크톱이면 버튼 근처 고정좌표
+    const isMobile = window.innerWidth < 640;
     const r = (ev?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect();
-    if (r) setLookupAnchor({ top: Math.min(r.bottom + 4, window.innerHeight - 20), left: Math.min(r.left, window.innerWidth - 340) });
+    setLookupAnchor(!isMobile && r ? { top: Math.min(r.bottom + 4, window.innerHeight - 320), left: Math.max(8, Math.min(r.left, window.innerWidth - 340)) } : null);
     setLookupId(app.id);
     setLookupOpenId(app.id);
-    try {
-      const [kakaoDocs, aiRes] = await Promise.all([
-        searchAddressByKeyword(site).catch(() => [] as any[]),
-        fetch('/api/company-lookup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ siteName: site, address: '' }),
-        }).then(r => r.ok ? r.json() : null).catch(() => null),
-      ]);
-      const kakao = (kakaoDocs || []).slice(0, 3).map((d: any) => ({
+    setLookupResult(prev => ({ ...prev, [app.id]: { kakao: [], ai: null } })); // 즉시 로딩 상태로 팝오버 오픈
+
+    let done = 0;
+    const finish = () => { if (++done >= 2) setLookupId(null); };
+
+    // 카카오(빠름) — 도착 즉시 반영
+    searchAddressByKeyword(site).then((docs: any[]) => {
+      const kakao = (docs || []).slice(0, 3).map((d: any) => ({
         phone: d.phone || '', place_name: d.place_name || '',
         road_address_name: d.road_address_name || '', address_name: d.address_name || '',
       }));
-      setLookupResult(prev => ({ ...prev, [app.id]: { kakao, ai: aiRes, error: aiRes ? undefined : 'AI 조회 실패(전화는 카카오 참고)' } }));
-    } catch (e: any) {
-      setLookupResult(prev => ({ ...prev, [app.id]: { kakao: [], ai: null, error: e?.message || '조회 실패' } }));
-    } finally {
-      setLookupId(null);
-    }
+      setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), kakao } }));
+    }).catch(() => {}).finally(finish);
+
+    // AI(느림) — 20초 타임아웃, 도착 즉시 반영
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 20000);
+    fetch('/api/company-lookup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteName: site, address: '' }),
+      signal: ctrl.signal,
+    }).then(r => r.ok ? r.json() : null)
+      .then(ai => setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), ai, error: ai ? undefined : 'AI 대표자 조회 실패(전화는 카카오 참고)' } })))
+      .catch(() => setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), error: 'AI 조회 시간초과(전화는 카카오 참고)' } })))
+      .finally(() => { clearTimeout(to); finish(); });
   };
 
   // 팝오버에서 '적용' — 편집 상태로 열어 대표 필드만 채워줌(사용자가 저장 확인). 자동 커밋 아님.
@@ -1210,16 +1219,16 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
           ref={tableContainerRef}
           onScroll={handleTableScroll}
           className="overflow-auto bg-slate-800 rounded-lg border border-slate-700 transition-all duration-300"
-          style={{ maxHeight: isTableExpanded ? '365px' : '205px' }}
+          style={{ maxHeight: isTableExpanded ? '365px' : '205px', WebkitOverflowScrolling: 'touch' }}
         >
-          <table className="min-w-full divide-y divide-slate-600 text-sm">
+          <table className="w-max min-w-full divide-y divide-slate-600 text-sm">
             <thead className="bg-slate-700/50 sticky top-0 z-10">
               <tr>
                 {['No.', '접수번호', '현장', '대표자', '대표전화', '신청인', '휴대폰', '이메일'].map(
                   (h) => (
                     <th
                       key={h}
-                      className="px-3 py-2 text-xs font-medium text-slate-300 uppercase tracking-wider text-left sticky top-0 bg-slate-700/50 first:text-center"
+                      className="px-3 py-2 text-xs font-medium text-slate-300 uppercase tracking-wider text-left sticky top-0 bg-slate-700/50 first:text-center whitespace-nowrap"
                     >
                       {h === 'No.' ? (
                         <span className="inline-flex flex-col items-center gap-0.5 leading-none">
@@ -1304,7 +1313,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           className={editInputClass}
                         />
                       </td>
-                      <td className="p-1">
+                      <td className="p-1 min-w-[8rem]">
                         <input
                           name="representative_phone"
                           value={editedData.representative_phone ?? ''}
@@ -1457,13 +1466,17 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                         </div>
                         {lookupOpenId === app.id && lookupResult[app.id] && (
                           <div
-                            className="fixed z-50 w-80 max-w-[85vw] bg-slate-900 border border-slate-600 rounded-lg shadow-xl p-3 text-left font-sans normal-case whitespace-normal"
-                            style={{ top: lookupAnchor?.top ?? 80, left: lookupAnchor?.left ?? 20 }}
+                            className={`fixed z-50 bg-slate-900 border border-slate-600 rounded-lg shadow-2xl p-3 text-left font-sans normal-case whitespace-normal max-h-[75vh] overflow-y-auto ${lookupAnchor ? 'w-80 max-w-[92vw]' : 'w-[94vw]'}`}
+                            style={lookupAnchor
+                              ? { top: lookupAnchor.top, left: lookupAnchor.left, WebkitOverflowScrolling: 'touch' }
+                              : { left: '50%', bottom: 10, transform: 'translateX(-50%)', WebkitOverflowScrolling: 'touch' }}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-xs font-semibold text-sky-300">🔍 역검색 결과 (확인용)</span>
-                              <button onClick={() => setLookupOpenId(null)} className="text-slate-400 hover:text-white text-xs px-1">✕</button>
+                              <span className="text-xs font-semibold text-sky-300 flex items-center gap-1.5">
+                                🔍 역검색 결과 (확인용){lookupId === app.id && <Spinner size="sm" />}
+                              </span>
+                              <button onClick={() => setLookupOpenId(null)} className="text-slate-400 hover:text-white text-base px-2 py-0.5 -my-0.5">✕</button>
                             </div>
                             <p className="text-[10px] text-amber-400 mb-2 leading-tight">
                               현장명 “{app.site_name}” 기준. <b>대표자·대표전화만</b> 적용 가능(신청인/휴대폰은 변경 안 함). 대표전화는 현장 대표(유선)번호 — 010 휴대폰이 아님.
@@ -1472,7 +1485,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                             <div className="mb-2">
                               <div className="text-[11px] text-slate-400 mb-1">📍 위치·대표전화 (카카오 등록)</div>
                               {lookupResult[app.id].kakao.length === 0 ? (
-                                <div className="text-[11px] text-slate-500">검색 결과 없음</div>
+                                <div className="text-[11px] text-slate-500">{lookupId === app.id ? '조회 중…' : '검색 결과 없음'}</div>
                               ) : (
                                 lookupResult[app.id].kakao.map((k, i) => (
                                   <div key={i} className="py-0.5">
@@ -1518,13 +1531,13 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                   )}
                                 </div>
                               ) : (
-                                <div className="text-[11px] text-slate-500">추정 결과 없음</div>
+                                <div className="text-[11px] text-slate-500">{lookupId === app.id ? '조회 중…' : '추정 결과 없음'}</div>
                               )}
                             </div>
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-300 min-w-[8rem]">
                         {app.representative_phone || <span className="text-slate-600">—</span>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-300">
@@ -1642,7 +1655,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                       className={editInputClass}
                     />
                   </td>
-                  <td className="p-1">
+                  <td className="p-1 min-w-[8rem]">
                     <input
                       name="representative_phone"
                       value={newApplicationData.representative_phone ?? ''}
