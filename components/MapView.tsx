@@ -481,7 +481,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
         <div ref={googleContainerRef} style={{ position: "absolute", inset: 0, display: mapProvider === 'google' ? 'block' : 'none' }} />
         {/* 제공자 토글 (우상단) — GPS는 상단 툴바에 있으므로 제외 */}
         <div style={{ position: "absolute", top: 10, right: 10, zIndex: 11, display: "flex", gap: 4 }}>
-          {([['kakao', '카카오', '#FEE500', '#3c1e1e'], ['naver', '네이버', '#03C75A', '#fff'], ['google', '구글', '#4285F4', '#fff']] as const).map(([p, label, bg, fg]) => (
+          {([['kakao', '카카오', '#FEE500', '#3c1e1e'], ['google', '구글', '#4285F4', '#fff']] as const).map(([p, label, bg, fg]) => (
             <button key={p} onClick={() => setMapProvider(p)}
               style={{ padding: "5px 9px", fontSize: 12, fontWeight: 700, borderRadius: 6, border: mapProvider === p ? '2px solid #111' : '1px solid rgba(0,0,0,0.2)', background: mapProvider === p ? bg : 'rgba(255,255,255,0.85)', color: mapProvider === p ? fg : '#333', cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }}>
               {label}
