@@ -12,6 +12,30 @@ interface MapViewProps {
 const DEFAULT_LAT = 37.5665;
 const DEFAULT_LNG = 126.978;
 
+// 저장위치 그룹 → 신호등(검사주기 대비 색)·현장명 라벨·툴팁 계산 (카카오/네이버/구글 공용)
+function groupMeta(items: any[]) {
+  const currentYear = new Date().getFullYear();
+  const yearOf = (id: string) => { const yy = parseInt(String(id).slice(0, 2), 10); return isNaN(yy) ? 0 : 2000 + yy; };
+  const latestYear = Math.max(0, ...items.map((it: any) => yearOf(it.id)));
+  const cat = items.find((it: any) => it.category)?.category;
+  const cycle = cat === '먹는물' ? 2 : 1;
+  const gap = latestYear ? currentYear - latestYear : 99;
+  const light = gap <= cycle - 1 ? '정상' : gap === cycle ? '임박' : '지연';
+  const hasTailError = items.some((it: any) => it.category === '수질' && String(it.id).split('-').length >= 4);
+  const lightColor = light === '정상' ? '#10b981' : light === '임박' ? '#f59e0b' : '#ef4444';
+  const lightBg = light === '정상' ? 'rgba(6,78,59,0.5)' : light === '임박' ? 'rgba(120,53,15,0.5)' : 'rgba(127,29,29,0.6)';
+  const borderColor = hasTailError ? '#ef4444' : lightColor;
+  const bgColor = hasTailError ? 'rgba(127,29,29,0.72)' : lightBg;
+  const uniqueLabels = [...new Set(items.map((it: any) => it.siteName || it.id).filter(Boolean))];
+  const icon = hasTailError ? '⚠️' : light === '지연' ? '🔴' : light === '임박' ? '🟡' : '🟢';
+  const text = `${icon} ${uniqueLabels.join(' / ')}`;
+  const statusTxt = light === '지연' ? '⚠️ 지연/미신청 의심' : light === '임박' ? '검사 임박' : '정상';
+  const tooltip = `${hasTailError ? '⚠️ 수질 꼬리번호 오류 — 접수번호 확인 필요\n' : ''}최근 검사 ${latestYear || '?'}년 · ${statusTxt} (${cat || '수질'} ${cycle}년주기)\n${items.map((it: any) => `${it.id}${it.address ? ` (${it.address})` : ''}`).join('\n')}\n클릭 → 이 위치·주소 사용`;
+  const firstAddress = items.find((it: any) => it.address)?.address || '';
+  const name = uniqueLabels.join(' / ');
+  return { text, name, icon, bgColor, borderColor, lightColor, tooltip, firstAddress };
+}
+
 const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect, savedLocations }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
@@ -34,6 +58,12 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
   const googleContainerRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<any>(null);
   const googleMarkerRef = useRef<any>(null);
+  // 저장위치 그룹(좌표 해석 완료) — 세 지도 공용. 카카오 resolveAndDraw가 채움.
+  const [overlayGroups, setOverlayGroups] = useState<{ lat: number; lng: number; items: any[] }[]>([]);
+  const naverOverlaysRef = useRef<any[]>([]);
+  const googleOverlaysRef = useRef<any[]>([]);
+  const [naverReady, setNaverReady] = useState(false);
+  const [googleReady, setGoogleReady] = useState(false);
 
   // ✅ 최신 콜백 유지 (effect deps에서 빼도 최신 함수 호출)
   const onSelectRef = useRef<MapViewProps["onAddressSelect"]>(onAddressSelect);
@@ -250,10 +280,13 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
         groups[key].items.push(loc);
       });
 
-      // Draw overlays
-      Object.values(groups).forEach(({ lat, lng, items }) => {
+      // Draw overlays (카카오)
+      const groupArr = Object.values(groups);
+      groupArr.forEach(({ lat, lng, items }) => {
         placeOverlayGroup(items, lat, lng);
       });
+      // 네이버·구글 공용으로 그룹 저장
+      setOverlayGroups(groupArr);
     };
 
     resolveAndDraw();
@@ -329,6 +362,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
           naverMarkerRef.current.setPosition(p);
           reverseGeocodeSafe(p.lat(), p.lng());
         });
+        setNaverReady(true);
       } else {
         naverMapRef.current.setCenter(c);
         naverMarkerRef.current.setPosition(c);
@@ -366,6 +400,7 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
           googleMarkerRef.current.setPosition(p);
           reverseGeocodeSafe(p.lat(), p.lng());
         });
+        setGoogleReady(true);
       } else {
         googleMapRef.current.setCenter(c);
         googleMarkerRef.current.setPosition(c);
@@ -385,6 +420,51 @@ const MapView: React.FC<MapViewProps> = ({ latitude, longitude, onAddressSelect,
       setTimeout(init, 400);
     }
   }, [mapProvider, latitude, longitude, reverseGeocodeSafe]);
+
+  // 네이버 저장위치 신호등 마커 (전부 항상 표시) — 카카오와 동일
+  useEffect(() => {
+    if (mapProvider !== 'naver') return;
+    const nmaps = (window as any).naver?.maps;
+    if (!nmaps || !naverMapRef.current) return;
+    naverOverlaysRef.current.forEach((m) => m.setMap(null));
+    naverOverlaysRef.current = [];
+    overlayGroups.forEach((g) => {
+      const meta = groupMeta(g.items);
+      const el = document.createElement('div');
+      el.style.cssText = `background:${meta.bgColor};color:#fff;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid ${meta.borderColor};box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;`;
+      el.textContent = meta.text; el.title = meta.tooltip;
+      const marker = new nmaps.Marker({
+        position: new nmaps.LatLng(g.lat, g.lng), map: naverMapRef.current,
+        icon: { content: el, anchor: new nmaps.Point(0, 0) },
+      });
+      nmaps.Event.addListener(marker, 'click', () => {
+        naverMapRef.current.setCenter(new nmaps.LatLng(g.lat, g.lng));
+        if (meta.firstAddress) { setCurrentGpsAddress(meta.firstAddress); onSelectRef.current?.(meta.firstAddress, g.lat, g.lng); }
+      });
+      naverOverlaysRef.current.push(marker);
+    });
+  }, [mapProvider, overlayGroups, naverReady]);
+
+  // 구글 저장위치 신호등 마커 (전부 항상 표시)
+  useEffect(() => {
+    if (mapProvider !== 'google') return;
+    const gm = (window as any).google?.maps;
+    if (!gm || !googleMapRef.current) return;
+    googleOverlaysRef.current.forEach((m) => m.setMap(null));
+    googleOverlaysRef.current = [];
+    overlayGroups.forEach((g) => {
+      const meta = groupMeta(g.items);
+      const marker = new gm.Marker({
+        position: { lat: g.lat, lng: g.lng }, map: googleMapRef.current, title: meta.tooltip,
+        label: { text: `${meta.icon} ${meta.name}`, color: meta.borderColor, fontSize: '11px', fontWeight: '700' },
+      });
+      marker.addListener('click', () => {
+        googleMapRef.current.setCenter({ lat: g.lat, lng: g.lng });
+        if (meta.firstAddress) { setCurrentGpsAddress(meta.firstAddress); onSelectRef.current?.(meta.firstAddress, g.lat, g.lng); }
+      });
+      googleOverlaysRef.current.push(marker);
+    });
+  }, [mapProvider, overlayGroups, googleReady]);
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
