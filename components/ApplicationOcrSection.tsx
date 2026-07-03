@@ -1224,30 +1224,44 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
           <table className="w-max min-w-full divide-y divide-slate-600 text-sm">
             <thead className="bg-slate-700/50 sticky top-0 z-10">
               <tr>
-                {['No.', '접수번호', '현장', '대표자', '대표전화', '신청인', '휴대폰', '이메일'].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="px-3 py-2 text-xs font-medium text-slate-300 uppercase tracking-wider text-left sticky top-0 bg-slate-700/50 first:text-center whitespace-nowrap"
-                    >
-                      {h === 'No.' ? (
-                        <span className="inline-flex flex-col items-center gap-0.5 leading-none">
-                          <input
-                            type="checkbox"
-                            checked={applications.length > 0 && applications.every(a => selectedAppIds.has(a.id))}
-                            onChange={(e) => {
-                              if (e.target.checked) setSelectedAppIds(new Set(applications.map(a => a.id)));
-                              else setSelectedAppIds(new Set());
-                            }}
-                            className="w-3.5 h-3.5 accent-red-500 cursor-pointer"
-                            aria-label="전체 선택"
-                            title="전체 선택 / 해제"
-                          />
-                          <span className="text-[9px] normal-case tracking-normal">전체</span>
-                        </span>
-                      ) : h}
-                    </th>
-                  ),
+                {(['No.', '접수번호', '현장', '대표자', '대표전화', '신청인', '휴대폰', '이메일'] as const).map(
+                  (h) => {
+                    const widthMap: Record<string, string> = {
+                      'No.': 'w-12',
+                      '접수번호': 'w-36',
+                      '현장': 'w-48',
+                      '대표자': 'w-24',
+                      '대표전화': 'w-28',
+                      '신청인': 'w-22',
+                      '휴대폰': 'w-28',
+                      '이메일': 'w-40',
+                    };
+                    return (
+                      <th
+                        key={h}
+                        className={`px-3 py-2 text-xs font-medium text-slate-300 uppercase tracking-wider text-left sticky top-0 bg-slate-700/50 whitespace-nowrap ${widthMap[h] ?? ''} ${
+                          h === 'No.' ? 'text-center' : ''
+                        }`}
+                      >
+                        {h === 'No.' ? (
+                          <span className="inline-flex flex-col items-center gap-0.5 leading-none">
+                            <input
+                              type="checkbox"
+                              checked={applications.length > 0 && applications.every(a => selectedAppIds.has(a.id))}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedAppIds(new Set(applications.map(a => a.id)));
+                                else setSelectedAppIds(new Set());
+                              }}
+                              className="w-3.5 h-3.5 accent-red-500 cursor-pointer"
+                              aria-label="전체 선택"
+                              title="전체 선택 / 해제"
+                            />
+                            <span className="text-[9px] normal-case tracking-normal">전체</span>
+                          </span>
+                        ) : h}
+                      </th>
+                    );
+                  },
                 )}
                 {CHECK_COLUMNS.map((c) => (
                   <th
@@ -1442,7 +1456,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                       <td className="px-3 py-2 whitespace-nowrap text-slate-300">
                         {app.site_name}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300 relative">
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
                         <div className="flex items-center gap-1.5">
                           <span>{app.representative_name}</span>
                           {/* 수질(베이스 접수번호)만 역검색 버튼 노출 — 먹는물(세부순번 -N, 4파트)은 직접 확인하므로 제외 */}
@@ -1466,7 +1480,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                         </div>
                         {lookupOpenId === app.id && lookupResult[app.id] && (
                           <div
-                            className={`fixed z-50 bg-slate-900 border border-slate-600 rounded-lg shadow-2xl p-3 text-left font-sans normal-case whitespace-normal max-h-[75vh] overflow-y-auto ${lookupAnchor ? 'w-80 max-w-[92vw]' : 'w-[94vw]'}`}
+                            className={`fixed z-[9999] bg-slate-900 border border-slate-600 rounded-lg shadow-2xl p-3 text-left font-sans normal-case whitespace-normal max-h-[75vh] overflow-y-auto ${lookupAnchor ? 'w-80 max-w-[92vw]' : 'w-[94vw]'}`}
                             style={lookupAnchor
                               ? { top: lookupAnchor.top, left: lookupAnchor.left, WebkitOverflowScrolling: 'touch' }
                               : { left: '50%', bottom: 10, transform: 'translateX(-50%)', WebkitOverflowScrolling: 'touch' }}
