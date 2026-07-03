@@ -1024,10 +1024,11 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     app: Application,
     field: 'representative_name' | 'representative_phone' | 'site_name' | 'site_address',
     value: string,
-  ) => {
+    silent = false,
+  ): Promise<boolean> => {
     let v = (value || '').trim();
     if (field === 'representative_phone') v = formatKoreanPhone(v); // 저장값도 하이픈 포맷
-    if (!v || !supabase) return;
+    if (!v || !supabase) return false;
     const prevApps = applications;
     setApplications(prev => prev.map(a => (a.id === app.id ? { ...a, [field]: v } : a))); // 낙관적 즉시 반영
     const { error } = await supabase.from('applications').update({ [field]: v }).eq('id', app.id);
@@ -1037,10 +1038,26 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       setError(colMissing
         ? `'${field}' 저장 실패 — DB에 컬럼이 없습니다. Supabase에서 컬럼을 추가하세요.`
         : `'${field}' 적용 실패: ${error.message}`);
-    } else {
-      clearMessages();
-      setSuccessMessage('적용(저장)되었습니다.');
+      return false;
     }
+    if (!silent) { clearMessages(); setSuccessMessage('적용(저장)되었습니다.'); }
+    return true;
+  };
+
+  // '검증 후 전체 적용' — 대표자·대표전화·주소를 한 번에 저장(현장명은 공식명 보존 위해 개별 적용).
+  // 전화·주소는 카카오(현장 직통) 우선, 없으면 AI. 대표자는 AI.
+  const applyAllFromLookup = async (app: Application) => {
+    const res = lookupResult[app.id];
+    if (!res) return;
+    const top = res.kakao[0];
+    const phone = top?.phone || (res.ai?.phone || '');
+    const address = top?.road_address_name || top?.address_name || (res.ai?.address ? enforceFullRegionPrefix(res.ai.address) : '');
+    const rep = res.ai?.representative || '';
+    let n = 0;
+    if (rep && await applyField(app, 'representative_name', rep, true)) n++;
+    if (phone && await applyField(app, 'representative_phone', phone, true)) n++;
+    if (address && await applyField(app, 'site_address', address, true)) n++;
+    if (n > 0) { clearMessages(); setSuccessMessage(`검증 항목 ${n}개 전체 적용(저장) 완료`); }
   };
 
   const handleSendKakao = async (app: Application) => {
@@ -1641,6 +1658,13 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                 <div className="text-[11px] text-slate-500">{lookupId === app.id ? '조회 중…' : '추정 결과 없음'}</div>
                               )}
                             </div>
+                            {/* 검증 후 전체 적용 — 대표자·대표전화·주소 한 번에 저장(현장명은 개별) */}
+                            <button
+                              onClick={() => applyAllFromLookup(app)}
+                              disabled={lookupId === app.id}
+                              className="mt-3 w-full py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-[12px] font-semibold"
+                              title="대표자·대표전화·주소를 한 번에 저장"
+                            >✅ 검증 후 전체 적용 (대표자·대표전화·주소)</button>
                           </div>
                           </div>,
                           document.body,
