@@ -1000,12 +1000,31 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     let done = 0;
     const finish = () => { if (++done >= 2) setLookupId(null); };
 
-    // 🗺️ 카카오 vs 구글 대조 (place-consensus) — 독립 실행, 스피너와 무관
+    // 🗺️ 지도 3사 대조 → 그 결과를 AI에 넘겨 "최종 판정"까지 (AI가 소스들 대조해 가장 정확한 값 결정)
     setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), consensusLoading: true } }));
-    fetch(`/api/place-consensus?query=${encodeURIComponent(site)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(c => setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), consensus: c, consensusLoading: false } })))
-      .catch(() => setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), consensus: null, consensusLoading: false } })));
+    (async () => {
+      let consensus: any = null;
+      try {
+        const r = await fetch(`/api/place-consensus?query=${encodeURIComponent(site)}`);
+        consensus = r.ok ? await r.json() : null;
+      } catch {}
+      setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), consensus, consensusLoading: false } }));
+
+      // AI 최종 판정 — 지도 3사 후보를 근거로 (28초 타임아웃)
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 28000);
+      try {
+        const r = await fetch('/api/company-lookup', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ siteName: site, address: '', candidates: consensus?.sources || null }),
+          signal: ctrl.signal,
+        });
+        const ai = r.ok ? await r.json() : null;
+        setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), ai, error: ai ? undefined : 'AI 판정 실패(지도 참고)' } }));
+      } catch {
+        setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), error: 'AI 판정 시간초과(지도 참고)' } }));
+      } finally { clearTimeout(to); finish(); }
+    })();
 
     // 카카오(빠름) — 현장명이 지저분해도(회사명+괄호 시설명 등) 후보를 순차 검색해 첫 결과 사용
     (async () => {
@@ -1031,19 +1050,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         }
       }
     })().catch(() => {}).finally(finish);
-
-    // AI(느림) — 28초 타임아웃, 도착 즉시 반영
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 28000);
-    fetch('/api/company-lookup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ siteName: site, address: '' }),
-      signal: ctrl.signal,
-    }).then(r => r.ok ? r.json() : null)
-      .then(ai => setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), ai, error: ai ? undefined : 'AI 대표자 조회 실패(전화는 카카오 참고)' } })))
-      .catch(() => setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), error: 'AI 조회 시간초과(전화는 카카오 참고)' } })))
-      .finally(() => { clearTimeout(to); finish(); });
   };
 
   // 팝오버 '적용' = 그 필드를 DB에 즉시 덮어쓰기(낙관적 반영). 팝오버는 열어둬 여러 항목 연속 적용 가능.
@@ -1703,7 +1709,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                             </div>
                             {/* AI = 대표자 추정(확인 필수) */}
                             <div className="border-t border-slate-700 pt-2">
-                              <div className="text-[11px] text-slate-400 mb-1">🤖 AI 추정 (⚠️ 확인 필수)</div>
+                              <div className="text-[11px] text-slate-400 mb-1">🤖 AI 종합 판정 (지도 3사 대조 근거 · ⚠️ 확인 필수)</div>
                               {lookupResult[app.id].error && !lookupResult[app.id].ai ? (
                                 <div className="text-[11px] text-rose-400">{lookupResult[app.id].error}</div>
                               ) : lookupResult[app.id].ai ? (

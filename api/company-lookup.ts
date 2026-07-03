@@ -17,14 +17,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY 미설정' });
 
-  const { siteName = '', address = '' } = (req.body || {}) as { siteName?: string; address?: string };
+  const { siteName = '', address = '', candidates = null } = (req.body || {}) as {
+    siteName?: string; address?: string;
+    candidates?: { kakao?: any; naver?: any; google?: any } | null;
+  };
   if (!siteName && !address) return res.status(400).json({ error: 'siteName 또는 address 필수' });
+
+  // 지도 3사(카카오·네이버·구글) 조회 결과를 판정 근거로 프롬프트에 주입
+  let candidateBlock = '';
+  if (candidates && (candidates.kakao || candidates.naver || candidates.google)) {
+    const fmt = (s: any, label: string) => s ? `- ${label}: 주소="${s.address || ''}" 전화="${s.phone || ''}" 상호="${s.name || ''}"` : `- ${label}: (검색 결과 없음)`;
+    candidateBlock = `\n[지도 3사 조회 결과 — 이걸 근거로 판정하라]\n${fmt(candidates.kakao, '카카오')}\n${fmt(candidates.naver, '네이버')}\n${fmt(candidates.google, '구글')}\n※ 소스마다 다른 지점(본사/공장/등기소재지)을 가리킬 수 있다. 현장명과 가장 부합하는 실제 현장의 주소·전화를 판정하고, 어느 소스를 신뢰했는지와 왜인지를 note에 밝혀라. 다수(2개 이상)가 일치하면 그 값을 우선하되, 현장명과 안 맞으면 근거를 들어 배제하라.\n`;
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   const prompt = `오늘(${today}) 기준으로 아래 시설/현장의 운영 법인 대표자와 대표전화번호를 최신 공개정보(포털 지도·기업정보·공시·홈페이지)로 검색해 확인해줘.
 - 현장명: ${siteName || '(미상)'}
 - 주소: ${address || '(미상)'}
-
+${candidateBlock}
 [대표전화(phone) — 반드시 최대한 채울 것]
 - 이 현장/시설을 실제 운영하는 법인의 대표전화(유선, 예: 052-###-####)를 찾아 넣는다. 010 휴대폰은 대표전화가 아니므로 넣지 않는다.
 - 현장 자체 번호가 없으면 그 운영 법인(본사/모회사/SPC의 실제 운영주체)의 대표전화라도 넣는다. "번호를 못 찾았다"가 아니라, 검색으로 찾을 수 있는 가장 가까운 대표(유선)번호를 적극적으로 채운다.
