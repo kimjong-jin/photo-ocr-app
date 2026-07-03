@@ -17,6 +17,7 @@ export interface Application {
   receipt_no: string;
   site_name: string; // 현장
   representative_name: string; // 대표자
+  representative_phone?: string; // 대표전화 (현장 대표번호 — 신청인 휴대폰과 별개)
   applicant_name: string; // 신청인
   applicant_phone: string; // 휴대폰
   applicant_email: string; // 이메일
@@ -657,6 +658,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       receipt_no: '',
       site_name: '',
       representative_name: '',
+      representative_phone: '',
       applicant_name: '',
       applicant_phone: '',
       applicant_email: '',
@@ -717,6 +719,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
           : null,
       };
       delete dataToInsert.id;
+      // 대표전화 미입력이면 필드 제거 — DB에 컬럼 추가 전에도 일반 추가가 깨지지 않도록.
+      if (!dataToInsert.representative_phone) delete dataToInsert.representative_phone;
 
       const { error: insertError } = await supabase
         .from('applications')
@@ -961,15 +965,19 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     }
   };
 
-  // 팝오버에서 '대표자 적용' — 편집 상태로 열어 대표자칸만 채워줌(사용자가 저장 확인). 자동 커밋 아님.
-  // ※ 신청인/휴대폰(applicant_*)은 절대 건드리지 않음. 대표자(representative_name)만 대상.
-  const applyRepresentative = (app: Application, value: string) => {
+  // 팝오버에서 '적용' — 편집 상태로 열어 대표 필드만 채워줌(사용자가 저장 확인). 자동 커밋 아님.
+  // ※ 신청인/휴대폰(applicant_*)은 절대 건드리지 않음. 대표자·대표전화(representative_*)만 대상.
+  const applyRepresentative = (
+    app: Application,
+    field: 'representative_name' | 'representative_phone',
+    value: string,
+  ) => {
     if (!value) return;
     if (editingId !== app.id) {
       setEditingId(app.id);
-      setEditedData({ ...app, representative_name: value });
+      setEditedData({ ...app, [field]: value });
     } else {
-      setEditedData(prev => ({ ...prev, representative_name: value }));
+      setEditedData(prev => ({ ...prev, [field]: value }));
     }
     setLookupOpenId(null);
   };
@@ -1055,7 +1063,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     );
   }
 
-  const totalColumns = 7 + CHECK_COLUMNS.length + 1;
+  const totalColumns = 8 + CHECK_COLUMNS.length + 1; // No.·접수·현장·대표자·대표전화·신청인·휴대폰·이메일(8) + 체크 + 관리
 
   // 선택된 항목(작업 대상)을 목록 맨 위로 고정 — 정렬·새로고침에도 자리가 안 바뀌어
   // 접수번호/공통정보가 흔들리지 않게 한다. 다른 행 클릭 시엔 그 행이 새 선택이 된다.
@@ -1207,7 +1215,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
           <table className="min-w-full divide-y divide-slate-600 text-sm">
             <thead className="bg-slate-700/50 sticky top-0 z-10">
               <tr>
-                {['No.', '접수번호', '현장', '대표자', '신청인', '휴대폰', '이메일'].map(
+                {['No.', '접수번호', '현장', '대표자', '대표전화', '신청인', '휴대폰', '이메일'].map(
                   (h) => (
                     <th
                       key={h}
@@ -1293,6 +1301,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           name="representative_name"
                           value={editedData.representative_name ?? ''}
                           onChange={handleEditInputChange}
+                          className={editInputClass}
+                        />
+                      </td>
+                      <td className="p-1">
+                        <input
+                          name="representative_phone"
+                          value={editedData.representative_phone ?? ''}
+                          onChange={handleEditInputChange}
+                          placeholder="대표전화"
                           className={editInputClass}
                         />
                       </td>
@@ -1449,11 +1466,11 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                               <button onClick={() => setLookupOpenId(null)} className="text-slate-400 hover:text-white text-xs px-1">✕</button>
                             </div>
                             <p className="text-[10px] text-amber-400 mb-2 leading-tight">
-                              현장명 “{app.site_name}” 기준. <b>대표자만</b> 적용 가능 — 위치·대표전화는 <b>참고용</b>입니다. (신청인/휴대폰은 변경 안 함)
+                              현장명 “{app.site_name}” 기준. <b>대표자·대표전화만</b> 적용 가능(신청인/휴대폰은 변경 안 함). 대표전화는 현장 대표(유선)번호 — 010 휴대폰이 아님.
                             </p>
-                            {/* 카카오 = 현장 위치(주소)·대표전화 참고. 신청인 휴대폰칸엔 절대 안 씀. */}
+                            {/* 카카오 = 현장 위치(주소)·대표전화. 대표전화칸에만 적용, 신청인 휴대폰칸엔 절대 안 씀. */}
                             <div className="mb-2">
-                              <div className="text-[11px] text-slate-400 mb-1">📍 위치·대표전화 (참고용)</div>
+                              <div className="text-[11px] text-slate-400 mb-1">📍 위치·대표전화 (카카오 등록)</div>
                               {lookupResult[app.id].kakao.length === 0 ? (
                                 <div className="text-[11px] text-slate-500">검색 결과 없음</div>
                               ) : (
@@ -1461,7 +1478,16 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                   <div key={i} className="py-0.5">
                                     <div className="text-[11px] text-slate-200 truncate">{k.place_name}</div>
                                     <div className="text-[10px] text-slate-400 truncate">📍 {k.road_address_name || k.address_name || '주소 없음'}</div>
-                                    <div className="text-[10px] text-slate-400">📞 {k.phone || '번호 없음'}</div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] text-slate-400">📞 {k.phone || '번호 없음'}</span>
+                                      {k.phone && (
+                                        <button
+                                          onClick={() => applyRepresentative(app, 'representative_phone', k.phone)}
+                                          className="shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline"
+                                          title="대표전화칸에 적용"
+                                        >대표전화 적용 ↩</button>
+                                      )}
+                                    </div>
                                   </div>
                                 ))
                               )}
@@ -1477,7 +1503,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                     <span className="text-[11px] text-slate-300">대표자: <b className="text-slate-100">{lookupResult[app.id].ai!.representative || '—'}</b></span>
                                     {lookupResult[app.id].ai!.representative && (
                                       <button
-                                        onClick={() => applyRepresentative(app, lookupResult[app.id].ai!.representative)}
+                                        onClick={() => applyRepresentative(app, 'representative_name', lookupResult[app.id].ai!.representative)}
                                         className="shrink-0 text-[11px] text-sky-300 hover:text-sky-200 underline"
                                         title="대표자 편집칸에 적용"
                                       >대표자 적용 ↩</button>
@@ -1497,6 +1523,9 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                             </div>
                           </div>
                         )}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
+                        {app.representative_phone || <span className="text-slate-600">—</span>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-300">
                         {app.applicant_name}
@@ -1610,6 +1639,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                       name="representative_name"
                       value={newApplicationData.representative_name ?? ''}
                       onChange={handleNewDataChange}
+                      className={editInputClass}
+                    />
+                  </td>
+                  <td className="p-1">
+                    <input
+                      name="representative_phone"
+                      value={newApplicationData.representative_phone ?? ''}
+                      onChange={handleNewDataChange}
+                      placeholder="대표전화"
                       className={editInputClass}
                     />
                   </td>
