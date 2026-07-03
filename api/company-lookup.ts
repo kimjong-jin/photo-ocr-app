@@ -77,7 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let candidateBlock = '';
   if (candidates && (candidates.kakao || candidates.naver || candidates.google)) {
     const fmt = (s: any, label: string) => s ? `- ${label}: 주소="${s.address || ''}" 전화="${s.phone || ''}" 상호="${s.name || ''}"` : `- ${label}: (검색 결과 없음)`;
-    candidateBlock = `\n[지도 3사 조회 결과 — 이걸 근거로 판정하라]\n${fmt(candidates.kakao, '카카오')}\n${fmt(candidates.naver, '네이버')}\n${fmt(candidates.google, '구글')}\n※ 소스마다 다른 지점(본사/공장/등기소재지)을 가리킬 수 있다. 현장명과 가장 부합하는 실제 현장의 주소·전화를 판정하고, 어느 소스를 신뢰했는지와 왜인지를 note에 밝혀라. 다수(2개 이상)가 일치하면 그 값을 우선하되, 현장명과 안 맞으면 근거를 들어 배제하라.\n`;
+    candidateBlock = `\n[지도 3사 조회 결과 — 이걸 근거로 판정하라]\n${fmt(candidates.kakao, '카카오')}\n${fmt(candidates.naver, '네이버')}\n${fmt(candidates.google, '구글')}\n※ 소스 신뢰 가중치: 카카오 50% > 네이버 30% > 구글 20% (한국 주소·전화는 카카오가 가장 정확). 값이 상충하면 가중치 합이 높은 쪽을 채택하라 — 예: 카카오+네이버가 같으면(80%) 구글(20%)과 달라도 카카오+네이버 값을 쓴다.\n※ 소스마다 다른 지점(본사/공장/등기소재지)을 가리킬 수 있다. 현장명과 가장 부합하는 실제 현장의 값을 판정하고, 어느 소스를 신뢰했는지와 왜인지를 note에 밝혀라. 현장명과 안 맞으면 근거를 들어 배제하라.\n`;
   }
 
   const today = new Date().toISOString().slice(0, 10);
