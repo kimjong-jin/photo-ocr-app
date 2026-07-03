@@ -3060,33 +3060,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                               : 'bg-teal-900/50 border-teal-600/60 text-teal-200'
                           }`}
                         >{fieldOf(loc)}</button>
-                        {/* 지도 교차검증 버튼 — 카카오·네이버·구글 */}
-                        {(() => {
-                          const lat = loc.lat, lng = loc.lng, addr = encodeURIComponent(loc.address || '');
-                          const btnCls = 'shrink-0 px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors';
-                          const kakaoUrl = lat && lng
-                            ? `https://map.kakao.com/link/map/${encodeURIComponent(loc.address || loc.id)},${lat},${lng}`
-                            : `https://map.kakao.com/link/search/${addr}`;
-                          const naverUrl = lat && lng
-                            ? `https://map.naver.com/v5/?c=${lng},${lat},15,0,0,0,dh`
-                            : `https://map.naver.com/v5/search/${addr}`;
-                          const googleUrl = lat && lng
-                            ? `https://maps.google.com/?q=${lat},${lng}`
-                            : `https://maps.google.com/?q=${addr}`;
-                          return (
-                            <div className="flex items-center gap-0.5">
-                              <a href={kakaoUrl} target="_blank" rel="noopener noreferrer"
-                                className={`${btnCls} bg-yellow-500/20 border-yellow-600/40 text-yellow-300 hover:bg-yellow-500/40`}
-                                title="카카오맵에서 확인" onClick={e => e.stopPropagation()}>카</a>
-                              <a href={naverUrl} target="_blank" rel="noopener noreferrer"
-                                className={`${btnCls} bg-green-500/20 border-green-600/40 text-green-300 hover:bg-green-500/40`}
-                                title="네이버지도에서 확인" onClick={e => e.stopPropagation()}>네</a>
-                              <a href={googleUrl} target="_blank" rel="noopener noreferrer"
-                                className={`${btnCls} bg-blue-500/20 border-blue-600/40 text-blue-300 hover:bg-blue-500/40`}
-                                title="구글맵에서 확인" onClick={e => e.stopPropagation()}>구</a>
-                            </div>
-                          );
-                        })()}
                         <button
                           onClick={async () => {
                             if (!window.confirm(`"${loc.id}" 위치를 영구 삭제하시겠습니까?`)) return;

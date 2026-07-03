@@ -10,7 +10,6 @@ import { supabase } from '../services/supabaseClient';
 import { sendKakaoTalkMessage } from '../services/claydoxApiService';
 import { searchAddressByKeyword, enforceFullRegionPrefix } from '../services/kakaoService';
 import { saveLocation } from '../services/locationService';
-import { buildMapLinks } from '../services/mapLinks';
 import EmailModal from './EmailModal';
 
 export interface Application {
@@ -1618,19 +1617,6 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                           className="shrink-0 text-[11px] text-emerald-300 hover:text-emerald-200 underline" title="현장(현장명)에 덮어쓰기">현장 적용 ↩</button>
                                       )}
                                     </div>
-                                    {/* 지도 교차검증 — 카카오·네이버·구글로 이 장소 열어 확인 */}
-                                    {(() => {
-                                      const m = buildMapLinks({ address: k.road_address_name || k.address_name, name: k.place_name });
-                                      const cls = 'px-1.5 py-0.5 rounded text-[10px] font-bold leading-none';
-                                      return (
-                                        <div className="flex items-center gap-1 mt-0.5 mb-0.5">
-                                          <span className="text-[9px] text-slate-500">지도확인:</span>
-                                          <a href={m.kakao} target="_blank" rel="noopener noreferrer" className={`${cls} bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/40`}>카카오</a>
-                                          <a href={m.naver} target="_blank" rel="noopener noreferrer" className={`${cls} bg-green-500/20 text-green-300 hover:bg-green-500/40`}>네이버</a>
-                                          <a href={m.google} target="_blank" rel="noopener noreferrer" className={`${cls} bg-blue-500/20 text-blue-300 hover:bg-blue-500/40`}>구글</a>
-                                        </div>
-                                      );
-                                    })()}
                                     {!isEatWaterReceipt(app.receipt_no) && (
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[10px] text-slate-400 truncate">📍 {k.road_address_name || k.address_name || '주소 없음'}</span>
