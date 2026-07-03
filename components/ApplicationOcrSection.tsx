@@ -1440,13 +1440,13 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           {app.queue_slot}
                         </span>
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-200 font-mono">
+                      <td className="px-3 py-2 text-slate-200 font-mono align-top w-36 max-w-[9rem]">
                         {app.id === appIdToSync && (
                           <span className="block text-[9px] leading-none text-sky-300 font-semibold mb-0.5">
                             작업중
                           </span>
                         )}
-                        <span className="flex items-center gap-2">
+                        <span className="flex items-center gap-2 whitespace-nowrap">
                           <span
                             className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                               receiptStatuses[app.receipt_no] === null
@@ -1466,7 +1466,11 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                           {app.receipt_no}
                         </span>
                         {ktlDetails[app.receipt_no] && (ktlDetails[app.receipt_no]?.companyName || ktlDetails[app.receipt_no]?.representativeName) && (
-                          <div className="text-[10px] text-slate-400 mt-0.5 font-sans leading-tight font-normal" title="KTL LIMS 등록 정보">
+                          <div
+                            className="text-[10px] text-slate-400 mt-0.5 font-sans leading-tight font-normal break-words max-w-[9rem]"
+                            style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+                            title={`${ktlDetails[app.receipt_no]?.companyName || ''}${ktlDetails[app.receipt_no]?.representativeName ? ` (${ktlDetails[app.receipt_no]?.representativeName})` : ''}`}
+                          >
                             {ktlDetails[app.receipt_no]?.companyName || ''}
                             {ktlDetails[app.receipt_no]?.representativeName ? ` (${ktlDetails[app.receipt_no]?.representativeName})` : ''}
                           </div>
