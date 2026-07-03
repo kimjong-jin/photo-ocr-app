@@ -953,10 +953,8 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     if (lookupOpenId === app.id) { setLookupOpenId(null); return; }  // 이미 열려있으면 토글 닫기
     const site = (app.site_name || '').trim();
     if (!site) { setError('현장명이 없어 검색할 수 없습니다.'); return; }
-    // 모바일이면 하단 시트로(앵커=null), 데스크톱이면 버튼 근처 고정좌표
-    const isMobile = window.innerWidth < 640;
-    const r = (ev?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect();
-    setLookupAnchor(!isMobile && r ? { top: Math.min(r.bottom + 4, window.innerHeight - 320), left: Math.max(8, Math.min(r.left, window.innerWidth - 340)) } : null);
+    // 결과는 항상 화면 중앙 아래(하단시트+딤배경)로 — 데스크톱/모바일 공통. 확인 후 적용 결정.
+    setLookupAnchor(null);
     setLookupId(app.id);
     setLookupOpenId(app.id);
     setLookupResult(prev => ({ ...prev, [app.id]: { kakao: [], ai: null } })); // 즉시 로딩 상태로 팝오버 오픈
@@ -1508,7 +1506,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                             style={lookupAnchor ? { background: 'transparent' } : { background: 'rgba(2,6,23,0.55)' }}
                           >
                           <div
-                            className={`fixed z-[9999] bg-slate-900 border border-slate-600 rounded-lg shadow-2xl p-3 text-left font-sans normal-case whitespace-normal max-h-[75vh] overflow-y-auto ${lookupAnchor ? 'w-80 max-w-[92vw]' : 'w-[94vw]'}`}
+                            className={`fixed z-[9999] bg-slate-900 border border-slate-600 rounded-lg shadow-2xl p-3 text-left font-sans normal-case whitespace-normal max-h-[75vh] overflow-y-auto ${lookupAnchor ? 'w-80 max-w-[92vw]' : 'w-[94vw] sm:w-96'}`}
                             style={lookupAnchor
                               ? { top: lookupAnchor.top, left: lookupAnchor.left, WebkitOverflowScrolling: 'touch' }
                               : { left: '50%', bottom: 10, transform: 'translateX(-50%)', WebkitOverflowScrolling: 'touch' }}
