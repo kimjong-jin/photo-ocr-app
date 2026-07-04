@@ -1007,7 +1007,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       try {
         // 카카오·네이버 정확매칭 보완: 정리된 후보 검색어(회사코어 등)를 alt로 함께 전달
         const alt = buildSiteSearchTerms(site).filter(t => t !== site).join('|');
-        const url = `/api/place-consensus?query=${encodeURIComponent(site)}${alt ? `&alt=${encodeURIComponent(alt)}` : ''}`;
+        const url = `/api/place-consensus?query=${encodeURIComponent(site)}&site=${encodeURIComponent(site)}${alt ? `&alt=${encodeURIComponent(alt)}` : ''}`;
         const r = await fetch(url);
         consensus = r.ok ? await r.json() : null;
       } catch {}
@@ -1031,7 +1031,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         const corp = (ai?.companyName || '').replace(/\(?(주식회사|유한회사|㈜|주|유|재|사)\)?/g, '').replace(/\s+/g, ' ').trim();
         if (noKN && corp && corp.length >= 2 && corp !== site) {
           try {
-            const er = await fetch(`/api/place-consensus?query=${encodeURIComponent(corp)}`);
+            const er = await fetch(`/api/place-consensus?query=${encodeURIComponent(corp)}&site=${encodeURIComponent(site)}`);
             const enr = er.ok ? await er.json() : null;
             if (enr && (enr.sources?.kakao || enr.sources?.naver)) {
               enr.enrichedBy = corp; // 3사 대조가 '법인명 재검색' 결과임을 표시
