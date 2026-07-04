@@ -1005,7 +1005,10 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     (async () => {
       let consensus: any = null;
       try {
-        const r = await fetch(`/api/place-consensus?query=${encodeURIComponent(site)}`);
+        // 카카오·네이버 정확매칭 보완: 정리된 후보 검색어(회사코어 등)를 alt로 함께 전달
+        const alt = buildSiteSearchTerms(site).filter(t => t !== site).join('|');
+        const url = `/api/place-consensus?query=${encodeURIComponent(site)}${alt ? `&alt=${encodeURIComponent(alt)}` : ''}`;
+        const r = await fetch(url);
         consensus = r.ok ? await r.json() : null;
       } catch {}
       setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), consensus, consensusLoading: false } }));
@@ -1021,6 +1024,21 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
         });
         const ai = r.ok ? await r.json() : null;
         setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), ai, error: ai ? undefined : 'AI 판정 실패(지도 참고)' } }));
+
+        // 보강: 현장명 원문으로 카카오·네이버가 안 잡혔으면, AI가 찾은 한글 법인명으로 재검색해 3사 대조를 채움
+        // (예: "LS MnM 온산제련소" → 카카오/네이버 0건 → 법인명 "엘에스엠앤엠"으로 재검색 → 산암로 148)
+        const noKN = consensus && !consensus.sources?.kakao && !consensus.sources?.naver;
+        const corp = (ai?.companyName || '').replace(/\(?(주식회사|유한회사|㈜|주|유|재|사)\)?/g, '').replace(/\s+/g, ' ').trim();
+        if (noKN && corp && corp.length >= 2 && corp !== site) {
+          try {
+            const er = await fetch(`/api/place-consensus?query=${encodeURIComponent(corp)}`);
+            const enr = er.ok ? await er.json() : null;
+            if (enr && (enr.sources?.kakao || enr.sources?.naver)) {
+              enr.enrichedBy = corp; // 3사 대조가 '법인명 재검색' 결과임을 표시
+              setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), consensus: enr } }));
+            }
+          } catch {}
+        }
       } catch {
         setLookupResult(prev => ({ ...prev, [app.id]: { ...(prev[app.id] || { kakao: [], ai: null }), error: 'AI 판정 시간초과(지도 참고)' } }));
       } finally { clearTimeout(to); finish(); }
@@ -1634,7 +1652,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                               const nn = r?.consensus?.sources?.naver;
                               return (
                                 <div className="mb-2 rounded-md border border-slate-700 bg-slate-800/40 p-2">
-                                  <div className="text-[11px] text-slate-300 mb-1 font-semibold">🗺️ 지도 3사 대조 (합의) {cs?.note && <span className="font-normal text-slate-500">— {cs.note}</span>}</div>
+                                  <div className="text-[11px] text-slate-300 mb-1 font-semibold">🗺️ 지도 3사 대조 (합의) {cs?.note && <span className="font-normal text-slate-500">— {cs.note}</span>}{(r?.consensus as any)?.enrichedBy && <span className="font-normal text-sky-400"> · 카카오·네이버는 법인명 '{(r!.consensus as any).enrichedBy}' 재검색</span>}</div>
                                   {r?.consensusLoading ? (
                                     <div className="text-[11px] text-slate-500">대조 중…</div>
                                   ) : !r?.consensus ? (
