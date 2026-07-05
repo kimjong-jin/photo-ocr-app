@@ -13,8 +13,16 @@ const AREA_BY_REGION: Record<string, string> = {
   '전북': '063', '전라북': '063', '전남': '061', '전라남': '061', '경북': '054', '경상북': '054', '경남': '055', '경상남': '055', '제주': '064',
 };
 function regionOf(addr: string): string {
-  for (const k of Object.keys(AREA_BY_REGION)) if (addr.includes(k)) return AREA_BY_REGION[k];
-  return '';
+  let earliestIdx = Infinity;
+  let bestRegion = '';
+  for (const k of Object.keys(AREA_BY_REGION)) {
+    const idx = addr.indexOf(k);
+    if (idx !== -1 && idx < earliestIdx) {
+      earliestIdx = idx;
+      bestRegion = AREA_BY_REGION[k];
+    }
+  }
+  return bestRegion;
 }
 // 전화 지역번호가 주소 시·도와 맞나 (전국대표번호 1588 등은 허용, 010 휴대폰은 대표전화 아님)
 function phoneRegionOk(addr: string, phone: string): boolean {
@@ -70,7 +78,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const cacheKey = (siteName || address).trim();
   const cached = await getCache(cacheKey);
   if (cached && (cached.representative || cached.phone || cached.address)) {
-    return res.status(200).json({ ...cached, cached: true });
+    //과거 판정 오류로 인해 지역번호 불일치 경고가 기록된 캐시라면 무시하고 재조회
+    const isBadCache = cached.note && cached.note.includes('불일치해 제외함');
+    if (!isBadCache) {
+      return res.status(200).json({ ...cached, cached: true });
+    }
   }
 
   // 지도 3사(카카오·네이버·구글) 조회 결과를 판정 근거로 프롬프트에 주입
