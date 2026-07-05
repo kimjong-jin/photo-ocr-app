@@ -38,12 +38,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const qNoSpace = clean.replace(/\s+/g, '');   // 띄어쓰기 뺀 질의
   const qCoreNoSpace = qCore.replace(/\s+/g, '');
 
+  // 현장명 안의 '실제 처리장' 지목어 추출 = 위주로 볼 대상.
+  // 예: "부산환경공단 정관사업소 동부산하수" → '동부산하수'가 처리장 지목 → 코어 '동부산'.
+  // ('환경공단'·'사업소'는 운영주체/사무소라 처리장 지목이 아님 → 최우선 대상 아님)
+  const PLANT_DESIG = /(공공하수처리시설|하수처리시설|하수처리장|물재생센터|재생센터|위생처리장|처리시설|처리장|하수)$/;
+  const primaryCores = [...new Set(
+    terms.map((t) => {
+      const s = t.replace(PLANT_DESIG, '');
+      return s !== t && s.length >= 2 ? s : '';
+    }).filter(Boolean)
+  )];
+
   const scored = PLANTS.map((p) => {
     const nameL = (p.name || '').toLowerCase();
     const coreL = (p.core || coreOf(p.name)).toLowerCase();
     const addrL = (p.addr || '').toLowerCase();
     let score = 0;
     let matched = 0;
+
+    // ★ 현장명이 지목한 실제 처리장(예: '동부산하수'→'동부산')을 최우선. 운영주체·사무소 토큰보다 압도적 가점.
+    for (const pc of primaryCores) {
+      if (nameL === pc || coreL === pc) score += 150;                       // 지목 시설과 정확 일치
+      else if (coreL.length >= 2 && (coreL.includes(pc) || pc.includes(coreL))) score += 70; // 부분 일치
+    }
 
     // 코어 정확/포함 매칭 (양방향) — '중랑물재생센터'질의 ↔ '중랑'시설, '난지'질의 ↔ '난지'시설
     if (coreL && (coreL === qCoreNoSpace || coreL === qNoSpace)) score += 100;
