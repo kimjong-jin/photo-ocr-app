@@ -7,6 +7,8 @@ const __dirname = path.dirname(__filename);
 
 const CSV_FILE = path.join(__dirname, 'sewage_plants.csv');
 const JSON_FILE = path.join(__dirname, 'api', 'sewage_plants.json');
+// Vercel 서버리스에서 확실히 번들되도록 .ts 데이터 모듈로도 출력(런타임 JSON import 이슈 회피)
+const TS_FILE = path.join(__dirname, 'api', 'sewage-data.ts');
 
 // 시·도 축약 → 전체명 (주소 정규화·지오코딩 정확도용)
 const REGION_FULL = {
@@ -107,7 +109,12 @@ function main() {
   }
 
   fs.writeFileSync(JSON_FILE, JSON.stringify(plants), 'utf8');
-  console.log(`Converted ${plants.length} records → ${JSON_FILE}`);
+  // .ts 데이터 모듈 (JSON은 유효한 JS 배열 리터럴)
+  const tsHeader = '// 자동 생성 파일 — parse-sewage.js. 직접 수정 금지.\n' +
+    'export type SewagePlant = { name: string; core: string; addr: string; cap: number; sido: string; gugun: string };\n' +
+    'const PLANTS: SewagePlant[] = ';
+  fs.writeFileSync(TS_FILE, tsHeader + JSON.stringify(plants) + ';\nexport default PLANTS;\n', 'utf8');
+  console.log(`Converted ${plants.length} records → ${JSON_FILE} + ${TS_FILE}`);
   const noRegion = plants.filter(p => p.addr && !/^(서울특별시|부산광역시|대구광역시|인천광역시|광주광역시|대전광역시|울산광역시|세종특별자치시|경기도|강원특별자치도|충청북도|충청남도|전북특별자치도|전라남도|경상북도|경상남도|제주특별자치도)/.test(p.addr));
   console.log(`시·도 접두 없는 주소: ${noRegion.length} (개선 전 1895)`);
 }

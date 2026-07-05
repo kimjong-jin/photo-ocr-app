@@ -1,9 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-// 정적 import — esbuild가 번들에 포함(Vercel fs 경로 누락 문제 방지). 4469건, 약 0.6MB.
-import plantsData from './sewage_plants.json';
+// .ts 데이터 모듈 import — Vercel 서버리스에서 확실히 번들됨(런타임 JSON import 이슈 회피).
+import PLANTS from './sewage-data';
 
 type Plant = { name: string; core?: string; addr: string; cap: number; sido: string; gugun: string };
-const PLANTS = plantsData as unknown as Plant[];
 
 // 시·도 축약↔전체 (질의의 지역 토큰 매칭용)
 const REGION_ABBR: Record<string, string> = {
