@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-// .ts 데이터 모듈 import — Vercel 서버리스에서 확실히 번들됨(런타임 JSON import 이슈 회피).
-import PLANTS from './sewage-data';
+// .ts 데이터 모듈 import — Vercel은 api를 번들 없이 개별 ESM 실행하므로 확장자(.js) 필수.
+// (컴파일 후 sewage-data.js를 가리킴. 확장자 없으면 ERR_MODULE_NOT_FOUND)
+import PLANTS from './sewage-data.js';
 
 type Plant = { name: string; core?: string; addr: string; cap: number; sido: string; gugun: string };
 
