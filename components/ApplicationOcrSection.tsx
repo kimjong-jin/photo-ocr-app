@@ -178,6 +178,11 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       consensus: { address: string; phone: string; addressAgree: boolean; phoneAgree: boolean; note: string };
     } | null;
     consensusLoading?: boolean;
+    sewage?: {
+      metadata: { lastUpdated: string; nextUpdateDue: string };
+      results: { name: string; addr: string; cap: number; sido: string; gugun: string }[];
+    } | null;
+    sewageLoading?: boolean;
     error?: string;
   }>>({});
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -995,7 +1000,32 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     setLookupAnchor(null);
     setLookupId(app.id);
     setLookupOpenId(app.id);
-    setLookupResult(prev => ({ ...prev, [app.id]: { kakao: [], ai: null } })); // 즉시 로딩 상태로 팝오버 오픈
+    setLookupResult(prev => ({ ...prev, [app.id]: { kakao: [], ai: null, sewage: null, sewageLoading: true } })); // 즉시 로딩 상태로 팝오버 오픈
+
+    // ⛲ 공공하수처리시설 DB 조회
+    (async () => {
+      try {
+        const r = await fetch(`/api/sewage-lookup?query=${encodeURIComponent(site)}`);
+        const sewage = r.ok ? await r.json() : null;
+        setLookupResult(prev => ({
+          ...prev,
+          [app.id]: {
+            ...(prev[app.id] || { kakao: [], ai: null }),
+            sewage,
+            sewageLoading: false
+          }
+        }));
+      } catch (e) {
+        console.error('Sewage lookup error:', e);
+        setLookupResult(prev => ({
+          ...prev,
+          [app.id]: {
+            ...(prev[app.id] || { kakao: [], ai: null }),
+            sewageLoading: false
+          }
+        }));
+      }
+    })();
 
     let done = 0;
     const finish = () => { if (++done >= 2) setLookupId(null); };
@@ -1690,6 +1720,50 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                 </div>
                               );
                             })()}
+
+                            {/* ⛲ 공공하수처리시설 DB 매칭 */}
+                            <div className="mb-3 rounded-md border border-sky-800 bg-sky-950/20 p-2 font-sans">
+                              <div className="text-[11px] text-sky-300 font-semibold flex items-center justify-between">
+                                <span className="flex items-center gap-1">⛲ 공공하수처리시설 DB 대조</span>
+                                <span className="text-[9px] font-normal text-sky-400/80">수정일: 2026-03-18</span>
+                              </div>
+                              {lookupResult[app.id].sewageLoading ? (
+                                <div className="text-[11px] text-slate-500 mt-1">조회 중…</div>
+                              ) : !lookupResult[app.id].sewage || lookupResult[app.id].sewage!.results.length === 0 ? (
+                                <div className="text-[11px] text-slate-500 mt-1">일치하는 하수처리시설 없음</div>
+                              ) : (
+                                <div className="space-y-1.5 mt-1.5 max-h-[160px] overflow-y-auto pr-1">
+                                  {lookupResult[app.id].sewage!.results.map((plant: any, i: number) => (
+                                    <div key={i} className="p-1.5 border border-slate-800 rounded bg-slate-900/60 flex flex-col gap-0.5">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-[11px] font-bold text-sky-200 truncate" title={plant.name}>{plant.name}</span>
+                                        <button
+                                          onClick={async () => {
+                                            const n = plant.name;
+                                            const a = plant.addr;
+                                            if (n) await applyField(app, 'site_name', n);
+                                            if (a) await saveAddressToLocation(app, a);
+                                          }}
+                                          className="shrink-0 text-[10px] text-emerald-300 hover:text-emerald-200 underline font-semibold"
+                                          title="공식 현장명 및 주소 동시 적용"
+                                        >
+                                          적용 ↩
+                                        </button>
+                                      </div>
+                                      <div className="text-[10px] text-slate-300 truncate" title={plant.addr}>📍 주소: {plant.addr}</div>
+                                      <div className="flex items-center justify-between text-[9px] text-slate-400">
+                                        <span>💧 시설용량: {plant.cap.toLocaleString()} ㎥/일</span>
+                                        <span>({plant.sido} {plant.gugun})</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  <div className="text-[9px] text-slate-500 text-right mt-1 leading-tight">
+                                    ※ 차기 업데이트 예정일: 2026-09-30
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
                             {/* 카카오 = 현장 위치(주소)·대표전화. 대표전화칸에만 적용, 신청인 휴대폰칸엔 절대 안 씀. */}
                             <div className="mb-2">
                               <div className="text-[11px] text-slate-400 mb-1">📍 위치·대표전화 (카카오 등록)</div>
