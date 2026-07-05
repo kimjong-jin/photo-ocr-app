@@ -1724,8 +1724,14 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                             {/* ⛲ 공공하수처리시설 DB 매칭 */}
                             <div className="mb-3 rounded-md border border-sky-800 bg-sky-950/20 p-2 font-sans">
                               <div className="text-[11px] text-sky-300 font-semibold flex items-center justify-between">
-                                <span className="flex items-center gap-1">⛲ 공공하수처리시설 DB 대조</span>
+                                <span className="flex items-center gap-1">
+                                  ⛲ 공공하수처리시설 DB 대조
+                                  <span className="text-[8px] font-bold px-1 py-px rounded bg-amber-500/20 text-amber-300 border border-amber-600/40">참고용</span>
+                                </span>
                                 <span className="text-[9px] font-normal text-sky-400/80">수정일: 2026-03-18</span>
+                              </div>
+                              <div className="text-[9px] text-slate-500 mt-0.5 leading-tight">
+                                ※ 공공하수처리시설만 수록 — 폐수·먹는물·산업 사업장 등은 없음. 확인용 참고 자료.
                               </div>
                               {lookupResult[app.id].sewageLoading ? (
                                 <div className="text-[11px] text-slate-500 mt-1">조회 중…</div>
