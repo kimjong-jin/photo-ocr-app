@@ -165,6 +165,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   const [lookupId, setLookupId] = useState<number | null>(null);       // 조회 중인 app.id
   const [lookupOpenId, setLookupOpenId] = useState<number | null>(null); // 팝오버 열린 app.id
   const [lookupAnchor, setLookupAnchor] = useState<{ top: number; left: number } | null>(null); // 팝오버 고정위치(overflow 클리핑 회피)
+  const [srcOpen, setSrcOpen] = useState<Record<number, boolean>>({}); // 역검색 참고 대조(3사·하수) 펼침 여부 — 기본 접힘
   const [lookupResult, setLookupResult] = useState<Record<number, {
     kakao: { phone: string; place_name: string; road_address_name?: string; address_name?: string }[];
     ai: { representative: string; phone: string; address: string; companyName: string; confidence: string; note: string } | null;
@@ -1673,6 +1674,15 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                             <p className="text-[10px] text-amber-400 mb-2 leading-tight">
                               현장명 “{app.site_name}” 기준. <b>적용</b>을 누르면 바로 덮어쓰기(저장). {isEatWaterReceipt(app.receipt_no) ? <>먹는물(세부 {app.receipt_no.split('-').pop()})이라 <b>대표자·대표전화만</b> — 주소·현장은 직접 확인.</> : <>현장·주소·대표자·대표전화.</>} (신청인/휴대폰은 변경 안 함)
                             </p>
+                            {/* 참고 대조(지도 3사·하수 DB)는 기본 접기 — 핵심은 아래 카카오 등록·AI 판정. 필요할 때만 펼침. */}
+                            <button
+                              type="button"
+                              onClick={() => setSrcOpen(prev => ({ ...prev, [app.id]: !prev[app.id] }))}
+                              className="w-full mb-2 text-[10px] text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1 py-1 rounded border border-slate-700/60 bg-slate-800/30"
+                            >
+                              🔎 지도 3사·하수처리 대조 근거 {srcOpen[app.id] ? '닫기 ▴' : '보기 ▾'}
+                            </button>
+                            {srcOpen[app.id] && (<>
                             {/* 🗺️ 카카오 vs 구글 대조 — 일치하면 신뢰↑, 불일치면 확인 필요. 외부페이지 안 열림, 데이터만 비교. */}
                             {(() => {
                               const r = lookupResult[app.id];
@@ -1769,6 +1779,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                 </div>
                               )}
                             </div>
+                            </>)}
 
                             {/* 카카오 = 현장 위치(주소)·대표전화. 대표전화칸에만 적용, 신청인 휴대폰칸엔 절대 안 씀. */}
                             <div className="mb-2">
@@ -1846,7 +1857,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
                                   )}
                                   <div className="text-[10px] text-slate-500">신뢰도: {lookupResult[app.id].ai!.confidence}</div>
                                   {lookupResult[app.id].ai!.note && (
-                                    <div className="text-[10px] text-amber-500/80 leading-tight">※ {lookupResult[app.id].ai!.note}</div>
+                                    <div className="text-[10px] text-amber-500/80 leading-tight line-clamp-2" title={lookupResult[app.id].ai!.note}>※ {lookupResult[app.id].ai!.note}</div>
                                   )}
                                 </div>
                               ) : (
