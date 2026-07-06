@@ -2258,6 +2258,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                   setApplications={setApplications}
                   isLoadingApplications={isLoadingApplications}
                   loadApplications={loadApplications}
+                  onLocationSaved={() => getAllLocations().then(setLocationList)}
                 />
               </div>
             </div>

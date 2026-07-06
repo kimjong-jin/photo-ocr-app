@@ -48,6 +48,8 @@ interface ApplicationOcrSectionProps {
   loadApplications: (showError?: (msg: string) => void) => void;
   /** 접수번호별 각 페이지 전송 완료 여부: { '26-031078-01': { P1: true, P2: true, ... } } */
   transmissionSummary?: Record<string, Record<string, boolean>>;
+  /** 역검색에서 주소를 위치 도우미에 저장한 직후 호출 — 부모의 위치 목록 새로고침용 */
+  onLocationSaved?: () => void;
 }
 
 // 🔍 역검색 카카오 검색어 후보: 현장명이 "주식회사 블루골드 (용암공공폐수처리시설）"처럼
@@ -151,6 +153,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   isLoadingApplications,
   loadApplications,
   transmissionSummary = {},
+  onLocationSaved,
 }) => {
   const [image, setImage] = useState<ImageInfo | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1134,6 +1137,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     if (!addr || !id) return false;
     try {
       await saveLocation({ id, address: addr, lat: 0, lng: 0, savedAt: Date.now(), siteName: app.site_name || '', category: isEatWaterReceipt(id) ? '먹는물' : '수질' });
+      onLocationSaved?.(); // 부모 위치 도우미 목록 즉시 새로고침 → 저장한 접수번호가 바로 보이게
       if (!silent) { clearMessages(); setSuccessMessage(`위치 도우미에 주소 저장: ${id}`); }
       return true;
     } catch (e: any) {
