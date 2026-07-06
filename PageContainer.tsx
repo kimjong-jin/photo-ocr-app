@@ -1767,7 +1767,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     {
       const _rp = receiptNumber.trim().split('-');
       if (_rp.length === 4) {
-        deleteLocation(_rp.slice(0, 3).join('-')).catch(() => {});
+        deleteLocation(_rp.slice(0, 3).join('-'))
+          .then(() => getAllLocations().then(setLocationList)) // 삭제를 위치 도우미 화면에 즉시 반영
+          .catch(() => {});
       }
     }
 
