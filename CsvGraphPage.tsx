@@ -21,6 +21,7 @@ interface CsvGraphPageProps {
   setActiveJobId: (id: string | null) => void;
   siteLocation: string;
   onDeleteJob: (jobId: string) => void;
+  locationList?: { id: string; siteName?: string }[]; // 위치 도우미 목록 — 현장_상세 자동채움용
 }
 
 const TrashIcon: React.FC = () => (
@@ -31,7 +32,7 @@ const TrashIcon: React.FC = () => (
 
 const ONE_MINUTE_MS = 60 * 1000;
 
-const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob }) => {
+const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteLocation, onDeleteJob, locationList = [] }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,6 +46,16 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
     if (!activeJobId) return;
     setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
   }, [activeJobId, setJobs]);
+
+  // 위치 도우미에서 입력한 현장_상세(배수지 명칭)를 P5 현장_상세(details)에 자동 채움.
+  // 접수번호로 위치 매칭 → siteName 끝 괄호 안(예: '창녕군청(북마배수지)' → '북마배수지'). 비어있을 때만, 편집 가능 유지.
+  useEffect(() => {
+    if (!activeJob || !activeJob.receiptNumber || (activeJob.details && activeJob.details.trim())) return;
+    const loc = locationList.find(l => l.id === activeJob.receiptNumber);
+    const m = loc?.siteName?.match(/\(([^()]*)\)\s*$/);
+    const detail = m ? m[1].trim() : '';
+    if (detail) updateActiveJob(j => ({ ...j, details: detail }));
+  }, [activeJob?.id, activeJob?.receiptNumber, locationList, updateActiveJob]);
 
   const { fullTimeRange } = useMemo(() => {
     if (!activeJob?.parsedData?.data || activeJob.parsedData.data.length < 2) {

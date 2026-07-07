@@ -2184,6 +2184,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             setActiveJobId={setActiveCsvGraphJobId}
             siteLocation={finalSiteLocation}
             onDeleteJob={handleDeleteCsvGraphJob}
+            locationList={locationList}
           />
         );
       default:
