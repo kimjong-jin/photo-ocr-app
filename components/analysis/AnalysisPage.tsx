@@ -491,17 +491,29 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
                 uniqueImageMap.set(key, img);
             }
         });
-        const finalPhotos = Array.from(uniqueImageMap.values());
-        
+        let finalPhotos = Array.from(uniqueImageMap.values());
+        // 현장 계수(P3)는 사진 4장(합친 사진 1장) 초과 금지 — 초과분은 클독 전송 시 받을 칸이 없어 유실되므로 애초에 제외
+        if (pageType === 'FieldCount' && finalPhotos.length > 4) finalPhotos = finalPhotos.slice(0, 4);
+
         return { ...job, photos: finalPhotos, submissionStatus: 'idle', submissionMessage: undefined };
     });
-    setProcessingError(null);
-  }, [activeJob, updateActiveJob]);
+    if (pageType === 'FieldCount' && (activeJob?.photos?.length || 0) + photosWithUids.length > 4) {
+      setProcessingError('현장 계수(P3)는 사진을 최대 4장까지만 첨부합니다. 초과분은 자동 제외되었습니다.');
+    } else {
+      setProcessingError(null);
+    }
+  }, [activeJob, updateActiveJob, pageType]);
 
   const handleOpenCamera = useCallback(() => setIsCameraOpen(true), []);
   const handleCloseCamera = useCallback(() => setIsCameraOpen(false), []);
 
   const handleCameraCapture = useCallback((file: File, base64: string, mimeType: string) => {
+    // 현장 계수(P3)는 사진 4장 초과 금지 — 5장째 촬영 차단
+    if (pageType === 'FieldCount' && (activeJob?.photos?.length || 0) >= 4) {
+      setProcessingError('현장 계수(P3)는 사진을 최대 4장까지만 첨부할 수 있습니다.');
+      setIsCameraOpen(false);
+      return;
+    }
     const capturedImageInfo: JobPhoto = { file, base64, mimeType, uid: genUUID() };
     updateActiveJob(job => {
         const newPhotos = [...(job.photos || []), capturedImageInfo];
@@ -510,7 +522,7 @@ const AnalysisPage: React.FC<AnalysisPageProps> = ({
     });
     setIsCameraOpen(false);
     setProcessingError(null);
-  }, [updateActiveJob]);
+  }, [updateActiveJob, pageType, activeJob]);
 
   const handleDeleteImage = useCallback((indexToDelete: number) => {
     if (!activeJob || indexToDelete < 0 || indexToDelete >= activeJob.photos.length) return;
