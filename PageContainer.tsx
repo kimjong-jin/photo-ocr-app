@@ -197,6 +197,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [locYearFilter, setLocYearFilter] = useState<number | '전체'>('전체');   // 검사 년도 필터(접수번호 앞2자리)
   const [allLocations, setAllLocations] = useState<LocationEntry[]>([]);   // 지도 마커용: 전체 사용자 위치(참고)
   const [locationList, setLocationList] = useState<LocationEntry[]>([]);
+  const locListScrollRef = useRef<HTMLDivElement>(null); // 저장된 위치 목록 스크롤 컨테이너 (열 때 맨 아래로)
 
   // 로그인한 사용자 이름을 위치 서비스에 주입 → 사용자별 위치 분리
   useEffect(() => {
@@ -213,6 +214,16 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   useEffect(() => { getAllLocationsAllUsers().then(setAllLocations); }, [locationList]);
 
   const [openSections, setOpenSections] = useState<string[]>([]);
+
+  // 위치 도우미 열면 저장된 위치 목록을 맨 아래로 스크롤(최신·높은 세부번호가 아래에 있으니 그걸 바로 보게)
+  useEffect(() => {
+    if (!openSections.includes('locationHelper')) return;
+    const t = setTimeout(() => {
+      const el = locListScrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 340); // 섹션 펼침 애니메이션(300ms) 후
+    return () => clearTimeout(t);
+  }, [openSections, locationList]);
 
   // 추복 배너 상태
   const [cacheSummaries, setCacheSummaries] = useState<CacheSummary[]>([]);
@@ -3075,7 +3086,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 {locationList.length === 0 ? (
                   <p className="text-center text-[11px] text-slate-600 py-1">저장된 위치 없음</p>
                 ) : (
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                  <div ref={locListScrollRef} className="space-y-1 max-h-40 overflow-y-auto">
                     {[...locationList]
                       .filter(loc => (locFieldFilter === '전체' || locFieldFilter === '없음' || fieldOf(loc) === locFieldFilter) && (locYearFilter === '전체' || yearOfId(loc.id) === locYearFilter))
                       .sort((a, b) => {
