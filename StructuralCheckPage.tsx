@@ -1329,7 +1329,7 @@ Required output:
               baseWarnings.unshift('⚠️ 대표자가 입력되지 않았습니다. 신청서 OCR에서 대표자를 확인해주세요.');
             }
             // GPS 주소 누락 확인
-            const gps = currentGpsAddress?.trim();
+            const gps = (resolveSendAddress(activeJob.receiptNumber) || currentGpsAddress)?.trim();
             const isValidGps = gps && !gps.includes('오류') && !gps.includes('찾는 중') && !gps.includes('지원하지 않습니다') && !gps.includes('거부');
             if (!isValidGps) {
               baseWarnings.unshift('⚠️ 위치 도우미(GPS 주소)가 입력되지 않았습니다. KTL 전송 데이터에 주소가 포함되지 않습니다.');
@@ -1505,10 +1505,12 @@ Required output:
         }
 
         // GPS 주소 누락 확인 (배치)
+        // 등록된 위치가 없는 작업이 존재하고, 현재 화면의 GPS 주소(폴백용)도 유효하지 않은 경우에만 경고
+        const hasJobsMissingGps = jobs.some(j => !hasRegisteredLocation(j.receiptNumber));
         const gps = currentGpsAddress?.trim();
         const isValidGps = gps && !gps.includes('오류') && !gps.includes('찾는 중') && !gps.includes('지원하지 않습니다') && !gps.includes('거부');
-        if (!isValidGps) {
-            allWarnings.unshift('⚠️ 위치 도우미(GPS 주소)가 입력되지 않았습니다. KTL 전송 데이터에 주소가 포함되지 않습니다.');
+        if (hasJobsMissingGps && !isValidGps) {
+            allWarnings.unshift('⚠️ 위치 도우미(GPS 주소)가 입력되지 않았습니다. 일부 KTL 전송 데이터에 주소가 포함되지 않습니다.');
         }
 
         if (allWarnings.length > 0) {
