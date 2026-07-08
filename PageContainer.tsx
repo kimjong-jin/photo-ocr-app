@@ -2146,6 +2146,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             isLoadingDraft={isLoading}
             applications={applications}
             onOpenExtraPhotoModal={handleOpenExtraPhotoModal}
+            locationList={locationList}
           />
         );
       case 'structuralCheck':

@@ -83,6 +83,7 @@ interface DrinkingWaterPageProps {
   applications?: import('./components/ApplicationOcrSection').Application[];
   /** 추가 사진자료 모달 오픈 (기존 P4 로직과 접점 없음) */
   onOpenExtraPhotoModal?: (receiptNumber: string, itemName: string) => void;
+  locationList?: { id: string; siteName?: string }[]; // 위치 도우미 목록 — 현장_상세 자동채움용
 }
 
 const TrashIcon: React.FC = () => (
@@ -104,7 +105,7 @@ const TableIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 
-const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob, onSaveDraft, onLoadDraft, onSaveAllDrafts, onLoadAllDrafts, draftMessage, isSavingDraft, isLoadingDraft, onOpenExtraPhotoModal }) => {
+const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob, onSaveDraft, onLoadDraft, onSaveAllDrafts, onLoadAllDrafts, draftMessage, isSavingDraft, isLoadingDraft, onOpenExtraPhotoModal, locationList = [] }) => {
 const [isLoading, setIsLoading] = useState<boolean>(false);
 const [processingError, setProcessingError] = useState<string | null>(null);
 const [isKtlPreflightModalOpen, setIsKtlPreflightModalOpen] = useState<boolean>(false);
@@ -133,6 +134,16 @@ const updateActiveJob = useCallback((updater: (job: DrinkingWaterJob) => Drinkin
     if (!activeJobId) return;
     setJobs(prevJobs => prevJobs.map(job => job.id === activeJobId ? updater(job) : job));
   }, [activeJobId, setJobs]);
+
+  // 위치 도우미의 현장_상세(배수지 명칭)를 P4 현장_상세(details)에 자동 채움 — 비어있을 때만, 편집 가능 유지.
+  // 접수번호로 위치 매칭 → siteName 끝 괄호(예: '창녕군청(북마배수지)' → '북마배수지'). P5와 동일 로직.
+  useEffect(() => {
+    if (!activeJob || !activeJob.receiptNumber || (activeJob.details && activeJob.details.trim())) return;
+    const loc = locationList.find(l => l.id === activeJob.receiptNumber);
+    const m = loc?.siteName?.match(/\(([^()]*)\)\s*$/);
+    const detail = m ? m[1].trim() : '';
+    if (detail) updateActiveJob(j => ({ ...j, details: detail }));
+  }, [activeJob?.id, activeJob?.receiptNumber, locationList, updateActiveJob]);
 
 const resetSubmissionState = useCallback(() => {
     setProcessingError(null);
