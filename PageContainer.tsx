@@ -3085,10 +3085,14 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         if (selA !== selB) return selB - selA;
                         const idxA = applications.findIndex(ap => ap.receipt_no === a.id.split('-').slice(0,3).join('-') || ap.receipt_no === a.id);
                         const idxB = applications.findIndex(ap => ap.receipt_no === b.id.split('-').slice(0,3).join('-') || ap.receipt_no === b.id);
-                        if (idxA === -1 && idxB === -1) return 0;
-                        if (idxA === -1) return 1;
-                        if (idxB === -1) return -1;
-                        return idxA - idxB;
+                        // 접수번호(application)가 다르면 그 순서대로, 미등록(-1)은 뒤로
+                        if (idxA !== idxB) {
+                          if (idxA === -1) return 1;
+                          if (idxB === -1) return -1;
+                          return idxA - idxB;
+                        }
+                        // 같은 접수번호 안에서는 세부번호 오름차순 (-1,-2,-3,…,-11 → 큰 번호가 아래)
+                        return a.id.localeCompare(b.id, undefined, { numeric: true });
                       })
                       .map(loc => (
                       <div key={loc.id} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border transition-all ${
