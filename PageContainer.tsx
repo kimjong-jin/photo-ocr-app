@@ -2227,7 +2227,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} userName={userName} onLogout={onLogout} onKakaoTalkClick={() => setShowKakaoTalkModal(true)} />
 
         {/* ── P1~P5 페이지 선택 (최상단 고정, 테마 무관 항상 어두운 바탕) ── */}
-        <nav className="ktl-page-nav sticky top-0 z-50 w-full max-w-3xl mb-3 p-2 backdrop-blur-md rounded-xl shadow-xl">
+        <nav className="ktl-page-nav sticky top-0 z-40 w-full max-w-3xl mb-3 p-2 backdrop-blur-md rounded-xl shadow-xl">
           <div className="flex gap-1 overflow-x-auto scrollbar-hide justify-center">
           {NAV_ITEMS.map(({ key, label, short }) => (
             <button
