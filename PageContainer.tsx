@@ -118,17 +118,19 @@ const TrashIcon: React.FC = () => (
 
 const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userContact, onLogout }) => {
   const [activePage, setActivePage] = useState<Page>('structuralCheck');
-  // P1~P5 네비 위치: 'top'(맨 위 고정) / 'inline'(예전 위치, 패널 아래) — 사용자가 토글, localStorage 유지
+  // P1~P5 네비 위치: 'top'(맨 위 고정) / 'inline'(예전 위치, 패널 아래)
+  // 사용자별로 저장(같은 기기를 여러 직원이 써도 안 섞임). localStorage → 재접속·새로고침에도 유지
+  const navPosKey = `ktl-navpos-${userName || 'guest'}`;
   const [navPos, setNavPos] = useState<'top' | 'inline'>(() => {
-    try { return (localStorage.getItem('ktl-navpos') as 'top' | 'inline') || 'top'; } catch { return 'top'; }
+    try { return (localStorage.getItem(navPosKey) as 'top' | 'inline') || 'top'; } catch { return 'top'; }
   });
   const toggleNavPos = useCallback(() => {
     setNavPos(prev => {
       const next = prev === 'top' ? 'inline' : 'top';
-      try { localStorage.setItem('ktl-navpos', next); } catch {}
+      try { localStorage.setItem(navPosKey, next); } catch {}
       return next;
     });
-  }, []);
+  }, [navPosKey]);
   const [receiptNumberCommon, _setReceiptNumberCommon] = useState('');
   const [receiptNumberDetail, _setReceiptNumberDetail] = useState('');
   const setReceiptNumberCommon = useCallback((val: string) => {
