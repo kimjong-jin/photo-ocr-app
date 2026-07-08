@@ -118,6 +118,17 @@ const TrashIcon: React.FC = () => (
 
 const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userContact, onLogout }) => {
   const [activePage, setActivePage] = useState<Page>('structuralCheck');
+  // P1~P5 네비 위치: 'top'(맨 위 고정) / 'inline'(예전 위치, 패널 아래) — 사용자가 토글, localStorage 유지
+  const [navPos, setNavPos] = useState<'top' | 'inline'>(() => {
+    try { return (localStorage.getItem('ktl-navpos') as 'top' | 'inline') || 'top'; } catch { return 'top'; }
+  });
+  const toggleNavPos = useCallback(() => {
+    setNavPos(prev => {
+      const next = prev === 'top' ? 'inline' : 'top';
+      try { localStorage.setItem('ktl-navpos', next); } catch {}
+      return next;
+    });
+  }, []);
   const [receiptNumberCommon, _setReceiptNumberCommon] = useState('');
   const [receiptNumberDetail, _setReceiptNumberDetail] = useState('');
   const setReceiptNumberCommon = useCallback((val: string) => {
@@ -2079,6 +2090,35 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const navButtonBaseStyle = "flex items-center gap-1.5 px-3 py-2 rounded-lg font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500/60 text-xs whitespace-nowrap shrink-0 border ktl-nav-btn";
 
+  // P1~P5 페이지 선택 네비 (위치 top/inline 공용) — 테마 무관 어두운 바탕, 위치 토글 포함
+  const pageNav = (
+    <nav className={`ktl-page-nav sticky z-40 w-full max-w-3xl p-2 backdrop-blur-md rounded-xl shadow-xl ${navPos === 'top' ? 'top-0 mb-3' : 'top-2 mb-4'}`}>
+      <div className="flex gap-1 overflow-x-auto scrollbar-hide justify-center items-center">
+        {NAV_ITEMS.map(({ key, label, short }) => (
+          <button
+            key={key}
+            onClick={() => setActivePage(key)}
+            className={`${navButtonBaseStyle} ${activePage === key ? 'ktl-nav-on' : 'ktl-nav-off'}`}
+            aria-pressed={activePage === key}
+            title={label}
+          >
+            <span className="ktl-nav-badge font-black text-[13px] leading-none px-1.5 py-0.5 rounded">{short}</span>
+            <span className="hidden sm:inline">{label.replace(/\s*\(P\d\)\s*$/, '')}</span>
+          </button>
+        ))}
+        {/* 위치 토글: 위 고정 ↔ 예전 위치(아래) */}
+        <button
+          onClick={toggleNavPos}
+          className={`${navButtonBaseStyle} ktl-nav-off ml-1`}
+          title={navPos === 'top' ? 'P1~P5 줄을 예전 위치(아래)로 이동' : 'P1~P5 줄을 맨 위로 고정'}
+          aria-label="P1~P5 위치 전환"
+        >
+          <span className="text-sm leading-none">{navPos === 'top' ? '⤓' : '⤒'}</span>
+        </button>
+      </div>
+    </nav>
+  );
+
   const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
   const appIdToSync = selectedApplication ? selectedApplication.id : null;
 
@@ -2226,23 +2266,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       <div className="w-full max-w-5xl flex flex-col items-center bg-slate-900/60 backdrop-blur-sm min-h-screen sm:min-h-0 sm:rounded-2xl border border-slate-800/80 shadow-2xl px-2 sm:px-6 py-4 sm:py-6">
         <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} userName={userName} onLogout={onLogout} onKakaoTalkClick={() => setShowKakaoTalkModal(true)} />
 
-        {/* ── P1~P5 페이지 선택 (최상단 고정, 테마 무관 항상 어두운 바탕) ── */}
-        <nav className="ktl-page-nav sticky top-0 z-40 w-full max-w-3xl mb-3 p-2 backdrop-blur-md rounded-xl shadow-xl">
-          <div className="flex gap-1 overflow-x-auto scrollbar-hide justify-center">
-          {NAV_ITEMS.map(({ key, label, short }) => (
-            <button
-              key={key}
-              onClick={() => setActivePage(key)}
-              className={`${navButtonBaseStyle} ${activePage === key ? 'ktl-nav-on' : 'ktl-nav-off'}`}
-              aria-pressed={activePage === key}
-              title={label}
-            >
-              <span className="ktl-nav-badge font-black text-[13px] leading-none px-1.5 py-0.5 rounded">{short}</span>
-              <span className="hidden sm:inline">{label.replace(/\s*\(P\d\)\s*$/, '')}</span>
-            </button>
-          ))}
-          </div>
-        </nav>
+        {/* ── P1~P5 페이지 선택: 맨 위 고정 (navPos==='top') ── */}
+        {navPos === 'top' && pageNav}
 
         {(
           <>
@@ -3268,6 +3293,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           </div>
           </>
         )}
+
+        {/* ── P1~P5 페이지 선택: 예전 위치 (navPos==='inline', 패널 아래) ── */}
+        {navPos === 'inline' && pageNav}
 
         {activePageContent}
 
