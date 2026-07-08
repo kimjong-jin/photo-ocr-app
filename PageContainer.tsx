@@ -2898,7 +2898,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       type="text"
                       value={locReceiptInput}
                       onChange={e => setLocReceiptInput(e.target.value)}
-                      placeholder="26-031078-01 또는 -1 포함"
+                      placeholder="26-031078-01 / -1 포함 / 여러개: -1,12"
                       className="flex-1 min-w-0 p-2 bg-slate-800 border border-slate-600 rounded-md text-slate-300 text-xs placeholder-slate-500"
                     />
                     {/* 주소 저장 */}
@@ -2907,6 +2907,47 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         const id_base = locReceiptInput.trim() || receiptNumber;
                         if (!id_base) { alert('접수번호를 입력하세요.'); return; }
                         if (!currentGpsAddress.trim()) { alert('저장할 주소가 없습니다.\nGPS, 찾기, 또는 지도에서 주소를 먼저 가져오세요.'); return; }
+
+                        // ── 다중 세부 일괄 저장: 쉼표로 여러 개(예 "26-000000-01-1, 12") → 같은 위치·현장으로 전부 저장 ──
+                        // 순수 숫자 토큰은 앞 접수번호의 base(-01)에 붙임. 먹는물(배수지) 전용 편의 — 수질은 base 하나뿐이라 다중 개념 없음.
+                        {
+                          const _tokens = (locReceiptInput.trim() || receiptNumber || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                          const _ids: string[] = [];
+                          let _b3 = '';
+                          for (const tk of _tokens) {
+                            if (/^\d+$/.test(tk)) { if (_b3) _ids.push(`${_b3}-${tk}`); }
+                            else { _ids.push(tk); _b3 = tk.split('-').slice(0, 3).join('-'); }
+                          }
+                          const _uniq = [...new Set(_ids)];
+                          if (_uniq.length > 1) {
+                            const bad = _uniq.filter(i => !isValidReceiptId(i));
+                            if (bad.length) { alert(`올바르지 않은 형식: ${bad.join(', ')}`); return; }
+                            const base3 = _uniq[0].split('-').slice(0, 3).join('-');
+                            const matched = [...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs, ...(drinkingWaterJobs as any[])].find(j => j.receiptNumber?.startsWith(base3))?.siteLocation || siteName || '';
+                            const label = window.prompt(`${_uniq.length}개 세부를 같은 위치·현장으로 저장합니다:\n${_uniq.join(', ')}\n\n배수지·정수장 등 현장_세부 명칭을 입력하세요.\n예: ${matched || '(현장명)'}(○○배수지)`, '');
+                            if (label === null) return;
+                            const t = label.trim();
+                            setIsLocSaving(true);
+                            try {
+                              const lat = coords?.lat ?? 0, lng = coords?.lng ?? 0, addr = currentGpsAddress.trim();
+                              if (!t) {
+                                const isSusil = window.confirm(`배수지·정수장 명칭이 없습니다.\n\n이 위치는 "수질" 인가요?\n[확인] 수질 → 세부 대신 접수번호 기본 ${base3} 하나로 저장\n[취소] 먹는물 → 배수지 명칭을 입력하세요`);
+                                if (!isSusil) { setIsLocSaving(false); return; }
+                                await saveLocation({ id: base3, address: addr, lat, lng, savedAt: Date.now(), siteName: matched, category: '수질' });
+                              } else {
+                                const siteForLoc = `${matched}(${t})`;
+                                for (const oneId of _uniq) {
+                                  await saveLocation({ id: oneId, address: addr, lat, lng, savedAt: Date.now(), siteName: siteForLoc, category: '먹는물' });
+                                }
+                              }
+                              setLocationList(await getAllLocations());
+                              setCurrentGpsAddress(''); setCoords(null); setLocReceiptInput('');
+                            } catch (e: any) { alert(e.message || '저장 오류'); }
+                            finally { setIsLocSaving(false); }
+                            return;
+                          }
+                        }
+
                         const id = (locReceiptInput.trim() || receiptNumber);
                         if (!isValidReceiptId(id)) { alert(`올바르지 않은 형식: ${id}`); return; }
                         // 같은 베이스(-01)의 위치가 이미 있으면 중복 저장 경고 (같은 현장 주소 여러 건 쌓임 방지)
