@@ -335,6 +335,40 @@
     /* 강조: 흰 배경에서 읽히는 진한 톤 (응답=주황, 지정/항목=파랑) */
     html .csv-data-table .text-amber-400, html[data-bg] .csv-data-table .text-amber-400, html[data-text] .csv-data-table .text-amber-400 { color: #b45309 !important; }
     html .csv-data-table .text-sky-400,   html[data-bg] .csv-data-table .text-sky-400,   html[data-text] .csv-data-table .text-sky-400   { color: #0369a1 !important; }
+
+    /* ── P1~P5 페이지 네비: 어떤 배경/글씨 테마(특히 흰 배경 light, bright)에서도
+       항상 어두운 바탕 + 밝은 글씨로 고정. 전역 [data-bg]/[data-text] !important를 동일 특이도+후순위로 이김 ── */
+    html .ktl-page-nav,
+    html[data-bg] .ktl-page-nav,
+    html[data-text] .ktl-page-nav {
+      background-color: rgba(15,23,42,0.98) !important;
+      border: 1px solid rgba(3,105,161,0.55) !important;
+      box-shadow: 0 0 0 1px rgba(2,132,199,0.35), 0 10px 25px rgba(0,0,0,0.45) !important;
+    }
+    /* 비활성 탭 */
+    html .ktl-page-nav .ktl-nav-off,
+    html[data-bg] .ktl-page-nav .ktl-nav-off,
+    html[data-text] .ktl-page-nav .ktl-nav-off {
+      background-color: rgba(30,41,59,0.92) !important;
+      border-color: rgba(71,85,105,0.75) !important;
+      color: #e2e8f0 !important;
+    }
+    html .ktl-page-nav .ktl-nav-off:hover,
+    html[data-bg] .ktl-page-nav .ktl-nav-off:hover { background-color: rgba(51,65,85,0.95) !important; color:#ffffff !important; }
+    /* 활성 탭 */
+    html .ktl-page-nav .ktl-nav-on,
+    html[data-bg] .ktl-page-nav .ktl-nav-on,
+    html[data-text] .ktl-page-nav .ktl-nav-on {
+      background-color: #0284c7 !important;
+      border-color: #7dd3fc !important;
+      color: #ffffff !important;
+    }
+    /* 탭 내부 글씨 (라벨) */
+    html .ktl-page-nav .ktl-nav-off span, html[data-bg] .ktl-page-nav .ktl-nav-off span, html[data-text] .ktl-page-nav .ktl-nav-off span { color: #e2e8f0 !important; }
+    html .ktl-page-nav .ktl-nav-on span,  html[data-bg] .ktl-page-nav .ktl-nav-on span,  html[data-text] .ktl-page-nav .ktl-nav-on span  { color: #ffffff !important; }
+    /* P 배지 */
+    html .ktl-page-nav .ktl-nav-off .ktl-nav-badge, html[data-bg] .ktl-page-nav .ktl-nav-off .ktl-nav-badge, html[data-text] .ktl-page-nav .ktl-nav-off .ktl-nav-badge { background-color: rgba(56,189,248,0.22) !important; color: #7dd3fc !important; }
+    html .ktl-page-nav .ktl-nav-on .ktl-nav-badge,  html[data-bg] .ktl-page-nav .ktl-nav-on .ktl-nav-badge,  html[data-text] .ktl-page-nav .ktl-nav-on .ktl-nav-badge  { background-color: rgba(255,255,255,0.28) !important; color: #ffffff !important; }
   </style>
   <script>
     (function() {

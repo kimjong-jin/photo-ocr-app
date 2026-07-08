@@ -2077,9 +2077,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const showTaskManagement = useMemo(() => TASK_PAGES.includes(activePage), [activePage]);
 
-  const navButtonBaseStyle = "flex items-center gap-1.5 px-3 py-2 rounded-lg font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500/60 text-xs whitespace-nowrap shrink-0 border";
-  const activeNavButtonStyle = "bg-sky-500 text-white border-sky-300 shadow-md shadow-sky-900/50 scale-[1.06]";
-  const inactiveNavButtonStyle = "bg-slate-800/80 text-slate-300 border-slate-600/70 hover:bg-slate-700 hover:text-white hover:border-slate-500";
+  const navButtonBaseStyle = "flex items-center gap-1.5 px-3 py-2 rounded-lg font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500/60 text-xs whitespace-nowrap shrink-0 border ktl-nav-btn";
 
   const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
   const appIdToSync = selectedApplication ? selectedApplication.id : null;
@@ -2228,6 +2226,23 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       <div className="w-full max-w-5xl flex flex-col items-center bg-slate-900/60 backdrop-blur-sm min-h-screen sm:min-h-0 sm:rounded-2xl border border-slate-800/80 shadow-2xl px-2 sm:px-6 py-4 sm:py-6">
         <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} userName={userName} onLogout={onLogout} onKakaoTalkClick={() => setShowKakaoTalkModal(true)} />
 
+        {/* ── P1~P5 페이지 선택 (최상단 고정, 테마 무관 항상 어두운 바탕) ── */}
+        <nav className="ktl-page-nav sticky top-0 z-50 w-full max-w-3xl mb-3 p-2 backdrop-blur-md rounded-xl shadow-xl">
+          <div className="flex gap-1 overflow-x-auto scrollbar-hide justify-center">
+          {NAV_ITEMS.map(({ key, label, short }) => (
+            <button
+              key={key}
+              onClick={() => setActivePage(key)}
+              className={`${navButtonBaseStyle} ${activePage === key ? 'ktl-nav-on' : 'ktl-nav-off'}`}
+              aria-pressed={activePage === key}
+              title={label}
+            >
+              <span className="ktl-nav-badge font-black text-[13px] leading-none px-1.5 py-0.5 rounded">{short}</span>
+              <span className="hidden sm:inline">{label.replace(/\s*\(P\d\)\s*$/, '')}</span>
+            </button>
+          ))}
+          </div>
+        </nav>
 
         {(
           <>
@@ -3253,23 +3268,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           </div>
           </>
         )}
-
-        <nav className="sticky top-2 z-40 w-full max-w-3xl mb-4 p-2 bg-slate-900/95 backdrop-blur-md rounded-xl shadow-xl ring-1 ring-sky-600/40 border border-sky-800/50">
-          <div className="flex gap-1 overflow-x-auto scrollbar-hide justify-center">
-          {NAV_ITEMS.map(({ key, label, short }) => (
-            <button
-              key={key}
-              onClick={() => setActivePage(key)}
-              className={`${navButtonBaseStyle} ${activePage === key ? activeNavButtonStyle : inactiveNavButtonStyle}`}
-              aria-pressed={activePage === key}
-              title={label}
-            >
-              <span className={`font-black text-[13px] leading-none px-1.5 py-0.5 rounded ${activePage === key ? 'bg-white/25 text-white' : 'bg-sky-500/20 text-sky-300'}`}>{short}</span>
-              <span className="hidden sm:inline">{label.replace(/\s*\(P\d\)\s*$/, '')}</span>
-            </button>
-          ))}
-          </div>
-        </nav>
 
         {activePageContent}
 
