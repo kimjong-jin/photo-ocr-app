@@ -2281,6 +2281,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 className={`overflow-hidden transition-all duration-300 ease-in-out ${openSections.includes('applicationOcr') ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}
               >
                 <ApplicationOcrSection
+                  isOpen={openSections.includes('applicationOcr')}
                   userName={userName}
                   userContact={userContact}
                   onApplicationSelect={handleApplicationSelect}

@@ -50,6 +50,8 @@ interface ApplicationOcrSectionProps {
   transmissionSummary?: Record<string, Record<string, boolean>>;
   /** 역검색에서 주소를 위치 도우미에 저장한 직후 호출 — 부모의 위치 목록 새로고침용 */
   onLocationSaved?: () => void;
+  /** 📋 목록 섹션 펼침 여부 — 열릴 때 목록을 맨 아래(최신)로 스크롤 */
+  isOpen?: boolean;
 }
 
 // 🔍 역검색 카카오 검색어 후보: 현장명이 "주식회사 블루골드 (용암공공폐수처리시설）"처럼
@@ -154,6 +156,7 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
   loadApplications,
   transmissionSummary = {},
   onLocationSaved,
+  isOpen = true,
 }) => {
   const [image, setImage] = useState<ImageInfo | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -313,6 +316,16 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
       stickBottomRef.current = true;
     }
   }, [applications, appIdToSync]);
+
+  // 섹션이 닫혀있다 열릴 때: 목록을 맨 아래(최신)로 스크롤 (작업중 선택 항목 없을 때만)
+  useEffect(() => {
+    if (!isOpen || appIdToSync != null || applications.length === 0) return;
+    const t = setTimeout(() => {
+      const el = tableContainerRef.current;
+      if (el) { el.scrollTop = el.scrollHeight; stickBottomRef.current = true; }
+    }, 340); // 섹션 펼침 애니메이션(300ms) 후
+    return () => clearTimeout(t);
+  }, [isOpen, applications, appIdToSync]);
 
   // KTL 상태·회사명·대표자가 비동기로 로드돼 행 높이가 커져도 '맨 아래 보기'를 유지.
   // (사용자가 위로 스크롤한 상태면 stickBottomRef=false라 방해하지 않음)
