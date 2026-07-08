@@ -118,19 +118,6 @@ const TrashIcon: React.FC = () => (
 
 const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userContact, onLogout }) => {
   const [activePage, setActivePage] = useState<Page>('structuralCheck');
-  // P1~P5 네비 위치: 'top'(맨 위 고정) / 'inline'(예전 위치, 패널 아래)
-  // 사용자별로 저장(같은 기기를 여러 직원이 써도 안 섞임). localStorage → 재접속·새로고침에도 유지
-  const navPosKey = `ktl-navpos-${userName || 'guest'}`;
-  const [navPos, setNavPos] = useState<'top' | 'inline'>(() => {
-    try { return (localStorage.getItem(navPosKey) as 'top' | 'inline') || 'top'; } catch { return 'top'; }
-  });
-  const toggleNavPos = useCallback(() => {
-    setNavPos(prev => {
-      const next = prev === 'top' ? 'inline' : 'top';
-      try { localStorage.setItem(navPosKey, next); } catch {}
-      return next;
-    });
-  }, [navPosKey]);
   const [receiptNumberCommon, _setReceiptNumberCommon] = useState('');
   const [receiptNumberDetail, _setReceiptNumberDetail] = useState('');
   const setReceiptNumberCommon = useCallback((val: string) => {
@@ -2092,9 +2079,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const navButtonBaseStyle = "flex items-center gap-1.5 px-3 py-2 rounded-lg font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500/60 text-xs whitespace-nowrap shrink-0 border ktl-nav-btn";
 
-  // P1~P5 페이지 선택 네비 (위치 top/inline 공용) — 테마 무관 어두운 바탕, 위치 토글 포함
+  // P1~P5 페이지 선택 네비 — 예전 위치(패널 아래)로 고정, 테마 무관 어두운 바탕
   const pageNav = (
-    <nav className={`ktl-page-nav sticky z-40 w-full max-w-3xl p-2 backdrop-blur-md rounded-xl shadow-xl ${navPos === 'top' ? 'top-0 mb-3' : 'top-2 mb-4'}`}>
+    <nav className="ktl-page-nav sticky top-2 z-40 w-full max-w-3xl mb-4 p-2 backdrop-blur-md rounded-xl shadow-xl">
       <div className="flex gap-1 overflow-x-auto scrollbar-hide justify-center items-center">
         {NAV_ITEMS.map(({ key, label, short }) => (
           <button
@@ -2108,15 +2095,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             <span className="hidden sm:inline">{label.replace(/\s*\(P\d\)\s*$/, '')}</span>
           </button>
         ))}
-        {/* 위치 토글: 위 고정 ↔ 예전 위치(아래) */}
-        <button
-          onClick={toggleNavPos}
-          className={`${navButtonBaseStyle} ktl-nav-off ml-1`}
-          title={navPos === 'top' ? 'P1~P5 줄을 예전 위치(아래)로 이동' : 'P1~P5 줄을 맨 위로 고정'}
-          aria-label="P1~P5 위치 전환"
-        >
-          <span className="text-sm leading-none">{navPos === 'top' ? '⤓' : '⤒'}</span>
-        </button>
       </div>
     </nav>
   );
@@ -2268,8 +2246,6 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       <div className="w-full max-w-5xl flex flex-col items-center bg-slate-900/60 backdrop-blur-sm min-h-screen sm:min-h-0 sm:rounded-2xl border border-slate-800/80 shadow-2xl px-2 sm:px-6 py-4 sm:py-6">
         <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} userName={userName} onLogout={onLogout} onKakaoTalkClick={() => setShowKakaoTalkModal(true)} />
 
-        {/* ── P1~P5 페이지 선택: 맨 위 고정 (navPos==='top') ── */}
-        {navPos === 'top' && pageNav}
 
         {(
           <>
@@ -3296,8 +3272,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           </>
         )}
 
-        {/* ── P1~P5 페이지 선택: 예전 위치 (navPos==='inline', 패널 아래) ── */}
-        {navPos === 'inline' && pageNav}
+        {/* ── P1~P5 페이지 선택 (예전 위치, 패널 아래 고정) ── */}
+        {pageNav}
 
         {activePageContent}
 
