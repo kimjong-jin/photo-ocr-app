@@ -2795,7 +2795,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                                 {/* 하위 접수번호들 - 펼쳐졌을 때만 */}
                                 {isExpanded && (
                                   <div className="divide-y divide-slate-700/30">
-                                    {children.sort().map(rn => {
+                                    {[...children].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(rn => {
                                       const status = jobStatuses.find(s => s.receiptNo === rn);
                                       const suffix = rn.split('-').pop();
                                       return (
