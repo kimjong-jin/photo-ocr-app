@@ -168,7 +168,7 @@ export const Header: React.FC<HeaderProps> = ({ apiMode, onApiModeChange, userNa
   const currentFontSize = FONT_SIZES.find(f => f.id === fontSize) ?? FONT_SIZES[2];
 
   return (
-    <header className="w-full max-w-3xl mb-4 relative z-50" ref={settingsRef}>
+    <header className="w-full max-w-3xl mb-4 relative z-[100]" ref={settingsRef}>
       <div className="flex justify-between items-center w-full px-2.5 py-1.5 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-slate-700/60 shadow-lg gap-1">
         {/* KTL 로고 */}
         <span className="text-sm font-bold tracking-widest text-sky-400 uppercase shrink-0">KTL</span>
@@ -242,7 +242,7 @@ export const Header: React.FC<HeaderProps> = ({ apiMode, onApiModeChange, userNa
       </div>
 
       {showSettings && (
-        <div className="absolute z-50 mt-1.5 left-0 right-0" style={{width:'100%',maxWidth:'100vw'}}>
+        <div className="absolute z-[100] mt-1.5 left-0 right-0" style={{width:'100%',maxWidth:'100vw'}}>
           <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700/70 rounded-xl shadow-2xl p-3 space-y-2.5" style={{overflowX:'hidden'}}>
 
             {/* 강조색 */}
