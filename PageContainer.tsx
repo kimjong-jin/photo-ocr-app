@@ -2077,9 +2077,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   const showTaskManagement = useMemo(() => TASK_PAGES.includes(activePage), [activePage]);
 
-  const navButtonBaseStyle = "px-2.5 py-1.5 rounded-lg font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500/60 text-xs whitespace-nowrap tracking-wide shrink-0";
-  const activeNavButtonStyle = "bg-sky-500 text-white shadow-sm shadow-sky-900/50";
-  const inactiveNavButtonStyle = "text-slate-400 hover:text-slate-200 hover:bg-slate-700/70";
+  const navButtonBaseStyle = "flex items-center gap-1.5 px-3 py-2 rounded-lg font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-sky-500/60 text-xs whitespace-nowrap shrink-0 border";
+  const activeNavButtonStyle = "bg-sky-500 text-white border-sky-300 shadow-md shadow-sky-900/50 scale-[1.06]";
+  const inactiveNavButtonStyle = "bg-slate-800/80 text-slate-300 border-slate-600/70 hover:bg-slate-700 hover:text-white hover:border-slate-500";
 
   const siteNameOnly = useMemo(() => siteName.trim(), [siteName]);
   const appIdToSync = selectedApplication ? selectedApplication.id : null;
@@ -3254,7 +3254,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
           </>
         )}
 
-        <nav className="sticky top-2 z-40 w-full max-w-3xl mb-4 p-1.5 bg-slate-900/95 backdrop-blur-md rounded-xl shadow-xl border border-slate-800/80">
+        <nav className="sticky top-2 z-40 w-full max-w-3xl mb-4 p-2 bg-slate-900/95 backdrop-blur-md rounded-xl shadow-xl ring-1 ring-sky-600/40 border border-sky-800/50">
           <div className="flex gap-1 overflow-x-auto scrollbar-hide justify-center">
           {NAV_ITEMS.map(({ key, label, short }) => (
             <button
@@ -3264,8 +3264,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
               aria-pressed={activePage === key}
               title={label}
             >
-              <span className="hidden sm:inline">{label}</span>
-              <span className="sm:hidden">{short}</span>
+              <span className={`font-black text-[13px] leading-none px-1.5 py-0.5 rounded ${activePage === key ? 'bg-white/25 text-white' : 'bg-sky-500/20 text-sky-300'}`}>{short}</span>
+              <span className="hidden sm:inline">{label.replace(/\s*\(P\d\)\s*$/, '')}</span>
             </button>
           ))}
           </div>
