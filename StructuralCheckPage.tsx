@@ -403,6 +403,13 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     const base = receipt.split('-').slice(0, 3).join('-');
     return !!locationList.find(l => (l.id === receipt || l.id === base) && l.address?.trim());
   }, [locationList, isDrinkingId]);
+  // 작업 접수번호로 신청서(대표자 등) 매칭: 정확 일치 → base(-01) 폴백. 세부(-2)여도 base 신청서의 대표자를 찾음.
+  // (배치 전송 1549행과 동일한 규칙 — 단일 전송/경고가 selectedApplication에만 의존하던 문제 해결)
+  const resolveAppForJob = useCallback((receipt?: string): Application | null => {
+    const r = receipt?.trim();
+    if (!r) return selectedApplication || null;
+    return applications.find(a => r === a.receipt_no || r.startsWith(a.receipt_no + '-')) || selectedApplication || null;
+  }, [applications, selectedApplication]);
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const activeJobFileInputRef = useRef<HTMLInputElement>(null);
   const [currentPhotoIndexOfActiveJob, setCurrentPhotoIndexOfActiveJob] = useState<number>(-1);
@@ -1308,13 +1315,13 @@ Required output:
                     updateUser: userName,
                     photoFileNames: {},
                     postInspectionDateValue: activeJob.postInspectionDate,
-                    ...(selectedApplication && {
-                        representative_name: selectedApplication.representative_name,
-                        representative_phone: selectedApplication.representative_phone,
-                        applicant_name: selectedApplication.applicant_name,
-                        applicant_phone: selectedApplication.applicant_phone,
-                        maintenance_company: selectedApplication.maintenance_company,
-                    })
+                    ...((resolveAppForJob(activeJob.receiptNumber)) && (() => { const _a = resolveAppForJob(activeJob.receiptNumber)!; return {
+                        representative_name: _a.representative_name,
+                        representative_phone: _a.representative_phone,
+                        applicant_name: _a.applicant_name,
+                        applicant_phone: _a.applicant_phone,
+                        maintenance_company: _a.maintenance_company,
+                    }; })())
                 }],
                 siteName,
                 userName,
@@ -1324,8 +1331,8 @@ Required output:
             );
 
             const baseWarnings = validateJobForKtl(activeJob);
-            // 대표자 누락 확인
-            if (!selectedApplication?.representative_name?.trim()) {
+            // 대표자 누락 확인 — 작업 접수번호로 신청서 자동 매칭(base 폴백). 세부(-2)여도 base 신청서 대표자 인정.
+            if (!resolveAppForJob(activeJob.receiptNumber)?.representative_name?.trim()) {
               baseWarnings.unshift('⚠️ 대표자가 입력되지 않았습니다. 신청서 OCR에서 대표자를 확인해주세요.');
             }
             // GPS 주소 누락 확인
@@ -1430,7 +1437,7 @@ Required output:
         sendAddr,
         onProgress,
         'p1_check',
-        selectedApplication || undefined
+        resolveAppForJob(activeJob.receiptNumber) || undefined
       );
 
       if (result && result.success) {
@@ -1499,8 +1506,9 @@ Required output:
             }
         }
 
-        // 대표자 누락 확인 (배치)
-        if (!selectedApplication?.representative_name?.trim()) {
+        // 대표자 누락 확인 (배치) — 각 작업 접수번호로 신청서 자동 매칭(base 폴백). 하나라도 대표자 없으면 경고.
+        const jobsMissingRep = jobs.filter(j => !resolveAppForJob(j.receiptNumber)?.representative_name?.trim());
+        if (jobsMissingRep.length > 0) {
             allWarnings.unshift('⚠️ 대표자가 입력되지 않았습니다. 신청서 OCR에서 대표자를 확인해주세요.');
         }
 
