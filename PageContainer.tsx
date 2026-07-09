@@ -192,6 +192,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locReceiptInput, setLocReceiptInput] = useState('');
   const [locDetailInput, setLocDetailInput] = useState('');
+  // 세부별 입력 폼: 각 세부에 현장_세부(배수지) 명칭을 다르게 저장 (null=폼 닫힘)
+  const [multiRows, setMultiRows] = useState<{ id: string; label: string }[] | null>(null);
   const [isLocSaving, setIsLocSaving] = useState(false);
   const [locFieldFilter, setLocFieldFilter] = useState<'없음' | '전체' | '수질' | '먹는물'>('없음');
   const [locYearFilter, setLocYearFilter] = useState<number | '전체'>('전체');   // 검사 년도 필터(접수번호 앞2자리)
@@ -3063,8 +3065,83 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       {isLocSaving ? <Spinner size="sm" /> : <span>💾</span>}
                       저장
                     </button>
+                    {/* 세부별 입력: 세부마다 현장_세부 명칭을 각각 다르게 저장 */}
+                    <button
+                      onClick={() => {
+                        if (!currentGpsAddress.trim()) { alert('저장할 주소가 없습니다.\nGPS/찾기/지도에서 주소를 먼저 가져오세요.'); return; }
+                        const _tokens = (locReceiptInput.trim() || receiptNumber || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                        const _ids: string[] = []; let _b3 = '';
+                        for (const tk of _tokens) {
+                          if (/^\d+$/.test(tk)) { if (_b3) _ids.push(`${_b3}-${tk}`); }
+                          else { _ids.push(tk); _b3 = tk.split('-').slice(0, 3).join('-'); }
+                        }
+                        const _uniq = [...new Set(_ids)];
+                        if (_uniq.length < 2) { alert('세부를 2개 이상 입력하세요.\n예: 26-044262-01-8,9,10,11,12,13,14'); return; }
+                        const bad = _uniq.filter(i => !isValidReceiptId(i));
+                        if (bad.length) { alert(`올바르지 않은 형식: ${bad.join(', ')}`); return; }
+                        setMultiRows(_uniq.map(id => ({ id, label: '' })));
+                      }}
+                      disabled={isLocSaving || !currentGpsAddress.trim()}
+                      className="shrink-0 px-2.5 py-2 text-[11px] font-semibold rounded-md bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-colors"
+                      title="세부마다 현장_세부(배수지) 명칭을 각각 입력해서 저장"
+                    >세부별 입력</button>
                   </div>
                 </div>
+
+                {/* 세부별 입력 폼: 각 세부에 현장_세부(배수지) 명칭을 다르게 저장 */}
+                {multiRows && (
+                  <div className="p-2 rounded-lg border border-indigo-600/50 bg-indigo-950/30 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-indigo-300">세부별 현장_세부 입력 · {multiRows.length}개</span>
+                      <button onClick={() => setMultiRows(null)} className="text-[10px] text-slate-400 hover:text-slate-200">✕ 닫기</button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 truncate">주소(공통): {currentGpsAddress || '—'}</p>
+                    <div className="space-y-1 max-h-52 overflow-y-auto">
+                      {multiRows.map((row, i) => (
+                        <div key={row.id} className="flex items-center gap-1.5">
+                          <span className="shrink-0 text-[10px] font-mono text-indigo-300 w-28 truncate" title={row.id}>{row.id}</span>
+                          <input
+                            type="text"
+                            value={row.label}
+                            onChange={e => setMultiRows(rows => rows!.map((r, j) => j === i ? { ...r, label: e.target.value } : r))}
+                            placeholder="배수지·정수장 명칭"
+                            className="flex-1 min-w-0 p-1.5 bg-slate-800 border border-slate-600 rounded text-slate-200 text-xs placeholder-slate-500"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setMultiRows(rows => { const first = rows?.[0]?.label.trim() || ''; return rows!.map(r => ({ ...r, label: first })); })}
+                        className="shrink-0 px-2 py-1 text-[10px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200"
+                        title="첫 칸 명칭을 전체에 복사 (같은 배수지일 때)"
+                      >첫 명칭 전체적용</button>
+                      <button
+                        onClick={async () => {
+                          const addr = currentGpsAddress.trim();
+                          if (!addr) { alert('주소가 없습니다.'); return; }
+                          const rowsToSave = multiRows.filter(r => r.label.trim());
+                          if (!rowsToSave.length) { alert('명칭을 1개 이상 입력하세요.'); return; }
+                          const base3 = multiRows[0].id.split('-').slice(0, 3).join('-');
+                          const matched = [...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs, ...(drinkingWaterJobs as any[])].find(j => j.receiptNumber?.startsWith(base3))?.siteLocation || siteName || '';
+                          setIsLocSaving(true);
+                          try {
+                            const lat = coords?.lat ?? 0, lng = coords?.lng ?? 0;
+                            for (const r of rowsToSave) {
+                              await saveLocation({ id: r.id, address: addr, lat, lng, savedAt: Date.now(), siteName: `${matched}(${r.label.trim()})`, category: '먹는물' });
+                            }
+                            setLocationList(await getAllLocations());
+                            setCurrentGpsAddress(''); setCoords(null); setLocReceiptInput(''); setMultiRows(null);
+                          } catch (e: any) { alert(e.message || '저장 오류'); }
+                          finally { setIsLocSaving(false); }
+                        }}
+                        disabled={isLocSaving}
+                        className="flex-1 px-2 py-1 text-[11px] font-semibold rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40"
+                      >{isLocSaving ? '저장 중...' : '전부 저장'}</button>
+                    </div>
+                    <p className="text-[10px] text-slate-500">명칭 빈 칸은 저장 안 함 · 같은 배수지면 "첫 명칭 전체적용"</p>
+                  </div>
+                )}
 
                 {/* 분야 필터 (수질/먹는물/전체) */}
                 {locationList.length > 0 && (
