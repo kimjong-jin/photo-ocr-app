@@ -23,15 +23,20 @@ photo-ocr-app/
 │   ├── locations.ts         ← 위치 정보
 │   └── send-photos.ts       ← 사진 전송
 ├── services/
-│   ├── photoStorageService.ts   ← 사진 저장 (parser-photo-server 연동)
-│   ├── jobStatusService.ts      ← 작업상태 (mac-studio-server 연동)
-│   └── locationService.ts       ← 위치 (mac-studio-server 연동)
+│   ├── photoStorageService.ts   ← 사진 저장
+│   ├── jobStatusService.ts      ← 작업상태 (→ /api/job-status)
+│   └── locationService.ts       ← 위치 (→ /api/locations)
 └── .env.local               ← API 키 (git 제외, Vercel 환경변수 사용)
 ```
 
 ## 연동 서버
-- **사진 저장**: `~/coding/parser-photo-server` (PHOTO_STORAGE_URL 환경변수)
-- **위치/작업상태**: `~/coding/mac-studio-server` (Cloudflare Tunnel URL)
+
+사진 저장·위치·작업상태 **전부** 통합 백엔드 하나로 간다.
+
+- **`parser-photo-server`** — PM2 프로세스명 `parser-server`, 공인 IP `59.20.58.2:3333` 직결
+- 프론트 services 는 서버를 직접 호출하지 않는다. Vercel 서버리스(`api/locations.ts` 등)를 거치고, 거기서 `PHOTO_STORAGE_URL` 환경변수로 프록시한다.
+
+> ⚠️ `mac-studio-server` 와 Cloudflare Tunnel 은 **2026-06-21 폐기됐다.** 코드엔 이미 남아 있지 않으니 되살리지 말 것.
 
 ## 개발 명령어
 ```bash
