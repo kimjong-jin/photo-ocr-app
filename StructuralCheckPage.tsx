@@ -236,19 +236,42 @@ const escapeRegExp = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
+// 형식승인번호 정규화 (먹는물 DWMS / 수질 WTMS 공통)
+//  ① 영문 코드 대문자화: cm/Cm/cM→CM, tm→TM, multi→MULTI … (제/호는 한글이라 무관)
+//  ② pH 예외: PH/ph/Ph → pH
+//  ③ 하이픈 누락 보정: 코드와 4자리 연도 사이 (TN2019 → TN-2019)
+//  ④ 0 제거: 연도 뒤 호-번호 앞자리 0 (2019-01호 → 2019-1호)
+//  ⑤ 파생접미사 보존: 호 뒤 -N / -N-M (제DWMS-TM-2019-1호-1, …호-1-2) 는 불변
 const normalizeApprovalNumber = (value: string): string => {
   const raw = (value || '').trim();
   if (!raw) return '';
 
-  let cleaned = raw
+  let s = raw
     .replace(/\s+/g, '')
     .replace(/^["']|["']$/g, '');
 
-  if (cleaned.startsWith('제') && cleaned.endsWith('호')) return cleaned;
-  if (cleaned.startsWith('제') && !cleaned.endsWith('호')) return `${cleaned}호`;
-  if (!cleaned.startsWith('제') && cleaned.endsWith('호')) return `제${cleaned}`;
+  // ① '제' 접두 보장
+  if (!s.startsWith('제')) s = `제${s}`;
 
-  return `제${cleaned}호`;
+  // ② 영문 코드 전부 대문자화
+  s = s.toUpperCase();
+
+  // ③ 코드-연도 하이픈 누락 보정 (TN2019 → TN-2019)
+  s = s.replace(/-([A-Z]+)(\d{4})-/g, '-$1-$2-');
+
+  // '호' 없으면 연도-번호 뒤(파생접미사 앞)에 삽입
+  if (!s.includes('호')) {
+    s = s.replace(/^(제.*-\d{4}-\d+)(.*)$/, '$1호$2');
+    if (!s.includes('호')) s += '호';
+  }
+
+  // ④ 연도 뒤 호-번호 앞자리 0 제거 (파생접미사는 불변)
+  s = s.replace(/(-\d{4})-0*(\d+)/, '$1-$2');
+
+  // ⑤ pH 예외: 대문자화된 PH → pH
+  s = s.replace(/-PH-/g, '-pH-');
+
+  return s;
 };
 
 const normalizeYmdDate = (value: string): string => {
@@ -580,7 +603,9 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
     const certTypeApprovalVal = certDetails.typeApprovalNumber;
      if (markingTypeApprovalVal || certTypeApprovalVal) {
       anyComparisonMade = true;
-      if (norm(markingTypeApprovalVal) !== norm(certTypeApprovalVal)) {
+      // 형식승인번호는 양쪽 다 정규화(대문자·pH·하이픈·0제거·파생) 후 비교 —
+      // 같은 번호를 "…2019-1호" vs "…2019-01호", "TN2019" vs "TN-2019" 로 다르게 읽어도 일치 처리.
+      if (norm(normalizeApprovalNumber(markingTypeApprovalVal)) !== norm(normalizeApprovalNumber(certTypeApprovalVal))) {
         messages.push(`형식승인번호 (표시사항: "${markingTypeApprovalVal || '없음'}" vs 증명서: "${certTypeApprovalVal || '없음'}")`);
         allMatch = false;
       }
@@ -1069,12 +1094,19 @@ Required output:
       case "센서부 번호":
         targetChecklistItem = "기기번호 확인";
         autoComment = "센서부 번호";
-        prompt = `이미지에서 '센서부' 명판을 찾으세요.
-그 명판에서 '기기고유번호 / 제조번호 / 제작번호 / 시리얼번호 / Serial No / S/N / S.N / No.' 같은 라벨을 찾아, 그 라벨 바로 옆이나 뒤에 오는 실제 번호(제조번호·일련번호)만 정확히 추출해 반환하세요.
+        prompt = `이미지에서 '센서부'의 제조번호를 찾으세요.
+센서 전극/탐침/프로브 '부품 본체'에 직접 부착된 명판·라벨에서 'SN / 기기고유번호 / 제조번호 / 제작번호 / 시리얼번호 / Serial No / S/N / S.N / No.' 항목 옆이나 뒤에 오는 실제 번호(제조번호·일련번호)만 정확히 추출해 반환하세요.
+❗'어느 부품'에 붙은 라벨인지로 구분하세요 (색상으로 구분하지 말 것):
+- ✅ 읽을 것: 센서 전극/탐침 '본체'에 바로 붙은 명판의 번호. (예: M394776-2)
+- ❌ 무시: 시약통·약품 용기·보조 부품에 붙은 스티커 (로트번호일 가능성 높음). (예: K2Y14)
+- ❌ 무시: 기기 외함(케이스)에 붙은 라벨 — 그건 '지시부' 번호입니다.
+❗번호 형식 주의:
+- SN 뒤 숫자가 '21 167 0792 02'처럼 공백으로 나뉘어 있으면 공백을 모두 제거해 '21167079202'처럼 이어붙여 반환하세요. (숫자 전체 포함, 잘라내지 말 것)
 ❗주의:
 - 'AP38D' 같은 모델명·기기형식, 형식승인번호(제○○호)는 기기번호가 아닙니다. 절대 반환하지 마세요.
-- 기기번호(시리얼)는 보통 위 라벨 '뒤'에 오는 영문+숫자 또는 숫자 조합입니다. 라벨 뒤의 값만 가져오세요.
-- 시리얼 라벨/번호를 찾을 수 없으면 빈 문자열("")을 반환하세요. (모델명으로 대체하지 말 것)
+- 기기번호(시리얼)는 보통 위 항목 '뒤'에 오는 영문+숫자 또는 숫자 조합입니다. 라벨 뒤의 값만 가져오세요.
+- 센서 본체 명판·번호를 찾을 수 없으면 빈 문자열("")을 반환하세요. (모델명·시약번호로 대체하지 말 것)
+- 'P/N'(Part Number, 부품번호)은 시리얼번호가 아닙니다. S/N 앞에 P/N이 있어도 무시하고 S/N 뒤의 값만 반환하세요. (예: P/N LPV417.84.00U02 → 무시, S/N 221010028384 → 반환)
 응답에는 번호 텍스트만 포함하고 다른 설명은 제외해주세요.`;
         break;
 
@@ -1199,6 +1231,13 @@ Required output:
                 const updatedItemData = { ...job.checklistData[targetChecklistItem], notes: newNote };
                 return { ...job, checklistData: { ...job.checklistData, [targetChecklistItem]: updatedItemData }, submissionStatus: 'idle', submissionMessage: undefined };
             });
+        } else if (itemNameForAnalysis === "운용프로그램확인") {
+            // 수질 버전: 'Ver.' 등 접두 무시하고 숫자 12자리 코드만 추출
+            // (예: "Ver. 210331119121" → "210331119121"). 12자리 숫자런이 없으면 원문 유지(데이터 보존).
+            // 먹는물(TU·Cl)은 운용프로그램확인이 '해당 없음'이라 이 경로를 타지 않음 → 수질 전용.
+            const digitRuns = resultText.match(/\d+/g) || [];
+            const v12 = digitRuns.find(r => r.length === 12);
+            handleChecklistItemChange(targetChecklistItem, "notes", v12 || resultText);
         } else {
             handleChecklistItemChange(targetChecklistItem, "notes", resultText);
         }
