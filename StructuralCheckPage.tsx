@@ -236,6 +236,24 @@ const escapeRegExp = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
+// 스냅샷 렌더 완료 대기: 고정 지연(100ms) 대신 요소가 실제로 그려질 때까지(offsetHeight>0)
+// 프레임 단위로 폴링한다. 100ms가 렌더보다 빨라 캡처가 빈/누락되던 문제(특히 일괄 전송에서
+// 체크리스트 사진이 조용히 빠지던 현상)를 방지한다. 시간 초과 시 예외를 던져 '조용한 누락'을 막는다.
+const waitForSnapshotElement = (elementId: string, timeoutMs = 6000): Promise<HTMLElement> =>
+  new Promise((resolve, reject) => {
+    const startedAt = performance.now();
+    const tick = () => {
+      const el = document.getElementById(elementId);
+      if (el && el.offsetHeight > 0 && el.offsetWidth > 0) { resolve(el); return; }
+      if (performance.now() - startedAt > timeoutMs) {
+        reject(new Error(`체크리스트 스냅샷 렌더 시간 초과: ${elementId}`));
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
 // 형식승인번호 정규화 (먹는물 DWMS / 수질 WTMS 공통)
 //  ① 영문 코드 대문자화: cm/Cm/cM→CM, tm→TM, multi→MULTI … (제/호는 한글이라 무관)
 //  ② pH 예외: PH/ph/Ph → pH
@@ -1318,17 +1336,16 @@ Required output:
 
     if (snapshotHostRef.current) {
         const snapshotRoot = createRoot(snapshotHostRef.current);
-        const renderPromise = new Promise<void>(resolve => {
-            snapshotRoot.render(
-                <ChecklistSnapshot job={activeJob} />
-            );
-            setTimeout(resolve, 100);
-        });
-        await renderPromise;
+        snapshotRoot.render(
+            <ChecklistSnapshot job={activeJob} />
+        );
 
-        const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
-        if (!elementToCapture) {
-            alert("체크리스트 스냅샷 요소를 찾을 수 없습니다.");
+        // 고정 100ms 대신 실제 렌더 완료까지 대기 (누락/빈 캡처 방지)
+        let elementToCapture: HTMLElement;
+        try {
+            elementToCapture = await waitForSnapshotElement(`snapshot-container-for-${activeJob.id}`);
+        } catch {
+            alert("체크리스트 스냅샷을 생성하지 못했습니다. 다시 시도해주세요.");
             setIsRenderingChecklist(false);
             snapshotRoot.unmount();
             return;
@@ -1626,42 +1643,39 @@ Required output:
 
             if (snapshotHostRef.current) {
                 const snapshotRoot = createRoot(snapshotHostRef.current);
-                const renderPromise = new Promise<void>(resolve => {
+                try {
                     snapshotRoot.render(
                         <ChecklistSnapshot job={job} />
                     );
-                    setTimeout(resolve, 100);
-                });
-                await renderPromise;
+                    // 고정 100ms 대신 실제 렌더 완료까지 대기 → 요소가 없거나 시간 초과면 예외(조용한 누락 방지)
+                    const elementToCapture = await waitForSnapshotElement(`snapshot-container-for-${job.id}`);
 
-                const elementToCapture = document.getElementById(`snapshot-container-for-${job.id}`);
-                if (elementToCapture) {
-                    try {
-                        const canvas = await html2canvas(elementToCapture, {
-                            backgroundColor: '#ffffff',
-                            width: elementToCapture.offsetWidth,
-                            height: elementToCapture.offsetHeight,
-                            scale: 1.5,
-                        });
-                        const dataUrl = canvas.toDataURL('image/png');
-                        const blob = await (await fetch(dataUrl)).blob();
+                    const canvas = await html2canvas(elementToCapture, {
+                        backgroundColor: '#ffffff',
+                        width: elementToCapture.offsetWidth,
+                        height: elementToCapture.offsetHeight,
+                        scale: 1.5,
+                    });
+                    const dataUrl = canvas.toDataURL('image/png');
+                    const blob = await (await fetch(dataUrl)).blob();
 
-                        const sanitizedReceipt = sanitizeFilenameComponent(job.receiptNumber);
-                        let itemPart = "";
-                        if (job.mainItemKey === 'TP') itemPart = "P";
-                        else if (job.mainItemKey === 'Cl') itemPart = "C";
-                        else if (job.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(job.mainItemKey);
+                    const sanitizedReceipt = sanitizeFilenameComponent(job.receiptNumber);
+                    let itemPart = "";
+                    if (job.mainItemKey === 'TP') itemPart = "P";
+                    else if (job.mainItemKey === 'Cl') itemPart = "C";
+                    else if (job.mainItemKey !== 'TN') itemPart = sanitizeFilenameComponent(job.mainItemKey);
 
-                        const filename = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
-                        const file = new File([blob], filename, { type: 'image/png' });
-                        const base64 = dataUrl.split(',')[1];
-                        generatedChecklistImages.push({ file, base64, mimeType: 'image/png' });
-                    } catch (err) {
-                        setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: '체크리스트 이미지 생성 실패' } : j));
-                        imageGenError = true;
-                    }
+                    const filename = `${sanitizedReceipt}${itemPart ? `_${itemPart}` : ''}_checklist.png`;
+                    const file = new File([blob], filename, { type: 'image/png' });
+                    const base64 = dataUrl.split(',')[1];
+                    generatedChecklistImages.push({ file, base64, mimeType: 'image/png' });
+                } catch (err) {
+                    // 캡처 실패(요소 미생성 포함)는 반드시 에러로 표기 → 사진이 조용히 빠진 채 '성공'으로 뜨지 않게
+                    setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `체크리스트 사진 생성 실패 — '${job.receiptNumber}' 다시 시도해주세요.` } : j));
+                    imageGenError = true;
+                } finally {
+                    snapshotRoot.unmount();
                 }
-                snapshotRoot.unmount();
             }
         }
 
