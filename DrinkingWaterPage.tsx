@@ -57,6 +57,36 @@ if (!component) return '';
 return component.replace(/[/\\:?*\"<>|]/g, '').replace(/__+/g, '_');
 };
 
+// 스냅샷 렌더 완료 대기: 고정 지연(100ms) 대신 요소가 실제로 그려질 때까지(offsetHeight>0)
+// 프레임 단위로 폴링한다. 100ms가 렌더보다 빨라 데이터테이블 이미지가 빈/누락되던 문제를 방지.
+// 시간 초과 시 예외를 던져 '조용한 누락'을 막는다.
+const waitForSnapshotElement = (elementId: string, timeoutMs = 6000): Promise<HTMLElement> =>
+  new Promise((resolve, reject) => {
+    const startedAt = performance.now();
+    const tick = () => {
+      const el = document.getElementById(elementId);
+      if (el && el.offsetHeight > 0 && el.offsetWidth > 0) { resolve(el); return; }
+      if (performance.now() - startedAt > timeoutMs) {
+        reject(new Error(`데이터테이블 스냅샷 렌더 시간 초과: ${elementId}`));
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+// 'TU/CL' 결합 작업인데 한쪽(탁도=value 또는 잔류염소=valueTP) 값이 통째로 비어 있으면 그 항목명을 반환.
+// 전송 전 경고용 — 한쪽만 채운 채 전송돼 탁도(또는 잔류염소)가 조용히 빠지는 실수를 막는다.
+const missingTuClSide = (job: DrinkingWaterJob): string | null => {
+  if (job.selectedItem !== 'TU/CL') return null;
+  const data = job.processedOcrData || [];
+  const hasTU = data.some(d => d.value != null && String(d.value).trim() !== '');
+  const hasCL = data.some(d => d.valueTP != null && String(d.valueTP).trim() !== '');
+  if (hasTU && !hasCL) return '잔류염소(CL)';
+  if (!hasTU && hasCL) return '탁도(TU)';
+  return null;
+};
+
 const getCurrentLocalDateTimeString = (): string => {
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -391,6 +421,13 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
         return;
     }
 
+    // TU/CL 결합인데 한쪽(탁도·잔류염소) 값이 통째로 비면 전송 전 경고 (해당 항목이 조용히 빠지는 실수 방지)
+    const missingSide = missingTuClSide(activeJob);
+    if (missingSide) {
+        const proceed = window.confirm(`⚠️ 이 작업은 TU/CL(탁도·잔류염소)인데 ${missingSide} 값이 비어 있습니다.\n${missingSide} 데이터 없이 전송하시겠습니까?`);
+        if (!proceed) return;
+    }
+
     updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(1/4) 전송 준비 중..." }));
 
     const finalSiteLocationForData = formatSite(siteLocation, activeJob.details);
@@ -416,20 +453,18 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
         if (snapshotHostRef.current) {
             updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(2/4) 데이터 테이블 이미지 생성 중..." }));
             const snapshotRoot = createRoot(snapshotHostRef.current);
-            await new Promise<void>(resolve => {
+            try {
                 snapshotRoot.render(<DrinkingWaterSnapshot job={activeJob} siteName={siteName} />);
-                setTimeout(resolve, 100);
-            });
-
-            const elementToCapture = document.getElementById(`snapshot-container-for-${activeJob.id}`);
-            if (elementToCapture) {
+                // 고정 100ms 대신 실제 렌더 완료까지 대기 → 실패 시 예외(외부 catch에서 에러 처리, 조용한 누락 방지)
+                const elementToCapture = await waitForSnapshotElement(`snapshot-container-for-${activeJob.id}`);
                 const canvas = await html2canvas(elementToCapture, { backgroundColor: '#ffffff', scale: 1.5 });
                 const dataUrl = canvas.toDataURL('image/png');
                 const blob = dataURLtoBlob(dataUrl);
                 const dataTableFileName = `${activeJob.receiptNumber}_먹는물_${sanitizeFilenameComponent(activeJob.selectedItem.replace('/', '_'))}_datatable.png`;
                 dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
+            } finally {
+                snapshotRoot.unmount();
             }
-            snapshotRoot.unmount();
         }
 
         if (activeJob.photos.length > 0) {
@@ -491,6 +526,16 @@ const handleBatchSendToKtl = async () => {
         return;
     }
 
+    // TU/CL 결합인데 한쪽(탁도·잔류염소) 값이 비어 있는 작업이 있으면 전송 전 경고
+    const missingSideJobs = jobsToSend
+        .map(j => ({ receiptNumber: j.receiptNumber, side: missingTuClSide(j) }))
+        .filter(x => x.side);
+    if (missingSideJobs.length > 0) {
+        const list = missingSideJobs.map(x => `• ${x.receiptNumber}: ${x.side} 값 없음`).join('\n');
+        const proceed = window.confirm(`⚠️ TU/CL(탁도·잔류염소)인데 한쪽 값이 비어 있는 작업이 ${missingSideJobs.length}건 있습니다.\n\n${list}\n\n이대로 전송하면 해당 항목이 빠집니다. 계속 전송하시겠습니까?`);
+        if (!proceed) return;
+    }
+
     setIsSendingToClaydox(true);
     setBatchSendProgress(`(0/${jobsToSend.length}) 작업 처리 시작...`);
     setJobs(prev => prev.map(j => jobsToSend.find(jts => jts.id === j.id) ? { ...j, submissionStatus: 'sending', submissionMessage: '대기 중...' } : j));
@@ -521,21 +566,19 @@ const handleBatchSendToKtl = async () => {
 
             if (snapshotHostRef.current) {
                 const snapshotRoot = createRoot(snapshotHostRef.current);
-                await new Promise<void>(resolve => {
+                try {
                     snapshotRoot.render(<DrinkingWaterSnapshot job={job} siteName={siteName} />);
-                    setTimeout(resolve, 100);
-                });
-
-                const elementToCapture = document.getElementById(`snapshot-container-for-${job.id}`);
-                if (elementToCapture) {
+                    // 고정 100ms 대신 실제 렌더 완료까지 대기 → 실패 시 예외(per-job catch에서 에러 처리)
+                    const elementToCapture = await waitForSnapshotElement(`snapshot-container-for-${job.id}`);
                     const canvas = await html2canvas(elementToCapture, { backgroundColor: '#ffffff', scale: 1.5 });
                     const blob = dataURLtoBlob(canvas.toDataURL('image/png'));
                     const dataTableFileName = `${job.receiptNumber}_먹는물_${sanitizeFilenameComponent(job.selectedItem.replace('/', '_'))}_datatable.png`;
                     const dataTableFile = new File([blob], dataTableFileName, { type: 'image/png' });
                     filesToUpload.push(dataTableFile);
                     actualKtlFileNames.push(dataTableFile.name);
+                } finally {
+                    snapshotRoot.unmount();
                 }
-                snapshotRoot.unmount();
             }
 
             if (job.photos.length > 0) {
