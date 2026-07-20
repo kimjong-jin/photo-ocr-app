@@ -23,7 +23,11 @@ export default defineConfig(({ mode }) => {
     // ❗ 클라이언트에 노출 허용 접두사는 VITE_만 둔다
     envPrefix: ['VITE_'],
 
-    server: { host: true, port: 5173, strictPort: true },
+    server: {
+      host: true, port: 5173, strictPort: true,
+      // 개발 전용: /api → 로컬 백엔드(parser-server :3333). 현장계수 큐·locations·photos 등 직접 서브
+      proxy: { '/api': { target: 'http://localhost:3333', changeOrigin: true } },
+    },
     preview: { host: true, port: 4173 },
     build: {
       outDir: 'dist',

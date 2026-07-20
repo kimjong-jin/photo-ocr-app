@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { fieldApplication, ITEM_TO_PARAM, verdictLabel } from '../services/fieldApplication';
 import { exportFieldExcel } from '../services/fieldExcel';
 import { normalizeReceiptBase } from '../services/fieldQueueSeed';
@@ -156,8 +157,8 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[60] bg-slate-900/80 backdrop-blur-sm flex flex-col" role="dialog" aria-modal="true">
+  return createPortal(
+    <div className="fixed inset-0 z-[9998] bg-slate-950 flex flex-col" role="dialog" aria-modal="true">
       {/* 헤더 */}
       <div className="flex items-center gap-3 px-4 py-3 bg-slate-800 border-b border-slate-700 shrink-0">
         <h2 className="text-base font-bold text-slate-100">🧪 현장계수 수분석</h2>
@@ -254,6 +255,7 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
           </table>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
