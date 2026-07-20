@@ -7,6 +7,8 @@ import DrinkingWaterPage, { type DrinkingWaterJob } from './DrinkingWaterPage';
 import FieldCountPage from './FieldCountPage';
 import StructuralCheckPage from './StructuralCheckPage';
 import { KakaoTalkPage } from './KakaoTalkPage';
+import { FieldAnalysisModal } from './components/FieldAnalysisModal';
+import { normalizeReceiptBase } from './services/fieldQueueSeed';
 import CsvGraphPage from './CsvGraphPage';
 import type { CsvGraphJob } from './types/csvGraph';
 import { Header } from './components/Header';
@@ -25,7 +27,8 @@ import {
   CHECKLIST_DEFINITIONS,
   CertificateDetails,
   StructuralCheckSubItemData,
-  PREFERRED_MEASUREMENT_METHODS
+  PREFERRED_MEASUREMENT_METHODS,
+  EMISSION_STANDARD_ITEM_NAME
 } from './shared/StructuralChecklists';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
 import { getKakaoAddress, searchAddressByKeyword, enforceFullRegionPrefix } from './services/kakaoService';
@@ -183,6 +186,18 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   useEffect(() => { drinkingWaterJobsRef.current = drinkingWaterJobs; }, [drinkingWaterJobs]);
   useEffect(() => { structuralCheckJobsRef.current = structuralCheckJobs; }, [structuralCheckJobs]);
 
+  // P1(구조확인) TOC 작업의 배출기준 → base 접수번호별 맵 (P2/P3 전송 시 현장계수 큐 seed에 사용)
+  const emissionStandards = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const j of structuralCheckJobs) {
+      if ((j as any)?.mainItemKey !== 'TOC') continue;
+      const std = (j as any)?.checklistData?.[EMISSION_STANDARD_ITEM_NAME]?.notes?.trim();
+      const rc = normalizeReceiptBase((j as any)?.receiptNumber || '');
+      if (std && rc) map[rc] = std;
+    }
+    return map;
+  }, [structuralCheckJobs]);
+
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoadingApplications, setIsLoadingApplications] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
@@ -241,6 +256,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [dedupBusy, setDedupBusy] = useState(false);
   const [dedupProgress, setDedupProgress] = useState<string | null>(null);
   const [showKakaoTalkModal, setShowKakaoTalkModal] = useState(false);
+  const [showFieldAnalysis, setShowFieldAnalysis] = useState(false);
 
   const [renameOld, setRenameOld] = useState('');
   const [renameNew, setRenameNew] = useState('');
@@ -2135,6 +2151,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             draftMessage={draftMessage}
             applications={applications}
             onOpenExtraPhotoModal={handleOpenExtraPhotoModal}
+            emissionStandards={emissionStandards}
           />
         );
       case 'fieldCount':
@@ -2155,6 +2172,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             draftMessage={draftMessage}
             applications={applications}
             onOpenExtraPhotoModal={handleOpenExtraPhotoModal}
+            emissionStandards={emissionStandards}
           />
         );
       case 'drinkingWater':
@@ -2257,7 +2275,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     <>
     <div className="w-full min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100 flex flex-col items-center px-0 sm:px-8 py-0 sm:py-6 font-[Inter] overflow-x-hidden selection:bg-sky-500/30 touch-manipulation">
       <div className="w-full max-w-5xl flex flex-col items-center bg-slate-900/60 backdrop-blur-sm min-h-screen sm:min-h-0 sm:rounded-2xl border border-slate-800/80 shadow-2xl px-2 sm:px-6 py-4 sm:py-6">
-        <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} userName={userName} onLogout={onLogout} onKakaoTalkClick={() => setShowKakaoTalkModal(true)} />
+        <Header apiMode={apiMode} onApiModeChange={handleApiModeChange} userName={userName} onLogout={onLogout} onKakaoTalkClick={() => setShowKakaoTalkModal(true)} onFieldAnalysisClick={() => setShowFieldAnalysis(true)} />
 
 
         {(
@@ -3371,6 +3389,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         {activePageContent}
 
         {userRole === 'admin' && <AdminPanel adminUserName={userName} />}
+
+        {/* ── 현장계수 수분석 (주간표) ── */}
+        <FieldAnalysisModal isOpen={showFieldAnalysis} onClose={() => setShowFieldAnalysis(false)} />
 
         {/* ── 카카오톡 전송 모달 ── */}
         {showKakaoTalkModal && (

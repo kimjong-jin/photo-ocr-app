@@ -17,6 +17,7 @@ import {
   generateKtlJsonForPreview,
 } from '../../services/claydoxApiService';
 import JSZip from 'jszip';
+import { seedFieldQueueFromSend, normalizeReceiptBase } from '../../services/fieldQueueSeed';
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 // ✅ constants에서 alias 포함해서 import
@@ -300,13 +301,15 @@ interface AnalysisPageProps {
   applications?: Application[];
   /** 추가 사진자료 모달 오픈 (기존 P1~P5와 접점 없음) */
   onOpenExtraPhotoModal?: (receiptNumber: string, itemName: string) => void;
+  /** base 접수번호 → TOC 배출기준 (P1에서 수집, 현장계수 수분석 큐 seed용) */
+  emissionStandards?: Record<string, string>;
 }
 
 const AnalysisPage: React.FC<AnalysisPageProps> = ({
   pageTitle, pageType, showRangeDifferenceDisplay, showAutoAssignIdentifiers,
   userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob,
   onSaveDraft, onLoadDraft, onSaveAllDrafts, onLoadAllDrafts, draftMessage, applications = [],
-  onOpenExtraPhotoModal,
+  onOpenExtraPhotoModal, emissionStandards,
 }) => {
   const activeJob = useMemo(() => jobs.find(job => job.id === activeJobId), [jobs, activeJobId]);
 
@@ -1390,6 +1393,13 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
         const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, fileNamesForKtlJson, p_key);
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
 
+        // 전송 성공 → 현장값(측정값1·2)을 현장계수 수분석 큐로 seed (KTL 전송과 독립)
+        seedFieldQueueFromSend({
+          receiptNumber: activeJob.receiptNumber, selectedItem: activeJob.selectedItem,
+          ocrData: [ ...(activeJob.processedOcrData || []), ...(pageType === 'PhotoLog' && activeJob.fieldCountData ? activeJob.fieldCountData : []) ],
+          userName, siteName, tocStd: emissionStandards?.[normalizeReceiptBase(activeJob.receiptNumber)],
+        });
+
     } catch (error: any) {
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
     }
@@ -1467,6 +1477,13 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
             const p_key = pageType === 'PhotoLog' ? 'p2_check' : 'p3_check';
             const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, fileNamesForKtlJson, p_key);
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message } : j));
+
+            // 전송 성공 → 현장값 큐 seed
+            seedFieldQueueFromSend({
+              receiptNumber: job.receiptNumber, selectedItem: job.selectedItem,
+              ocrData: [ ...(job.processedOcrData || []), ...(pageType === 'PhotoLog' && job.fieldCountData ? job.fieldCountData : []) ],
+              userName, siteName, tocStd: emissionStandards?.[normalizeReceiptBase(job.receiptNumber)],
+            });
         } catch (error: any) {
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
         }

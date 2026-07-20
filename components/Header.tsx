@@ -8,6 +8,7 @@ interface HeaderProps {
   userName?: string;
   onLogout?: () => void;
   onKakaoTalkClick?: () => void;
+  onFieldAnalysisClick?: () => void;
 }
 
 const ACCENT_THEMES = [
@@ -113,7 +114,7 @@ const PwChangeButton: React.FC<{ userName: string; onLogout?: () => void }> = ({
   );
 };
 
-export const Header: React.FC<HeaderProps> = ({ apiMode, onApiModeChange, userName, onLogout, onKakaoTalkClick }) => {
+export const Header: React.FC<HeaderProps> = ({ apiMode, onApiModeChange, userName, onLogout, onKakaoTalkClick, onFieldAnalysisClick }) => {
   const [accent, setAccent] = useState<AccentId>(() =>
     (localStorage.getItem('parser-theme') as AccentId) || 'sky'
   );
@@ -208,6 +209,16 @@ export const Header: React.FC<HeaderProps> = ({ apiMode, onApiModeChange, userNa
 
         {/* 오른쪽: 카카오+이름+로그아웃 */}
         <div className="flex items-center gap-1 shrink-0">
+
+          {onFieldAnalysisClick && (
+            <button
+              onClick={onFieldAnalysisClick}
+              className="flex items-center px-1.5 py-1 rounded-md text-[11px] font-semibold border border-transparent text-emerald-400 hover:text-emerald-300 hover:bg-slate-800 transition-all"
+              title="현장계수 수분석"
+            >
+              🧪<span className="hidden sm:inline ml-1">현장계수</span>
+            </button>
+          )}
 
           {onKakaoTalkClick && (
             <button

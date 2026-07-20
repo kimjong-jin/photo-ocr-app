@@ -20,6 +20,8 @@ interface PhotoLogPageProps {
   applications?: import('./components/ApplicationOcrSection').Application[];
   /** 추가 사진자료 모달 오픈 (AnalysisPage로 pass-through) */
   onOpenExtraPhotoModal?: (receiptNumber: string, itemName: string) => void;
+  /** base 접수번호 → TOC 배출기준 (현장계수 수분석 큐 seed용) */
+  emissionStandards?: Record<string, string>;
 }
 
 const PhotoLogPage: React.FC<PhotoLogPageProps> = (props) => {
