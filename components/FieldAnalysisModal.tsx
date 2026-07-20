@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { fieldApplication, ITEM_TO_PARAM, verdictLabel } from '../services/fieldApplication';
 import { exportFieldExcel } from '../services/fieldExcel';
-import { normalizeReceiptBase } from '../services/fieldQueueSeed';
 
 /**
  * 현장계수 수분석 큐 — 주(週) 단위 한 장 표.
@@ -38,36 +37,6 @@ const STATUS_STYLE: Record<string, string> = {
 };
 const STATUS_CYCLE = ['대기', '분석중', '분석완료', '재검사'];
 
-// 카톡 축약 항목명 → 큐 항목명(매칭키)
-const ABBR_TO_ITEM: Record<string, string> = {
-  TOC: '총유기탄소', TN: '총질소', TP: '총인', SS: '부유물질', COD: '화학적산소요구량',
-};
-type KakaoEntry = { receipt_no: string; item: string; site_name: string; manager: string; labVals: number[] };
-
-// 카톡 메시지(수분석 결과) 파싱 → base 접수번호+항목별 실험실값
-function parseKakao(text: string): KakaoEntry[] {
-  const out: KakaoEntry[] = [];
-  let manager = '', site = '', receipt = '';
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    let m: RegExpMatchArray | null;
-    if ((m = line.match(/^담당자\s*[:：]\s*(.+)$/))) { manager = m[1].trim(); continue; }
-    if ((m = line.match(/^현장명\s*[:：]\s*(.+)$/))) { site = m[1].trim(); continue; }
-    if ((m = line.match(/^접수번호\s*[:：]\s*(.+)$/))) { receipt = normalizeReceiptBase(m[1].trim()); continue; }
-    // 항목 줄:  TOC: 1-1 [1.234], 1-2 [1.235], 2-1 [...], 2-2 [...]
-    if ((m = line.match(/^(TOC|TN|TP|SS|COD)\s*[:：]\s*(.+)$/i))) {
-      const abbr = m[1].toUpperCase();
-      const item = ABBR_TO_ITEM[abbr];
-      if (!item || !receipt) continue;
-      // [숫자] 를 등장 순서대로 (1-1,1-2,2-1,2-2)
-      const vals = [...m[2].matchAll(/\[\s*([\d.]+)\s*\]/g)].map(x => Number(x[1])).filter(v => Number.isFinite(v));
-      if (!vals.length) continue;
-      out.push({ receipt_no: receipt, item, site_name: site, manager, labVals: vals });
-    }
-  }
-  return out;
-}
-
 // 실험실값(lab_data JSON) + 현장값으로 적합/부적합 계산
 function cellVerdict(cell: Row): { text: string; ok: boolean | null } {
   const param = ITEM_TO_PARAM[cell.item];
@@ -87,9 +56,6 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
-  const [showPaste, setShowPaste] = useState(false);
-  const [pasteText, setPasteText] = useState('');
-  const [pasteMsg, setPasteMsg] = useState('');
   const weekKey = useMemo(() => weekKeyOf(monday), [monday]);
 
   const load = useCallback(async () => {
@@ -131,23 +97,6 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
     }
     load();
   };
-  const ingestKakao = async () => {
-    const entries = parseKakao(pasteText);
-    if (!entries.length) { setPasteMsg('파싱된 항목이 없습니다. (접수번호/항목 줄 확인)'); return; }
-    const payload = entries.map(e => ({
-      receipt_no: e.receipt_no, item: e.item, site_name: e.site_name, manager: e.manager,
-      lab_data: JSON.stringify(e.labVals), status: '분석중', week_key: weekKey,
-    }));
-    setPasteMsg('저장 중…');
-    try {
-      const r = await fetch(`/api/field-queue`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entries: payload }) });
-      const d = await r.json();
-      if (!d.ok) throw new Error(d.error || '저장 실패');
-      setPasteMsg(`✔ ${d.saved}건 저장 (제외 ${d.skipped})`);
-      setPasteText(''); setShowPaste(false); load();
-    } catch (e: any) { setPasteMsg('오류: ' + e.message); }
-  };
-
   const cleanupConfirmed = async () => {
     await fetch(`/api/field-queue`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ week_key: weekKey, confirmedOnly: true }) });
     load();
@@ -159,14 +108,13 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   return createPortal(
     <div className="fixed inset-0 z-[9998] bg-slate-950 flex flex-col" role="dialog" aria-modal="true">
-      {/* 헤더 */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-slate-800 border-b border-slate-700 shrink-0">
-        <h2 className="text-base font-bold text-slate-100">🧪 현장계수 수분석</h2>
+      {/* 헤더 (모바일: 아이콘만) */}
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-800 border-b border-slate-700 shrink-0">
+        <h2 className="text-sm sm:text-base font-bold text-slate-100 whitespace-nowrap">🧪 <span className="hidden sm:inline">현장계수 수분석</span></h2>
         <div className="flex-1" />
-        <button onClick={() => { setShowPaste(s => !s); setPasteMsg(''); }} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30">💬 카톡 붙여넣기</button>
-        <button onClick={() => exportFieldExcel(rows, weekKey)} disabled={!rows.length} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-green-600/25 text-green-300 hover:bg-green-600/35 disabled:opacity-40">⬇ 엑셀</button>
-        <button onClick={cleanupConfirmed} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600">확인건 정리</button>
-        <button onClick={onClose} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-600 text-white hover:bg-slate-500">✕ 닫기</button>
+        <button onClick={() => exportFieldExcel(rows, weekKey)} disabled={!rows.length} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-green-600/25 text-green-300 hover:bg-green-600/35 disabled:opacity-40" title="엑셀 다운로드">⬇<span className="hidden sm:inline ml-1">엑셀</span></button>
+        <button onClick={cleanupConfirmed} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600" title="확인건 정리">🧹<span className="hidden sm:inline ml-1">정리</span></button>
+        <button onClick={onClose} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-600 text-white hover:bg-slate-500" title="닫기">✕</button>
       </div>
 
       {/* 주간 네비 */}
@@ -178,22 +126,6 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
         </div>
         <button onClick={() => setMonday(d => { const x = new Date(d); x.setDate(x.getDate() + 7); return x; })} className="w-8 h-8 rounded-lg bg-slate-700 text-slate-200 text-lg">›</button>
       </div>
-
-      {/* 카톡 붙여넣기 패널 */}
-      {showPaste && (
-        <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 shrink-0 space-y-2">
-          <p className="text-[11px] text-slate-400">수분석 결과 카톡 메시지를 붙여넣으세요. (접수번호=base, 항목별 실험실값 파싱 → 이번 주 큐에 저장)</p>
-          <textarea
-            value={pasteText} onChange={e => setPasteText(e.target.value)}
-            placeholder={'담당자: 홍길동\n현장명: ○○처리장\n접수번호: 25-000000\n결과:\nTOC: 1-1 [1.234], 1-2 [1.235], 2-1 [1.240], 2-2 [1.238]\nTN: 1-1 [10.1], ...'}
-            className="w-full h-32 bg-slate-800 border border-slate-600 rounded-lg p-2 text-xs text-slate-100 font-mono placeholder-slate-600 focus:outline-none focus:border-yellow-500"
-          />
-          <div className="flex items-center gap-2">
-            <button onClick={ingestKakao} className="text-xs font-bold px-4 py-1.5 rounded-lg bg-yellow-500 text-slate-900 hover:bg-yellow-400">큐에 넣기</button>
-            <span className="text-[11px] text-slate-400">{pasteMsg}</span>
-          </div>
-        </div>
-      )}
 
       {/* 일괄 상태 */}
       <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/40 border-b border-slate-700 shrink-0 flex-wrap">
