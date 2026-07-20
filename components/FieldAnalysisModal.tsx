@@ -20,7 +20,7 @@ const ITEMS = [
 type Row = {
   receipt_no: string; item: string; site_name: string; manager: string;
   site_val1: string; site_val2: string; toc_std: string;
-  lab_data: string; verdict: string; week_key: string; status: string;
+  lab_data: string; detail: string; verdict: string; week_key: string; status: string;
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -164,6 +164,7 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
                       if (!cell) return <td key={it.short} className="px-2 py-2 text-center text-slate-600">–</td>;
                       return (
                         <td key={it.short} className="px-2 py-1.5 text-center">
+                          {cell.detail && <div className="text-[9px] font-mono text-slate-500 leading-none mb-0.5" title={cell.detail}>{cell.detail.startsWith(cell.receipt_no) ? cell.detail.slice(cell.receipt_no.length) : cell.detail}</div>}
                           <div className="font-mono font-bold text-slate-100 leading-tight">{cell.site_val1 || '·'}</div>
                           <div className="font-mono text-slate-400 leading-tight">{cell.site_val2 || '·'}</div>
                           {it.short === 'TOC' && cell.toc_std && <div className="mt-0.5 text-[9px] font-bold text-orange-300 bg-orange-500/15 rounded px-1 inline-block">기준 {cell.toc_std}</div>}

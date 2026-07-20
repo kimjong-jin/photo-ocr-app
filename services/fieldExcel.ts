@@ -10,8 +10,10 @@ import { fieldApplication, ITEM_TO_PARAM, verdictLabel } from './fieldApplicatio
 
 export interface FieldRow {
   receipt_no: string; item: string; site_name: string; manager: string;
-  site_val1: string; site_val2: string; toc_std: string; lab_data: string; status: string;
+  site_val1: string; site_val2: string; toc_std: string; lab_data: string; detail: string; status: string;
 }
+// 출력용 접수번호: 세부(detail, 전체 접수번호)가 있으면 그걸, 없으면 접수번호
+const fullReceipt = (r: FieldRow) => r.detail && r.detail.trim() ? r.detail.trim() : r.receipt_no;
 
 const ITEM_ORDER = ['총유기탄소', '총질소', '총인', '부유물질', '화학적산소요구량'];
 const ITEM_SHEET: Record<string, string> = { 총유기탄소: 'TOC', 총질소: 'T-N', 총인: 'T-P', 부유물질: 'SS', 화학적산소요구량: 'COD' };
@@ -44,7 +46,7 @@ export function exportFieldExcel(rows: FieldRow[], weekKey: string): void {
     const res = calc(r);
     const v = verdictLabel(res);
     allAoa.push([
-      i + 1, r.item, r.site_name, r.receipt_no, r.site_val1, r.site_val2,
+      i + 1, r.item, r.site_name, fullReceipt(r), r.site_val1, r.site_val2,
       res ? Number(res.labMean.toFixed(4)) : '', res?.fi ?? '',
       res ? `${res.useRate ? res.limit + '%' : res.limit + 'mg/L'}` : '', v.text,
     ]);
@@ -63,7 +65,7 @@ export function exportFieldExcel(rows: FieldRow[], weekKey: string): void {
     itemRows.forEach((r, i) => {
       const res = calc(r); const v = verdictLabel(res); const lv = labVals(r);
       aoa.push([
-        i + 1, r.site_name, r.receipt_no, r.site_val1, r.site_val2,
+        i + 1, r.site_name, fullReceipt(r), r.site_val1, r.site_val2,
         lv[0] ?? '', lv[1] ?? '', lv[2] ?? '', lv[3] ?? '',
         res ? Number(res.labMean.toFixed(4)) : '', res?.fi ?? '', res?.rate ?? '',
         res ? (res.useRate ? res.limit + '%' : res.limit + 'mg/L') : '', v.text,
@@ -78,7 +80,7 @@ export function exportFieldExcel(rows: FieldRow[], weekKey: string): void {
   sorted.forEach(r => {
     const lv = labVals(r);
     perItemNo[r.item] = (perItemNo[r.item] || 0) + 1;
-    claydox.push([perItemNo[r.item], '수질분야', r.item, r.site_name, r.receipt_no,
+    claydox.push([perItemNo[r.item], '수질분야', r.item, r.site_name, fullReceipt(r),
       lv[0] ?? '', lv[1] ?? '', lv[2] ?? '', lv[3] ?? '', '', r.manager]);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(claydox), 'to claydox');
