@@ -40,23 +40,62 @@ export function ocrToFields(ocrData: any[] | null | undefined, selectedItem: str
 }
 
 /**
- * P5(CsvGraphPage) aiAnalysisResult → 계산기 fields.
- * aiAnalysisResult 키는 소문자 라벨(z1..z7, s1..s7, m1..m3, 현장1, 현장2), 값 = {value}.
- * SS·TU·Cl 은 기본형/먹는물(z/s/m 직결) — 현장1→ci1, 현장2→ci2.
- * pH·DO 는 라벨 체계((A)_4_1 등)가 달라 추후 대응 → null(버튼 미표시). 잘못 매핑하면 적합/부적합이 틀어짐.
+ * P5(CsvGraphPage) aiAnalysisResult → 계산기 fields. aiAnalysisResult 키는 label.toLowerCase(), 값 = {value}.
+ *
+ * 매핑 근거 = 계산기 precision-ui.js 필드 정의(반복성/드리프트/직선성/온도보상)와 P5 라벨 구조 1:1 대조.
+ *  · SS·TU·Cl(기본형/먹는물): z/s/m 직결 + 현장1→ci1, 현장2→ci2
+ *  · pH: (A)=직선성(pH4·7·10 ×3) / (B)=반복성(7,4,7,4,7,4) / (C)=드리프트(7블록=제로, 4블록=스팬) / 4_T=온도보상
+ *  · DO: (A)_S=반복성 / Z_=제로드리프트 / S_=스팬드리프트 / 20_S·30_S=온도보상
+ *    ※ 드리프트 초기/최종: P5 관례상 "앞3=최종(2h)·뒤3=초기" (현장 확인). 판정은 |최종−초기|라 순서 무관하나 라벨은 정확히.
+ *    pH·DO 응답시간은 P5 그래프에 없어 별도 입력(VerdictButton) → 미입력 시 종합은 '미완성', 개별 시험은 표시됨.
  */
-const CSV_ZSM_SENSORS = new Set(['SS', 'TU', 'CL']);
 export function csvToFields(aiAnalysisResult: Record<string, any> | null | undefined, sensorType: string): Record<string, string> | null {
-  if (!CSV_ZSM_SENSORS.has(String(sensorType).toUpperCase())) return null;  // PH/DO 미지원
+  const type = String(sensorType).toUpperCase();
   const ai = aiAnalysisResult || {};
   const fields: Record<string, string> = {};
   const put = (key: string, label: string) => {
-    const v = ai[label]?.value;
+    const v = ai[label.toLowerCase()]?.value;
     if (v != null && String(v).trim() !== '') fields[key] = String(v);
   };
-  for (const k of ['z1','z2','z3','z4','z5','z6','z7','s1','s2','s3','s4','s5','s6','s7','m1','m2','m3']) put(k, k);
-  put('ci1', '현장1'); put('ci2', '현장2');
-  return fields;
+
+  if (type === 'SS' || type === 'TU' || type === 'CL') {
+    for (const k of ['z1','z2','z3','z4','z5','z6','z7','s1','s2','s3','s4','s5','s6','s7','m1','m2','m3']) put(k, k);
+    put('ci1', '현장1'); put('ci2', '현장2');
+    return fields;
+  }
+
+  if (type === 'PH') {
+    // 직선성 (A) — pH4·7·10 각 3회
+    put('phm4a', '(A)_4_1'); put('phm4b', '(A)_4_2'); put('phm4c', '(A)_4_3');
+    put('phm7a', '(A)_7_1'); put('phm7b', '(A)_7_2'); put('phm7c', '(A)_7_3');
+    put('phm10a', '(A)_10_1'); put('phm10b', '(A)_10_2'); put('phm10c', '(A)_10_3');
+    // 반복성 (B) — pH7 3회 + pH4 3회
+    put('ph7a', '(B)_7_1'); put('ph7b', '(B)_7_2'); put('ph7c', '(B)_7_3');
+    put('ph4a', '(B)_4_1'); put('ph4b', '(B)_4_2'); put('ph4c', '(B)_4_3');
+    // 드리프트 (C) — 7블록=제로(pH7), 4블록=스팬(pH4). 앞3=최종(2h), 뒤3=초기.
+    put('phzf1', '(C)_7_1'); put('phzf2', '(C)_7_2'); put('phzf3', '(C)_7_3');
+    put('phzi1', '(C)_7_4'); put('phzi2', '(C)_7_5'); put('phzi3', '(C)_7_6');
+    put('phsf1', '(C)_4_1'); put('phsf2', '(C)_4_2'); put('phsf3', '(C)_4_3');
+    put('phsi1', '(C)_4_4'); put('phsi2', '(C)_4_5'); put('phsi3', '(C)_4_6');
+    // 온도보상 — pH4 버퍼 10~30℃
+    put('pht10', '4_10'); put('pht15', '4_15'); put('pht20', '4_20'); put('pht25', '4_25'); put('pht30', '4_30');
+    return fields;
+  }
+
+  if (type === 'DO') {
+    put('dos1', '(A)_S1'); put('dos2', '(A)_S2'); put('dos3', '(A)_S3');   // 반복성(S 3회)
+    // 제로드리프트 Z_ / 스팬드리프트 S_ — 앞3=최종(2h), 뒤3=초기
+    put('dozf1', 'Z_1'); put('dozf2', 'Z_2'); put('dozf3', 'Z_3');
+    put('dozi1', 'Z_4'); put('dozi2', 'Z_5'); put('dozi3', 'Z_6');
+    put('dosf1', 'S_1'); put('dosf2', 'S_2'); put('dosf3', 'S_3');
+    put('dosi1', 'S_4'); put('dosi2', 'S_5'); put('dosi3', 'S_6');
+    // 온도보상 20℃·30℃ 각 3회
+    put('dot20a', '20_S_1'); put('dot20b', '20_S_2'); put('dot20c', '20_S_3');
+    put('dot30a', '30_S_1'); put('dot30b', '30_S_2'); put('dot30c', '30_S_3');
+    return fields;
+  }
+
+  return null;   // 그 외 미지원
 }
 
 /**

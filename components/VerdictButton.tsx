@@ -18,6 +18,8 @@ interface Props {
 const ITEM_CODE: Record<string, string> = {
   TOC: 'TOC', TN: 'TN', TP: 'TP', COD: 'COD', SS: 'SS', PH: 'PH', DO: 'DO', TU: 'TU', CL: 'CL',
 };
+// 측정범위(range)가 판정에 필요한 항목(기본형·먹는물). pH/DO 는 range 불필요.
+const NEEDS_RANGE = new Set(['TOC', 'TN', 'TP', 'COD', 'SS', 'TU', 'CL']);
 
 export const VerdictButton: React.FC<Props> = ({ ocrData, selectedItem, receiptNumber, userName, fieldsOverride }) => {
   const [busy, setBusy] = useState(false);
@@ -30,8 +32,8 @@ export const VerdictButton: React.FC<Props> = ({ ocrData, selectedItem, receiptN
     setBusy(true); setErr(''); setResult(null);
     try {
       let fields: Record<string, any> = fieldsOverride ? { ...fieldsOverride } : ocrToFields(ocrData, selectedItem);
-      // range(측정범위)는 OCR에 없음 → 계산기 calc_data에서 먼저 읽고, 없으면 입력받음
-      if (fields.range == null || fields.range === '') {
+      // range(측정범위)는 OCR에 없음 → 계산기 calc_data에서 먼저 읽고, 없으면 입력받음. pH/DO는 range 불필요.
+      if (NEEDS_RANGE.has(code) && (fields.range == null || fields.range === '')) {
         const calc = receiptNumber ? await loadCalcFields(receiptNumber, userName, code) : null;
         if (calc?.range) fields.range = calc.range;
         else {
@@ -39,6 +41,12 @@ export const VerdictButton: React.FC<Props> = ({ ocrData, selectedItem, receiptN
           if (r == null || r.trim() === '') { setBusy(false); return; }
           fields.range = r.trim();
         }
+      }
+      // pH/DO 응답시간은 P5 그래프에 없음 → 선택 입력(건너뛰면 종합은 '미완성', 개별 시험은 표시).
+      if ((code === 'PH' || code === 'DO') && (fields.resp == null || fields.resp === '')) {
+        const lim = code === 'PH' ? '30초' : '120초';
+        const rr = window.prompt(`응답시간(초)을 입력하세요 — ${code} 판정 기준 ≤${lim}. 모르면 비워두고 확인.`, '');
+        if (rr && rr.trim()) fields.resp = rr.trim();
       }
       const v = await callVerdict(code, fields);
       setResult(v);
