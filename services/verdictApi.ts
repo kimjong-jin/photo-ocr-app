@@ -349,16 +349,19 @@ export function drinkingWaterToFields(ocrData: any[] | null | undefined, which: 
   return fields;
 }
 
-/** P4 전송 성공 시 TU·Cl 측정값을 계산기 calc_data에 저장(우리 분석 우선). selectedItem = TU/CL·TU·Cl. */
+/** P4 전송 성공 시 TU·Cl 측정값 + 측정범위(range)를 계산기 calc_data에 저장. selectedItem = TU/CL·TU·Cl. */
 export async function saveDrinkingWaterToCalcData(p: {
   receiptNo: string; userName: string; siteName?: string; selectedItem: string; ocrData: any[] | null | undefined;
+  rangeText?: string;   // P1 측정범위확인 — 전송 시 range로 저장(먹는물 드리프트 계산에 필수)
 }): Promise<void> {
   const sel = String(p.selectedItem || '').toUpperCase().replace(/\s/g, '');
   const sides: Array<'TU' | 'CL'> = sel === 'TU/CL' ? ['TU', 'CL'] : sel === 'TU' ? ['TU'] : sel === 'CL' ? ['CL'] : [];
+  const range = parseRangeValue(p.rangeText);   // 측정범위 최댓값
   // MULTI(TU/CL)는 세부 한 개에 두 항목이 못 들어가니 base로 code매칭(별도 탭). 단일은 세부 슬롯 그대로.
   const rcpt = sides.length > 1 ? splitReceipt(p.receiptNo).base : p.receiptNo;
   for (const which of sides) {
     const fields = drinkingWaterToFields(p.ocrData, which);
+    if (range) fields.range = range;   // 측정범위 저장 → 다음 계산 때 물어보지 않고 사용
     if (!Object.keys(fields).length) continue;
     try { await saveItemToCalcData({ receiptNo: rcpt, userName: p.userName, siteName: p.siteName || '', code: which, fields }); } catch { /* best-effort */ }
   }

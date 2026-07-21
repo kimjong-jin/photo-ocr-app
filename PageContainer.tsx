@@ -198,6 +198,21 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     return map;
   }, [structuralCheckJobs]);
 
+  // P1 측정범위확인 → 접수번호별 측정범위(range) 맵. 전송 시 calc_data range 저장 + 계산하기에 공급.
+  // 세부(-N) 붙은 전체 접수번호 + base(-01) 둘 다 키로 넣어 어느 쪽으로 조회해도 매칭.
+  const measurementRanges = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const j of structuralCheckJobs) {
+      const rng = (j as any)?.checklistData?.['측정범위확인']?.notes?.trim();
+      const rc = normalizeReceiptBase((j as any)?.receiptNumber || '');
+      if (!rng || !rc) continue;
+      map[rc] = rng;
+      const base = rc.split('-').slice(0, 3).join('-');
+      if (!map[base]) map[base] = rng;
+    }
+    return map;
+  }, [structuralCheckJobs]);
+
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoadingApplications, setIsLoadingApplications] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
@@ -226,6 +241,27 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   }, [userName]);
 
   useEffect(() => { if (!userName) getAllLocations().then(setLocationList); }, []);
+
+  const resolveCoords = async (addr: string): Promise<{ lat: number; lng: number }> => {
+    let lat = coords?.lat ?? 0;
+    let lng = coords?.lng ?? 0;
+    if ((!lat || !lng) && addr.trim()) {
+      try {
+        const results = await searchAddressByKeyword(addr.trim());
+        if (results && results.length > 0) {
+          const parsedLat = parseFloat(results[0].y);
+          const parsedLng = parseFloat(results[0].x);
+          if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
+            lat = parsedLat;
+            lng = parsedLng;
+          }
+        }
+      } catch (err) {
+        console.warn('[클라이언트 지오코딩 실패]', err);
+      }
+    }
+    return { lat, lng };
+  };
 
   // 지도 마커용: 전체 사용자 위치(참고용) — 본인 목록(locationList) 변경 시마다 갱신
   useEffect(() => { getAllLocationsAllUsers().then(setAllLocations); }, [locationList]);
@@ -2210,6 +2246,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
             applications={applications}
             onOpenExtraPhotoModal={handleOpenExtraPhotoModal}
             locationList={locationList}
+            measurementRanges={measurementRanges}
           />
         );
       case 'structuralCheck':
@@ -2955,7 +2992,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
                 {/* 접수번호 + 세부 + 주소저장 한 줄 */}
                 <div className="space-y-1">
-                  <p className="text-[10px] text-slate-500">접수번호별 위치 저장 <span className="text-slate-600">· 세부 비우면 전체 적용</span></p>
+                  <p className="text-[10px] text-slate-500">접수번호별 위치 저장 <span className="text-slate-600">· 세부 비우면 전체 적용 (먹는물 제외)</span></p>
                   <div className="flex gap-1.5 items-center">
                     {/* 접수번호 (세부포함 입력 가능: 26-031078-01-1) */}
                     <input
@@ -2993,7 +3030,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                             const t = label.trim();
                             setIsLocSaving(true);
                             try {
-                              const lat = coords?.lat ?? 0, lng = coords?.lng ?? 0, addr = currentGpsAddress.trim();
+                              const addr = currentGpsAddress.trim();
+                              const resolved = await resolveCoords(addr);
+                              const lat = resolved.lat, lng = resolved.lng;
                               if (!t) {
                                 const isSusil = window.confirm(`배수지·정수장 명칭이 없습니다.\n\n이 위치는 "수질" 인가요?\n[확인] 수질 → 세부 대신 접수번호 기본 ${base3} 하나로 저장\n[취소] 먹는물 → 배수지 명칭을 입력하세요`);
                                 if (!isSusil) { setIsLocSaving(false); return; }
@@ -3043,8 +3082,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                         }
                         setIsLocSaving(true);
                         try {
-                          const lat = coords?.lat ?? 0;
-                          const lng = coords?.lng ?? 0;
+                          const resolved = await resolveCoords(currentGpsAddress);
+                          const lat = resolved.lat;
+                          const lng = resolved.lng;
                           // 현장명: jobs에서 접수번호 base로 매칭
                         const baseId = id_base.split('-').slice(0, 3).join('-');
                           const matchedSite = [
@@ -3158,7 +3198,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                           const matched = [...structuralCheckJobs, ...photoLogJobs, ...fieldCountJobs, ...(drinkingWaterJobs as any[])].find(j => j.receiptNumber?.startsWith(base3))?.siteLocation || siteName || '';
                           setIsLocSaving(true);
                           try {
-                            const lat = coords?.lat ?? 0, lng = coords?.lng ?? 0;
+                            const resolved = await resolveCoords(addr);
+                            const lat = resolved.lat, lng = resolved.lng;
                             for (const r of rowsToSave) {
                               await saveLocation({ id: r.id, address: addr, lat, lng, savedAt: Date.now(), siteName: `${matched}(${r.label.trim()})`, category: '먹는물' });
                             }

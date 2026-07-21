@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
 import { VerdictButton } from './components/VerdictButton';
-import { drinkingWaterToFields, saveDrinkingWaterToCalcData } from './services/verdictApi';
+import { drinkingWaterToFields, saveDrinkingWaterToCalcData, parseRangeValue } from './services/verdictApi';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview, getFileExtensionFromMime } from './services/claydoxApiService';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
@@ -116,6 +116,7 @@ interface DrinkingWaterPageProps {
   /** 추가 사진자료 모달 오픈 (기존 P4 로직과 접점 없음) */
   onOpenExtraPhotoModal?: (receiptNumber: string, itemName: string) => void;
   locationList?: { id: string; siteName?: string }[]; // 위치 도우미 목록 — 현장_상세 자동채움용
+  measurementRanges?: Record<string, string>; // P1 측정범위확인(접수번호별) — 전송 시 calc_data range 저장 + 계산하기 공급
 }
 
 const TrashIcon: React.FC = () => (
@@ -137,7 +138,15 @@ const TableIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 
-const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob, onSaveDraft, onLoadDraft, onSaveAllDrafts, onLoadAllDrafts, draftMessage, isSavingDraft, isLoadingDraft, onOpenExtraPhotoModal, locationList = [] }) => {
+const DrinkingWaterPage: React.FC<DrinkingWaterPageProps> = ({ userName, jobs, setJobs, activeJobId, setActiveJobId, siteName, siteLocation, onDeleteJob, onSaveDraft, onLoadDraft, onSaveAllDrafts, onLoadAllDrafts, draftMessage, isSavingDraft, isLoadingDraft, onOpenExtraPhotoModal, locationList = [], measurementRanges = {} }) => {
+// P1 측정범위확인(접수번호별) → 이 접수번호의 측정범위 텍스트. 세부 접수·base 둘 다 조회.
+const rangeTextFor = useCallback((receipt?: string): string => {
+  const rc = String(receipt || '').trim();
+  if (!rc) return '';
+  const base = rc.split('-').slice(0, 3).join('-');
+  return measurementRanges[rc] || measurementRanges[base] || '';
+}, [measurementRanges]);
+
 const [isLoading, setIsLoading] = useState<boolean>(false);
 const [processingError, setProcessingError] = useState<string | null>(null);
 const [isKtlPreflightModalOpen, setIsKtlPreflightModalOpen] = useState<boolean>(false);
@@ -520,6 +529,7 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
         saveDrinkingWaterToCalcData({
           receiptNo: activeJob.receiptNumber, userName, siteName,
           selectedItem: activeJob.selectedItem, ocrData: activeJob.processedOcrData,
+          rangeText: rangeTextFor(activeJob.receiptNumber),   // P1 측정범위 → calc_data range 저장
         }).catch(() => {});
     } catch (error: any) {
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
@@ -608,10 +618,11 @@ const handleBatchSendToKtl = async () => {
 
             const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, actualKtlFileNames, 'p4_check');
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message } : j));
-            // 전송 성공 → TU·Cl 계산기 calc_data 저장
+            // 전송 성공 → TU·Cl 측정값 + 측정범위 calc_data 저장
             saveDrinkingWaterToCalcData({
               receiptNo: job.receiptNumber, userName, siteName,
               selectedItem: job.selectedItem, ocrData: job.processedOcrData,
+              rangeText: rangeTextFor(job.receiptNumber),
             }).catch(() => {});
         } catch (error: any) {
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
@@ -936,7 +947,13 @@ return (
           {activeJob?.processedOcrData?.length ? (() => {
             const sel = String(activeJob.selectedItem || '').toUpperCase().replace(/\s/g, '');
             const sides: Array<'TU' | 'CL'> = sel === 'TU/CL' ? ['TU', 'CL'] : sel === 'TU' ? ['TU'] : sel === 'CL' ? ['CL'] : [];
-            const btns = sides.map(w => ({ w, f: drinkingWaterToFields(activeJob.processedOcrData, w) })).filter(x => Object.keys(x.f).length);
+            // P1 측정범위 → range (먹는물 드리프트 계산에 필수). 없으면 계산기가 물어봄.
+            const rangeMax = parseRangeValue(rangeTextFor(activeJob.receiptNumber));
+            const btns = sides.map(w => {
+              const f = drinkingWaterToFields(activeJob.processedOcrData, w);
+              if (rangeMax && !f.range) f.range = rangeMax;
+              return { w, f };
+            }).filter(x => Object.keys(x.f).length);
             if (!btns.length) return null;
             return (
               <span className="flex items-center gap-2 flex-wrap">
