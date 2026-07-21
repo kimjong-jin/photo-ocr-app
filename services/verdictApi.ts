@@ -313,13 +313,24 @@ function dwIdToKey(id: string): string | null {
   if (s === 'M') return 'm1';
   return null;
 }
-function parseRespSeconds(v: any): string | null {
+// P4 응답 입력값 = [초, 분, mm길이]. 먹는물 응답시간(초) = mm × 6 (엑셀 Version11 Sheet4: B35=B17*6).
+// mm(길이) 우선 → resp(계산기가 ×6). mm 없으면 초(직접) 또는 분(×60) → resp_sec.
+function parseResponseFields(v: any): { resp?: string; resp_sec?: string } | null {
   if (v == null || String(v).trim() === '') return null;
-  try { const a = JSON.parse(v); if (Array.isArray(a) && a.length) { const s = Number(a[0]); return Number.isFinite(s) ? String(s) : null; } } catch { /* not json */ }
+  let a: any = null;
+  try { a = JSON.parse(v); } catch { a = null; }
+  if (Array.isArray(a)) {
+    const sec = Number(a[0]), min = Number(a[1]), mm = Number(a[2]);
+    if (Number.isFinite(mm) && mm > 0) return { resp: String(mm) };              // mm → ×6
+    if (Number.isFinite(sec) && sec > 0) return { resp_sec: String(sec) };        // 초 직접
+    if (Number.isFinite(min) && min > 0) return { resp_sec: String(min * 60) };   // 분 → 초
+    return null;
+  }
+  // JSON 아니면 단일 숫자를 mm로 간주(먹는물 응답은 mm 측정)
   const n = String(v).match(/-?\d+(?:\.\d+)?/)?.[0];
-  return n != null ? n : null;
+  return n != null && Number(n) > 0 ? { resp: n } : null;
 }
-/** P4 먹는물 ocrData → 계산기 fields. which='TU'는 value, 'CL'은 valueTP. 응답→resp_sec(초). */
+/** P4 먹는물 ocrData → 계산기 fields. which='TU'는 value, 'CL'은 valueTP. 응답=mm길이→resp(×6). */
 export function drinkingWaterToFields(ocrData: any[] | null | undefined, which: 'TU' | 'CL'): Record<string, string> {
   const fields: Record<string, string> = {};
   for (const e of ocrData || []) {
@@ -327,8 +338,9 @@ export function drinkingWaterToFields(ocrData: any[] | null | undefined, which: 
     if (!id || DW_DIVIDERS.has(id)) continue;
     const val = which === 'TU' ? e.value : e.valueTP;
     if (String(id).startsWith('응답')) {
-      const secs = parseRespSeconds(val);
-      if (secs != null) fields.resp_sec = secs;
+      const r = parseResponseFields(val);
+      if (r?.resp != null) fields.resp = r.resp;
+      if (r?.resp_sec != null) fields.resp_sec = r.resp_sec;
       continue;
     }
     const key = dwIdToKey(id);
