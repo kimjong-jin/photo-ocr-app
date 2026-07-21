@@ -1,6 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ocrToFields, callVerdict, loadCalcFields, type VerdictResult } from '../services/verdictApi';
+
+// 정도검사 체크 라벨 → 짧은 약어(반/제드/스드/직/응/온/포/현장)
+const checkAbbr = (label: string): string => {
+  const s = String(label || '');
+  if (s.includes('현장적용')) return '현장';
+  if (s.includes('반복성')) return '반';
+  if (s.includes('제로드리프트')) return '제드';
+  if (s.includes('스팬드리프트')) return '스드';
+  if (s.includes('드리프트')) return '드';
+  if (s.includes('직선성')) return '직';
+  if (s.includes('응답')) return '응';
+  if (s.includes('온도')) return '온';
+  if (s.includes('포도당')) return '포';
+  return s.slice(0, 2);
+};
 
 /**
  * 계산하기 버튼 — P2/P5 OCR 데이터로 정도검사 적합/부적합을 계산기 API(aicalc.work/api/verdict)에서 받아 표시.
@@ -25,8 +40,44 @@ export const VerdictButton: React.FC<Props> = ({ ocrData, selectedItem, receiptN
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<VerdictResult | null>(null);
   const [err, setErr] = useState('');
+  const [auto, setAuto] = useState<VerdictResult | null>(null);   // 자동 계산(계산하기 안 눌러도) 컴팩트 표시용
 
   const code = ITEM_CODE[String(selectedItem || '').toUpperCase()] || String(selectedItem || '').toUpperCase();
+
+  // 자동 판정용 fields(프롬프트 없이). ocrData/fieldsOverride 바뀌면 재계산.
+  const baseFields = useMemo(
+    () => (fieldsOverride ? { ...fieldsOverride } : ocrToFields(ocrData, selectedItem)),
+    [fieldsOverride, ocrData, selectedItem],
+  );
+  const fieldsKey = useMemo(() => JSON.stringify(baseFields), [baseFields]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setAuto(null);
+      const fields: Record<string, any> = { ...baseFields };
+      if (Object.keys(fields).length < 3) return;                 // 데이터 부족 시 자동표시 안 함
+      if (NEEDS_RANGE.has(code) && (fields.range == null || fields.range === '')) {
+        const calc = receiptNumber ? await loadCalcFields(receiptNumber, userName, code) : null;
+        if (calc?.range) fields.range = calc.range; else return;   // 범위 없으면 프롬프트 없이 skip(계산하기로 유도)
+      }
+      try { const v = await callVerdict(code, fields); if (!cancelled) setAuto(v); } catch { /* 조용히 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [fieldsKey, code, receiptNumber, userName]);
+
+  // 컴팩트 칩: 시험별 적/부(약어). 반복성 저/고 등 같은 약어는 부(false) 우선으로 합침.
+  const chips = useMemo(() => {
+    if (!auto) return [] as { abbr: string; ok: boolean }[];
+    const m = new Map<string, boolean>();
+    for (const c of auto.checks || []) {
+      if (c.pass == null) continue;
+      const a = checkAbbr(c.label);
+      if (c.pass === false) m.set(a, false);
+      else if (!m.has(a)) m.set(a, true);
+    }
+    return [...m.entries()].map(([abbr, ok]) => ({ abbr, ok }));
+  }, [auto]);
 
   const run = async () => {
     setBusy(true); setErr(''); setResult(null);
@@ -58,13 +109,25 @@ export const VerdictButton: React.FC<Props> = ({ ocrData, selectedItem, receiptN
   const passColor = (p: string) => p === 'ok' ? 'text-green-400' : p === 'bad' ? 'text-red-400' : 'text-amber-400';
 
   return (
-    <>
+    <span className="inline-flex flex-col items-end gap-0.5">
       <button
         onClick={run}
         disabled={busy || (!ocrData?.length && !fieldsOverride)}
         className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600/25 text-indigo-300 hover:bg-indigo-600/40 disabled:opacity-40"
         title="정도검사 적합/부적합 계산 (계산기)"
       >{busy ? '계산 중…' : '🧮 계산하기'}</button>
+
+      {/* 계산하기 안 눌러도 자동으로 작게 표시 — 시험별 적/부(약어) + 종합 */}
+      {auto && chips.length > 0 && (
+        <span className="flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5 text-[9px] font-bold leading-none max-w-[180px]">
+          <span className={auto.pass === 'ok' ? 'text-green-400' : auto.pass === 'bad' ? 'text-red-400' : 'text-amber-400'}>
+            {auto.pass === 'ok' ? '적합' : auto.pass === 'bad' ? '부적합' : '미완'}
+          </span>
+          {chips.map(c => (
+            <span key={c.abbr} className={c.ok ? 'text-green-400/80' : 'text-red-400'}>{c.abbr}({c.ok ? '적' : '부'})</span>
+          ))}
+        </span>
+      )}
 
       {(result || err) && createPortal(
         <div className="fixed inset-0 z-[9997] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
@@ -106,6 +169,6 @@ export const VerdictButton: React.FC<Props> = ({ ocrData, selectedItem, receiptN
         </div>,
         document.body
       )}
-    </>
+    </span>
   );
 };
