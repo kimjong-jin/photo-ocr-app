@@ -17,7 +17,7 @@ import {
   generateKtlJsonForPreview,
 } from '../../services/claydoxApiService';
 import JSZip from 'jszip';
-import { seedFieldQueueFromSend, normalizeReceiptBase } from '../../services/fieldQueueSeed';
+import { seedFieldQueueFromSend, saveCalcDataFromSend, normalizeReceiptBase } from '../../services/fieldQueueSeed';
 import { VerdictButton } from '../VerdictButton';
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
@@ -1400,6 +1400,14 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
           ocrData: [ ...(activeJob.processedOcrData || []), ...(pageType === 'PhotoLog' && activeJob.fieldCountData ? activeJob.fieldCountData : []) ],
           userName, siteName, tocStd: emissionStandards?.[normalizeReceiptBase(activeJob.receiptNumber)],
         });
+        // P2(정도검사)만 → 우리 측정값을 계산기 calc_data에 자동 저장(우리 분석 우선). P3(현장 only)는 제외.
+        if (pageType === 'PhotoLog') {
+          saveCalcDataFromSend({
+            receiptNumber: activeJob.receiptNumber, selectedItem: activeJob.selectedItem,
+            ocrData: activeJob.processedOcrData, userName, siteName,
+            tocStd: emissionStandards?.[normalizeReceiptBase(activeJob.receiptNumber)],
+          });
+        }
 
     } catch (error: any) {
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
@@ -1485,6 +1493,14 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
               ocrData: [ ...(job.processedOcrData || []), ...(pageType === 'PhotoLog' && job.fieldCountData ? job.fieldCountData : []) ],
               userName, siteName, tocStd: emissionStandards?.[normalizeReceiptBase(job.receiptNumber)],
             });
+            // P2만 → 우리 측정값 계산기 calc_data 자동 저장(우리 분석 우선)
+            if (pageType === 'PhotoLog') {
+              saveCalcDataFromSend({
+                receiptNumber: job.receiptNumber, selectedItem: job.selectedItem,
+                ocrData: job.processedOcrData, userName, siteName,
+                tocStd: emissionStandards?.[normalizeReceiptBase(job.receiptNumber)],
+              });
+            }
         } catch (error: any) {
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
         }

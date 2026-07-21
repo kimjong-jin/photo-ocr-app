@@ -3,8 +3,8 @@
 // 고시 개정 시 계산기 엑셀만 갱신 → 이 호출 결과 자동 반영. parser는 손 안 댐.
 
 const VERDICT_API = 'https://aicalc.work/api/verdict';
-// 계산기 데이터(접수번호별 fields, range 포함) 조회/저장은 parser의 /api/calc-proxy 경유(있으면). 없으면 aicalc 직접.
-const CALC_API = 'https://aicalc.work/api/calcData';
+// 계산기 calc_data(접수번호별 fields/tabs) 조회·저장은 parser의 /api/calc-data 프록시 경유(→ Mac Studio :3333 /api/calc).
+const CALC_API = '/api/calc-data';
 
 export interface VerdictResult {
   ok: boolean;
@@ -42,10 +42,12 @@ export function ocrToFields(ocrData: any[] | null | undefined, selectedItem: str
 /**
  * P5(CsvGraphPage) aiAnalysisResult → 계산기 fields.
  * aiAnalysisResult 키는 소문자 라벨(z1..z7, s1..s7, m1..m3, 현장1, 현장2), 값 = {value}.
- * SS 는 기본형(z/s/m 직결) — 현장1→ci1, 현장2→ci2. (pH/DO 는 라벨 체계가 달라 추후 대응)
+ * SS·TU·Cl 은 기본형/먹는물(z/s/m 직결) — 현장1→ci1, 현장2→ci2.
+ * pH·DO 는 라벨 체계((A)_4_1 등)가 달라 추후 대응 → null(버튼 미표시). 잘못 매핑하면 적합/부적합이 틀어짐.
  */
+const CSV_ZSM_SENSORS = new Set(['SS', 'TU', 'CL']);
 export function csvToFields(aiAnalysisResult: Record<string, any> | null | undefined, sensorType: string): Record<string, string> | null {
-  if (String(sensorType).toUpperCase() !== 'SS') return null;   // SS 외(PH/DO/TU/CL)는 미지원 → null
+  if (!CSV_ZSM_SENSORS.has(String(sensorType).toUpperCase())) return null;  // PH/DO 미지원
   const ai = aiAnalysisResult || {};
   const fields: Record<string, string> = {};
   const put = (key: string, label: string) => {
@@ -55,6 +57,55 @@ export function csvToFields(aiAnalysisResult: Record<string, any> | null | undef
   for (const k of ['z1','z2','z3','z4','z5','z6','z7','s1','s2','s3','s4','s5','s6','s7','m1','m2','m3']) put(k, k);
   put('ci1', '현장1'); put('ci2', '현장2');
   return fields;
+}
+
+/**
+ * 전송(P2/P5) 시 우리 측정값을 계산기 calc_data(:3333, 접수번호)에 자동 저장.
+ * 같은 접수번호의 해당 항목(code) 탭에 우리 값을 덮어씀(우리 분석 우선). 다른 항목 탭·range 등은 보존.
+ * @returns 저장 성공 여부
+ */
+export async function saveItemToCalcData(p: {
+  receiptNo: string; userName: string; siteName?: string;
+  code: string; fields: Record<string, any>;
+}): Promise<boolean> {
+  if (!p.receiptNo || !p.userName) return false;
+  const code = String(p.code).toUpperCase();
+
+  // 1) 기존 calc_data 로드(있으면 병합 대상)
+  let data: any = { tabs: [], activeId: '', fields: {}, maxSubNo: 0 };
+  try {
+    const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(p.receiptNo)}`);
+    if (res.ok) { const d = await res.json(); if (d?.data?.tabs) data = d.data; }
+  } catch { /* 없으면 신규 */ }
+  if (!Array.isArray(data.tabs)) data.tabs = [];
+  if (!data.fields || typeof data.fields !== 'object') data.fields = {};
+
+  // 2) 같은 code 탭 찾기 / 없으면 생성
+  let tab = data.tabs.find((t: any) => String(t.code).toUpperCase() === code);
+  if (!tab) {
+    const subNo = (Number(data.maxSubNo) || data.tabs.length) + 1;
+    const id = `tab_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+    tab = { id, code, label: `${code}-${subNo}`, pass: '', subNo };
+    data.tabs.push(tab); data.maxSubNo = subNo; data.fields[id] = {};
+    if (!data.activeId) data.activeId = id;
+  }
+
+  // 3) 우리 값으로 덮기(빈 값은 안 덮음 → 기존 range/fdis 보존)
+  const merged: Record<string, any> = { ...(data.fields[tab.id] || {}) };
+  for (const [k, v] of Object.entries(p.fields)) if (v != null && String(v).trim() !== '') merged[k] = String(v);
+  data.fields[tab.id] = merged;
+
+  // 4) 판정도 계산해 탭에 저장(단일 출처 API). 실패해도 데이터 저장은 진행.
+  try { const vd = await callVerdict(code, merged); tab.pass = vd.pass; } catch { /* 판정은 나중에 계산기에서 */ }
+
+  // 5) 업서트 저장(덮어쓰기)
+  try {
+    const res = await fetch(CALC_API, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ receiptNo: p.receiptNo, userName: p.userName, siteName: p.siteName || '', data, ttlDays: 10 }),
+    });
+    return res.ok;
+  } catch { return false; }
 }
 
 // 판정 API 호출 (단건)
@@ -111,14 +162,19 @@ export async function computeFieldVerdicts(rows: FieldQueueRowLite[]): Promise<M
 }
 
 // 계산기 calc_data(접수번호)에서 기존 fields 조회 — range 등 이미 입력된 값 재사용용.
-export async function loadCalcFields(receiptNo: string, userName: string): Promise<Record<string, any> | null> {
+export async function loadCalcFields(receiptNo: string, userName: string, code?: string): Promise<Record<string, any> | null> {
   try {
-    const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(receiptNo)}&userName=${encodeURIComponent(userName)}`);
+    const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(receiptNo)}`);
     if (!res.ok) return null;
     const d = await res.json();
-    // calc_data.data = { tabs, activeId, fields:{tabId:{...}} } — 첫 탭 fields 반환(단순화)
+    // calc_data.data = { tabs, activeId, fields:{tabId:{...}} }
     const data = d?.data || d;
-    if (data?.fields && data?.tabs?.[0]) return data.fields[data.tabs[0].id] || null;
-    return null;
+    if (!data?.tabs?.length || !data?.fields) return null;
+    // code 지정 시 해당 항목 탭, 없으면 activeId/첫 탭
+    const want = code ? String(code).toUpperCase() : null;
+    const tab = (want && data.tabs.find((t: any) => String(t.code).toUpperCase() === want))
+      || data.tabs.find((t: any) => t.id === data.activeId)
+      || data.tabs[0];
+    return tab ? (data.fields[tab.id] || null) : null;
   } catch { return null; }
 }

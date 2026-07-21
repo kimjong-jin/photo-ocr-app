@@ -63,10 +63,18 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
       if (!d.ok) throw new Error(d.error || '조회 실패');
       const rws: Row[] = d.rows || [];
       setRows(rws);
-      // 계산기 API로 현장적용 판정 배치 계산
-      const withLab = rws.filter(x => x.lab_data && x.lab_data.trim());
-      if (withLab.length) computeFieldVerdicts(withLab as any).then(setVerdicts).catch(() => {});
-      else setVerdicts(new Map());
+      // 판정: 서버가 수신 즉시 계산해 둔 verdict(우선) → 없는 행만 계산기 API로 보완.
+      const map = new Map<string, any>();
+      const need: Row[] = [];
+      for (const r of rws) {
+        const key = `${r.receipt_no}|${r.item}`;
+        if (r.verdict && r.verdict.trim()) { try { map.set(key, JSON.parse(r.verdict)); continue; } catch {} }
+        if (r.lab_data && r.lab_data.trim() && (r.site_val1 || r.site_val2)) need.push(r);
+      }
+      setVerdicts(map);
+      if (need.length) computeFieldVerdicts(need as any).then(m => {
+        setVerdicts(prev => { const merged = new Map(prev); m.forEach((v, k) => merged.set(k, v)); return merged; });
+      }).catch(() => {});
     } catch (e: any) { setErr(e.message); setRows([]); setVerdicts(new Map()); }
     finally { setLoading(false); }
   }, [weekKey]);

@@ -32,7 +32,7 @@ export const VerdictButton: React.FC<Props> = ({ ocrData, selectedItem, receiptN
       let fields: Record<string, any> = fieldsOverride ? { ...fieldsOverride } : ocrToFields(ocrData, selectedItem);
       // range(측정범위)는 OCR에 없음 → 계산기 calc_data에서 먼저 읽고, 없으면 입력받음
       if (fields.range == null || fields.range === '') {
-        const calc = receiptNumber ? await loadCalcFields(receiptNumber, userName) : null;
+        const calc = receiptNumber ? await loadCalcFields(receiptNumber, userName, code) : null;
         if (calc?.range) fields.range = calc.range;
         else {
           const r = window.prompt(`측정범위(range)를 입력하세요 — ${code} 정도검사 계산에 필요합니다.`, '');

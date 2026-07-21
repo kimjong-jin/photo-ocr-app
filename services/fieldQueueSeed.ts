@@ -6,6 +6,7 @@
  * 매칭키 = base 접수번호 + 항목명. -N(항목순번)은 안 씀.
  */
 import type { ExtractedEntry } from '../shared/types';
+import { ocrToFields, saveItemToCalcData } from './verdictApi';
 
 // selectedItem 코드 → 큐 항목명(들). PH/DO 등은 대상 아님(매핑에 없으면 skip).
 const CODE_TO_ITEMS: Record<string, string[]> = {
@@ -87,5 +88,34 @@ export async function seedFieldQueueFromSend(args: SeedArgs): Promise<void> {
     });
   } catch (e) {
     console.warn('[field-seed] 큐 seed 실패(전송엔 영향 없음):', e);
+  }
+}
+
+// selectedItem 코드 → 계산기 저장 대상 code(들). MULTI(TN/TP)는 두 탭으로 저장. PH/DO 등은 대상 아님.
+const CODE_TO_CALC: Record<string, string[]> = {
+  TOC: ['TOC'], TN: ['TN'], TP: ['TP'], COD: ['COD'], SS: ['SS'], 'TN/TP': ['TN', 'TP'],
+};
+
+/**
+ * P2 전송 성공 직후 호출 — 우리 측정값(전체 OCR)을 계산기 calc_data(:3333, 접수번호)에 자동 저장.
+ * "우리 분석 우선": 해당 항목 탭을 우리 값으로 덮음. 다른 항목·range 등 기존값은 보존.
+ * P3(현장 only)·PH/DO·MULTI 외 항목은 대상 아님. 전송엔 영향 없도록 조용히 삼킴.
+ */
+export async function saveCalcDataFromSend(args: SeedArgs): Promise<void> {
+  try {
+    const codes = CODE_TO_CALC[args.selectedItem];
+    if (!codes) return;
+    const receipt_no = normalizeReceiptBase(args.receiptNumber);
+    if (!receipt_no) return;
+    for (const code of codes) {
+      const fields: Record<string, any> = ocrToFields(args.ocrData as any, code);
+      if (code === 'TOC' && args.tocStd) fields.fdis = args.tocStd;   // 배출기준 → 현장적용계수 판정용
+      if (!Object.keys(fields).length) continue;                      // 매핑되는 측정값 없으면 skip
+      await saveItemToCalcData({
+        receiptNo: receipt_no, userName: args.userName || '', siteName: args.siteName || '', code, fields,
+      });
+    }
+  } catch (e) {
+    console.warn('[calc-save] 전송 calc_data 저장 실패(전송엔 영향 없음):', e);
   }
 }
