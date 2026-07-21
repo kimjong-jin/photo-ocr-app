@@ -1585,11 +1585,6 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
                     >
                         📎 추가자료
                     </button>
-                    {pageType === 'PhotoLog' && (
-                    <span className="ml-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <VerdictButton ocrData={job.processedOcrData} selectedItem={job.selectedItem} receiptNumber={job.receiptNumber} userName={userName} />
-                    </span>
-                    )}
                     <button
                         onClick={(e) => { e.stopPropagation(); onDeleteJob(job.id); }}
                         className="ml-1 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-red-600 transition-colors flex-shrink-0"
