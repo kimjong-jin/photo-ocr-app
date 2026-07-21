@@ -791,6 +791,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       }).catch(() => {
         if (matched.lat && matched.lng) setCoords({ lat: matched.lat, lng: matched.lng });
       });
+    } else {
+      setCurrentGpsAddress('');
+      setCoords(null);
     }
   }, [receiptNumber, locationList, newItemKey]);
 
