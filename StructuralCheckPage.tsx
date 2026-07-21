@@ -421,9 +421,18 @@ const StructuralCheckPage: React.FC<StructuralCheckPageProps> = ({
 }) => {
   // 먹는물 판정: 위치 category 우선, 없으면 항목(TU·Cl) 기준. 먹는물은 꼬리번호마다 위치가 달라 베이스 폴백 금지.
   const isDrinkingId = useCallback((receipt: string): boolean => {
+    // 1. 자기 자신의 세부 ID 확인
     const loc = locationList.find(l => l.id === receipt);
     if (loc?.category === '먹는물') return true;
     if (loc?.category === '수질') return false;
+
+    // 2. 부모 베이스 ID 확인 (예: 26-047539-01-1 -> 26-047539-01)
+    const base = receipt.split('-').slice(0, 3).join('-');
+    const baseLoc = locationList.find(l => l.id === base);
+    if (baseLoc?.category === '먹는물') return true;
+    if (baseLoc?.category === '수질') return false;
+
+    // 3. 폴백: 항목(TU/Cl) 기준
     const job: any = jobs.find((j: any) => j.receiptNumber === receipt);
     const code = String(job?.mainItemKey || job?.selectedItem || '').toUpperCase().replace(/\s/g, '');
     return code === 'TU' || code === 'CL' || code === 'TU/CL';
@@ -1618,11 +1627,15 @@ Required output:
         const missingLocReceipts = Array.from(new Set(jobs.map(j => j.receiptNumber).filter(Boolean)))
             .filter(rn => !hasRegisteredLocation(rn));
         if (missingLocReceipts.length > 0) {
+            const hasDrinkingMissing = missingLocReceipts.some(rn => isDrinkingId(rn));
+            const baseFallbackText = hasDrinkingMissing
+                ? `(⚠️ 먹는물은 시설별 세부번호(-1, -2 …)마다 각각 위치를 등록해야 합니다.)`
+                : `(베이스 25-000000-01 로 등록하면 하위 -01-1·-01-2 전체 적용)`;
             const proceed = window.confirm(
                 `⚠️ 위치 도우미에 주소가 없는 접수번호 (${missingLocReceipts.length}건):\n\n` +
                 `- ${missingLocReceipts.join('\n- ')}\n\n` +
                 `위치 도우미에서 주소를 먼저 등록하세요.\n` +
-                `(베이스 25-000000-01 로 등록하면 하위 -01-1·-01-2 전체 적용)\n\n` +
+                `${baseFallbackText}\n\n` +
                 `[취소] 등록하러 가기 · [확인] 주소 없이 그대로 전송`
             );
             if (!proceed) return;
