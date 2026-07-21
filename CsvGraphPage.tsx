@@ -517,6 +517,7 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
         // 전송 성공 → 우리 측정값을 계산기 calc_data에 자동 저장(우리 분석 우선). SS·TU·Cl 만(z/s/m 매핑 가능). best-effort.
         const cf = csvToFields(activeJob.aiAnalysisResult, activeJob.sensorType);
+        if (cf && activeJob.parsedData?.measurementRange != null && !cf.range) cf.range = String(activeJob.parsedData.measurementRange);
         if (cf && Object.keys(cf).length && activeJob.receiptNumber) {
           saveItemToCalcData({
             receiptNo: activeJob.receiptNumber, userName,
@@ -579,6 +580,8 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
       {activeJob && activeJob.parsedData && activeJob.aiAnalysisResult && (() => {
         const fields = csvToFields(activeJob.aiAnalysisResult, activeJob.sensorType);
         if (!fields || !Object.keys(fields).length) return null;
+        // CSV 측정범위 → range (SS/TU/Cl 계산에 필요). pH/DO는 무시됨.
+        if (activeJob.parsedData?.measurementRange != null && !fields.range) fields.range = String(activeJob.parsedData.measurementRange);
         return (
           <div className="flex items-center justify-end gap-2 py-1">
             <span className="text-[11px] text-slate-500">분석점 {Object.keys(fields).length}개 →</span>

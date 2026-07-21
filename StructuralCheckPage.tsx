@@ -15,6 +15,7 @@ import {
   RESPONSE_TIME_ITEM_NAME,
   PREFERRED_MEASUREMENT_METHODS,
 } from './shared/StructuralChecklists';
+import { saveRangeToCalcData } from './services/verdictApi';
 import { ImageInput, ImageInfo } from './components/ImageInput';
 import { CameraView } from './components/CameraView';
 import { ChecklistItemRow } from './components/structural/ChecklistItemRow';
@@ -1510,6 +1511,12 @@ Required output:
 
       if (result && result.success) {
         updateActiveJob(job => ({...job, submissionStatus: 'success', submissionMessage: result.message}));
+        // 전송 성공 → P1 측정범위확인 값을 계산기 calc_data(range)에 저장(계산에 직접 들어감). best-effort.
+        const rangeText = activeJob.checklistData?.['측정범위확인']?.notes || '';
+        if (rangeText) saveRangeToCalcData({
+          receiptNo: activeJob.receiptNumber, userName, siteName,
+          itemKey: activeJob.mainItemKey, rangeText,
+        }).catch(() => {});
       } else {
         updateActiveJob(job => ({...job, submissionStatus: 'error', submissionMessage: result ? result.message : '알 수 없는 오류가 발생했습니다.'}));
       }
@@ -1700,6 +1707,15 @@ Required output:
                     ? { ...j, submissionStatus: result.success ? 'success' : 'error', submissionMessage: result.message }
                     : j
                 ));
+                // 전송 성공한 작업의 측정범위확인 → calc_data range 저장. best-effort.
+                if (result.success) {
+                    const j = jobsWithAppData.find((x: any) => x.receiptNumber === result.receiptNo
+                        && (MAIN_STRUCTURAL_ITEMS.find(it => it.key === x.mainItemKey)?.name || x.mainItemKey) === result.mainItem);
+                    const rangeText = j?.checklistData?.['측정범위확인']?.notes || '';
+                    if (j && rangeText) saveRangeToCalcData({
+                        receiptNo: j.receiptNumber, userName, siteName, itemKey: j.mainItemKey, rangeText,
+                    }).catch(() => {});
+                }
             });
         } catch (error: any) {
             setJobs(prev => prev.map(j => ({ ...j, submissionStatus: 'error', submissionMessage: `일괄 전송 실패: ${error.message}` })));

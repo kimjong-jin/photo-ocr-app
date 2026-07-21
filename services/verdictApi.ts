@@ -117,17 +117,25 @@ export function csvToFields(aiAnalysisResult: Record<string, any> | null | undef
  * 같은 접수번호의 해당 항목(code) 탭에 우리 값을 덮어씀(우리 분석 우선). 다른 항목 탭·range 등은 보존.
  * @returns 저장 성공 여부
  */
+// 접수번호 정규화(전각→반각·하이픈 통일·공백 제거) — P1/P2/P5 저장 키를 동일하게 맞춤.
+export function normReceipt(s: string): string {
+  return String(s || '')
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[－—–−]/g, '-').replace(/[\s　]/g, '').trim();
+}
+
 export async function saveItemToCalcData(p: {
   receiptNo: string; userName: string; siteName?: string;
   code: string; fields: Record<string, any>;
 }): Promise<boolean> {
-  if (!p.receiptNo || !p.userName) return false;
+  const receiptNo = normReceipt(p.receiptNo);
+  if (!receiptNo || !p.userName) return false;
   const code = String(p.code).toUpperCase();
 
   // 1) 기존 calc_data 로드(있으면 병합 대상)
   let data: any = { tabs: [], activeId: '', fields: {}, maxSubNo: 0 };
   try {
-    const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(p.receiptNo)}`);
+    const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(receiptNo)}`);
     if (res.ok) { const d = await res.json(); if (d?.data?.tabs) data = d.data; }
   } catch { /* 없으면 신규 */ }
   if (!Array.isArray(data.tabs)) data.tabs = [];
@@ -155,7 +163,7 @@ export async function saveItemToCalcData(p: {
   try {
     const res = await fetch(CALC_API, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ receiptNo: p.receiptNo, userName: p.userName, siteName: p.siteName || '', data, ttlDays: 10 }),
+      body: JSON.stringify({ receiptNo, userName: p.userName, siteName: p.siteName || '', data, ttlDays: 10 }),
     });
     return res.ok;
   } catch { return false; }
@@ -212,6 +220,87 @@ export async function computeFieldVerdicts(rows: FieldQueueRowLite[]): Promise<M
     if (data?.results) valid.forEach((v, i) => map.set(v._key, data.results[i]?.field ?? null));
   } catch { /* 실패 시 빈 맵 → 판정 미표시 */ }
   return map;
+}
+
+// ── P4(먹는물, DrinkingWaterPage) OCR → 계산기 fields ──────────────────────
+// 식별자 Z1~Z5/S1~S5/M/응답. TU=value, Cl=valueTP(같은 행 공유). 먹는물은 z/s/m + resp_sec(초).
+const DW_DIVIDERS = new Set(['Z 2시간 시작 - 종료', '드리프트 완료', '반복성 완료']);
+function dwIdToKey(id: string): string | null {
+  const s = String(id || '').trim().toUpperCase();
+  const m = s.match(/^([ZS])([1-5])$/); if (m) return m[1].toLowerCase() + m[2];
+  if (s === 'M') return 'm1';
+  return null;
+}
+function parseRespSeconds(v: any): string | null {
+  if (v == null || String(v).trim() === '') return null;
+  try { const a = JSON.parse(v); if (Array.isArray(a) && a.length) { const s = Number(a[0]); return Number.isFinite(s) ? String(s) : null; } } catch { /* not json */ }
+  const n = String(v).match(/-?\d+(?:\.\d+)?/)?.[0];
+  return n != null ? n : null;
+}
+/** P4 먹는물 ocrData → 계산기 fields. which='TU'는 value, 'CL'은 valueTP. 응답→resp_sec(초). */
+export function drinkingWaterToFields(ocrData: any[] | null | undefined, which: 'TU' | 'CL'): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const e of ocrData || []) {
+    const id = e?.identifier;
+    if (!id || DW_DIVIDERS.has(id)) continue;
+    const val = which === 'TU' ? e.value : e.valueTP;
+    if (String(id).startsWith('응답')) {
+      const secs = parseRespSeconds(val);
+      if (secs != null) fields.resp_sec = secs;
+      continue;
+    }
+    const key = dwIdToKey(id);
+    if (key && val != null && String(val).trim() !== '') fields[key] = String(val).trim();
+  }
+  return fields;
+}
+
+/** P4 전송 성공 시 TU·Cl 측정값을 계산기 calc_data에 저장(우리 분석 우선). selectedItem = TU/CL·TU·Cl. */
+export async function saveDrinkingWaterToCalcData(p: {
+  receiptNo: string; userName: string; siteName?: string; selectedItem: string; ocrData: any[] | null | undefined;
+}): Promise<void> {
+  const sel = String(p.selectedItem || '').toUpperCase().replace(/\s/g, '');
+  const sides: Array<'TU' | 'CL'> = sel === 'TU/CL' ? ['TU', 'CL'] : sel === 'TU' ? ['TU'] : sel === 'CL' ? ['CL'] : [];
+  for (const which of sides) {
+    const fields = drinkingWaterToFields(p.ocrData, which);
+    if (!Object.keys(fields).length) continue;
+    try { await saveItemToCalcData({ receiptNo: p.receiptNo, userName: p.userName, siteName: p.siteName || '', code: which, fields }); } catch { /* best-effort */ }
+  }
+}
+
+// 측정범위 텍스트("0 ~ 100 mg/L", "100 NTU" 등) → 계산용 range 숫자(최댓값). 못 뽑으면 null.
+export function parseRangeValue(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const nums = String(text).match(/-?\d+(?:\.\d+)?/g);
+  if (!nums || !nums.length) return null;
+  const max = Math.max(...nums.map(Number).filter(Number.isFinite));
+  return Number.isFinite(max) ? String(max) : null;
+}
+
+// P1 mainItemKey/항목코드 → 계산 대상 code(들). MULTI 분리. pH/DO는 범위 고정이라 제외.
+const ITEMKEY_TO_CALC: Record<string, string[]> = {
+  TOC: ['TOC'], TN: ['TN'], TP: ['TP'], COD: ['COD'], SS: ['SS'], TU: ['TU'], CL: ['CL'],
+  'TU/CL': ['TU', 'CL'], 'TN/TP': ['TN', 'TP'],
+};
+
+/**
+ * P1(구조검사) "측정범위확인" → calc_data range 저장. range는 계산(드리프트/반복성 %)에 직접 들어감.
+ * 해당 접수번호의 각 항목 탭에 range만 병합(측정값 등 기존값 보존). pH/DO는 범위 고정이라 제외.
+ * ⚠️ MULTI(TU/CL·TN/TP)는 단일 범위 문자열을 두 항목에 동일 적용(best-effort) — 단위 다르면 계산기에서 정정.
+ */
+export async function saveRangeToCalcData(p: {
+  receiptNo: string; userName: string; siteName?: string; itemKey: string; rangeText: string;
+}): Promise<void> {
+  const range = parseRangeValue(p.rangeText);
+  if (!range) return;
+  const key = String(p.itemKey || '').toUpperCase().replace(/\s/g, '');
+  const codes = ITEMKEY_TO_CALC[key];
+  if (!codes) return;   // PH/DO 등 제외
+  for (const code of codes) {
+    try {
+      await saveItemToCalcData({ receiptNo: p.receiptNo, userName: p.userName, siteName: p.siteName || '', code, fields: { range } });
+    } catch { /* best-effort */ }
+  }
 }
 
 // 계산기 calc_data(접수번호)에서 기존 fields 조회 — range 등 이미 입력된 값 재사용용.

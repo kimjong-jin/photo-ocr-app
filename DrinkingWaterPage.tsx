@@ -4,6 +4,8 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { createRoot } from 'react-dom/client';
 import { OcrControls } from './components/OcrControls';
 import { OcrResultDisplay } from './components/OcrResultDisplay';
+import { VerdictButton } from './components/VerdictButton';
+import { drinkingWaterToFields, saveDrinkingWaterToCalcData } from './services/verdictApi';
 import { sendToClaydoxApi, ClaydoxPayload, generateKtlJsonForPreview, getFileExtensionFromMime } from './services/claydoxApiService';
 import { ANALYSIS_ITEM_GROUPS, DRINKING_WATER_IDENTIFIERS } from './shared/constants';
 import KtlPreflightModal, { KtlPreflightData } from './components/KtlPreflightModal';
@@ -514,6 +516,11 @@ const handleSendToClaydoxConfirmed = useCallback(async () => {
         updateActiveJob(j => ({ ...j, submissionStatus: 'sending', submissionMessage: "(4/4) KTL 서버로 업로드 중..." }));
         const response = await sendToClaydoxApi(payload, filesToUpload, activeJob.selectedItem, actualKtlFileNames, 'p4_check');
         updateActiveJob(j => ({ ...j, submissionStatus: 'success', submissionMessage: response.message }));
+        // 전송 성공 → TU·Cl 측정값을 계산기 calc_data에 저장(우리 분석 우선). best-effort.
+        saveDrinkingWaterToCalcData({
+          receiptNo: activeJob.receiptNumber, userName, siteName,
+          selectedItem: activeJob.selectedItem, ocrData: activeJob.processedOcrData,
+        }).catch(() => {});
     } catch (error: any) {
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `KTL 전송 실패: ${error.message}` }));
     }
@@ -601,6 +608,11 @@ const handleBatchSendToKtl = async () => {
 
             const response = await sendToClaydoxApi(payload, filesToUpload, job.selectedItem, actualKtlFileNames, 'p4_check');
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'success', submissionMessage: response.message } : j));
+            // 전송 성공 → TU·Cl 계산기 calc_data 저장
+            saveDrinkingWaterToCalcData({
+              receiptNo: job.receiptNumber, userName, siteName,
+              selectedItem: job.selectedItem, ocrData: job.processedOcrData,
+            }).catch(() => {});
         } catch (error: any) {
             setJobs(prev => prev.map(j => j.id === job.id ? { ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${error.message}` } : j));
         }
@@ -865,6 +877,22 @@ return (
                 )}
             </div>
         </div>
+        {/* 먹는물 정도검사 계산하기 — TU·Cl 각각 계산기 API로 적합/부적합. range는 P1 저장분/calc_data에서, 없으면 입력. */}
+        {activeJob.processedOcrData?.length ? (() => {
+          const sel = String(activeJob.selectedItem || '').toUpperCase().replace(/\s/g, '');
+          const sides: Array<'TU' | 'CL'> = sel === 'TU/CL' ? ['TU', 'CL'] : sel === 'TU' ? ['TU'] : sel === 'CL' ? ['CL'] : [];
+          const btns = sides.map(w => ({ w, f: drinkingWaterToFields(activeJob.processedOcrData, w) })).filter(x => Object.keys(x.f).length);
+          if (!btns.length) return null;
+          return (
+            <div className="flex items-center justify-end gap-2 py-1">
+              <span className="text-[11px] text-slate-500">정도검사 판정:</span>
+              {btns.map(b => (
+                <VerdictButton key={b.w} ocrData={null} selectedItem={b.w === 'CL' ? 'Cl' : 'TU'}
+                  receiptNumber={activeJob.receiptNumber || ''} userName={userName} fieldsOverride={b.f} />
+              ))}
+            </div>
+          );
+        })() : null}
         <OcrResultDisplay
             ocrData={activeJob.processedOcrData}
             error={processingError}
