@@ -1724,7 +1724,18 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
               {activeJob.parsedData!.channels.map(ch => (
                 <button
                   key={ch.id}
-                  onClick={() => updateActiveJob(j => ({ ...j, selectedChannelId: ch.id }))}
+                  onClick={() => updateActiveJob(j => {
+                    // 채널명(SS/pH/TU/Cl/DO) 클릭 시 sensorType도 자동 매칭 → 수동분석/포인트가 그 항목과 맞음.
+                    // 잘못 찍으면 수동분석 안 SS/PH/TU/Cl/DO 버튼으로 수정 가능.
+                    const nm = String(ch.name || '').toUpperCase().trim();
+                    const matched: SensorType | null =
+                      nm.startsWith('TU') || nm.includes('탁도') ? 'TU'
+                      : nm.startsWith('CL') || nm.includes('염소') ? 'Cl'
+                      : nm.startsWith('SS') || nm.includes('부유') ? 'SS'
+                      : nm.startsWith('PH') || nm.startsWith('P H') ? 'PH'
+                      : nm.startsWith('DO') || nm.includes('용존') ? 'DO' : null;
+                    return { ...j, selectedChannelId: ch.id, ...(matched ? { sensorType: matched } : {}) };
+                  })}
                   className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${activeJob.selectedChannelId === ch.id ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-300'}`}
                 >
                   {ch.name}
