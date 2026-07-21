@@ -258,45 +258,52 @@ const ApplicationOcrSection: React.FC<ApplicationOcrSectionProps> = ({
     });
 
     const checkNew = async () => {
-      const results = await Promise.allSettled(
-        newApps.map(async (app) => {
-          const rcpn = app.receipt_no?.trim() ?? '';
-          const parts = rcpn.split('-');
-          const hasSequence = parts.length === 4;
-          const baseRcpn = hasSequence ? parts.slice(0, 3).join('-') : rcpn;
-          const isValidFormat = /^\d{2}-\d{6}-\d{2}$/.test(baseRcpn);
-          if (!isValidFormat) return { receipt_no: rcpn, exists: false, ktlInfo: null };
-          try {
-            // 존재확인은 항상 base-1로 probe (내부 세부번호가 KTL 회차와 안 맞아 생기는 오탐 방지)
-            const limsclientId = `${baseRcpn}-1`;
-            const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(limsclientId)}`);
-            const data = await res.json();
-            const isSuccess = data.Success === true || data.Success === 'true' || data.Success === 'True';
-            let ktlInfo: KtlDetail | null = null;
-            if (isSuccess && data.Results) {
-              ktlInfo = {
-                companyName: decodeBase64Ko(data.Results.EXRS_BSAC_NM),
-                representativeName: decodeBase64Ko(data.Results.EXRS_RPPR_NM),
-              };
-            }
-            return { receipt_no: rcpn, exists: isSuccess, ktlInfo };
-          } catch {
-            return { receipt_no: rcpn, exists: false, ktlInfo: null };
+      // 한 접수번호 조회. 성공=true / KTL 명시적 '없음'=false / 조회실패·응답이상=null(미확인, 빨강 아님)
+      const probeOne = async (app: typeof newApps[number]) => {
+        const rcpn = app.receipt_no?.trim() ?? '';
+        const parts = rcpn.split('-');
+        const baseRcpn = parts.length === 4 ? parts.slice(0, 3).join('-') : rcpn;
+        if (!/^\d{2}-\d{6}-\d{2}$/.test(baseRcpn)) return { receipt_no: rcpn, exists: false as boolean | null, ktlInfo: null as KtlDetail | null };
+        // 존재확인은 항상 base-1로 probe (내부 세부번호가 KTL 회차와 안 맞아 생기는 오탐 방지)
+        const doFetch = async (): Promise<{ exists: boolean | null; ktlInfo: KtlDetail | null } | null> => {
+          const res = await fetch(`/api/ktl-proxy?id=${encodeURIComponent(`${baseRcpn}-1`)}`);
+          if (!res.ok) return null;                     // HTTP 오류(429/500 등) → 미확인
+          const data = await res.json();
+          const isSuccess = data.Success === true || data.Success === 'true' || data.Success === 'True';
+          const isFail = data.Success === false || data.Success === 'false' || data.Success === 'False';
+          let ktlInfo: KtlDetail | null = null;
+          if (isSuccess && data.Results) {
+            ktlInfo = { companyName: decodeBase64Ko(data.Results.EXRS_BSAC_NM), representativeName: decodeBase64Ko(data.Results.EXRS_RPPR_NM) };
           }
-        })
-      );
+          return { exists: isSuccess ? true : isFail ? false : null, ktlInfo };
+        };
+        try {
+          let r = await doFetch().catch(() => null);
+          if (r === null || r.exists === null) {         // 실패/미확인 시 1회 재시도(과부하 완화)
+            await new Promise(s => setTimeout(s, 400));
+            const r2 = await doFetch().catch(() => null);
+            if (r2) r = r2;
+          }
+          return { receipt_no: rcpn, exists: (r ? r.exists : null) as boolean | null, ktlInfo: r ? r.ktlInfo : null };
+        } catch { return { receipt_no: rcpn, exists: null as boolean | null, ktlInfo: null as KtlDetail | null }; }
+      };
+
+      // 동시 요청을 4개씩 배치 — KTL 과부하로 유효 접수번호가 실패하던 것 완화
       const statuses: Record<string, boolean | null> = {};
       const details: Record<string, KtlDetail | null> = {};
-      results.forEach((r) => {
-        if (r.status === 'fulfilled') {
+      const LIMIT = 4;
+      for (let i = 0; i < newApps.length; i += LIMIT) {
+        const batch = await Promise.allSettled(newApps.slice(i, i + LIMIT).map(probeOne));
+        batch.forEach((r) => {
+          if (r.status !== 'fulfilled') return;
           statuses[r.value.receipt_no] = r.value.exists;
           details[r.value.receipt_no] = r.value.ktlInfo;
-          // 캐시에 저장 → 이후 applications 변경 시 재조회 없음
-          ktlCacheRef.current[r.value.receipt_no] = { exists: r.value.exists, ktlInfo: r.value.ktlInfo };
-        }
-      });
-      setReceiptStatuses(prev => ({ ...prev, ...statuses }));
-      setKtlDetails(prev => ({ ...prev, ...details }));
+          // 확정 결과(있음/없음)만 캐시 → 미확인(null)은 캐시 안 해 다음에 재조회
+          if (r.value.exists !== null) ktlCacheRef.current[r.value.receipt_no] = { exists: r.value.exists, ktlInfo: r.value.ktlInfo };
+        });
+        setReceiptStatuses(prev => ({ ...prev, ...statuses }));   // 배치마다 점진 반영
+        setKtlDetails(prev => ({ ...prev, ...details }));
+      }
     };
     checkNew();
   }, [applications]);
