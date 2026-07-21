@@ -791,10 +791,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       }).catch(() => {
         if (matched.lat && matched.lng) setCoords({ lat: matched.lat, lng: matched.lng });
       });
-    } else {
-      setCurrentGpsAddress('');
-      setCoords(null);
     }
+    // ※ matched 없어도 주소/좌표를 지우지 않음 — 지우면 위치도우미(locReceiptInput)로 작업 중이거나
+    //   저장 직후 locationList 갱신 때 방금 채운/저장한 주소가 사라짐. (어제까지의 동작 복원)
   }, [receiptNumber, locationList, newItemKey]);
 
   // 위치 도우미: 저장된 주소 자동 복원.
