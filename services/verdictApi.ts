@@ -376,7 +376,8 @@ export async function saveDrinkingWaterToCalcData(p: {
 // 측정범위 텍스트("0 ~ 100 mg/L", "100 NTU" 등) → 계산용 range 숫자(최댓값). 못 뽑으면 null.
 export function parseRangeValue(text: string | null | undefined): string | null {
   if (!text) return null;
-  const nums = String(text).match(/-?\d+(?:\.\d+)?/g);
+  // "0-10 NTU"의 하이픈은 범위구분자이지 마이너스가 아님 → 음수부호 없이 숫자만 추출.
+  const nums = String(text).match(/\d+(?:\.\d+)?/g);
   if (!nums || !nums.length) return null;
   const max = Math.max(...nums.map(Number).filter(Number.isFinite));
   // 0 이하는 측정범위가 아님(드리프트 분모=0 방지) → 저장 안 함
