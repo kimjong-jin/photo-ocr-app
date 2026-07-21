@@ -4,6 +4,7 @@ import { Spinner } from './components/Spinner';
 import { CsvDisplay } from './components/csv/CsvDisplay';
 import { VerdictButton } from './components/VerdictButton';
 import { csvToFields, saveItemToCalcData } from './services/verdictApi';
+import { seedFieldQueueFromCsv } from './services/fieldQueueSeed';
 import { parseGraphtecCsv } from './utils/parseGraphtecCsv';
 import { sendCsvGraphToKtlApi } from './services/claydoxApiService';
 import * as XLSX from 'xlsx';
@@ -552,6 +553,12 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
             code: String(activeJob.sensorType), fields: cf,
           }).catch(() => {});
         }
+        // SS만: 현장1/현장2 → 현장계수 수분석 큐(field_queue). 여기서 계산 안 함(수분석 카톡 오면 계산).
+        seedFieldQueueFromCsv({
+          receiptNumber: activeJob.receiptNumber, sensorType: activeJob.sensorType,
+          aiAnalysisResult: activeJob.aiAnalysisResult, userName,
+          siteName: (activeJob.details || siteLocation || ''),
+        }).catch(() => {});
       } catch (err: any) {
         updateActiveJob(j => ({ ...j, submissionStatus: 'error', submissionMessage: `전송 실패: ${err.message}` }));
       }

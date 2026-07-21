@@ -315,19 +315,24 @@ function dwIdToKey(id: string): string | null {
 }
 // P4 응답 입력값 = [초, 분, mm길이]. 먹는물 응답시간(초) = mm × 6 (엑셀 Version11 Sheet4: B35=B17*6).
 // mm(길이) 우선 → resp(계산기가 ×6). mm 없으면 초(직접) 또는 분(×60) → resp_sec.
-function parseResponseFields(v: any): { resp?: string; resp_sec?: string } | null {
+function parseResponseFields(v: any): { resp?: string; resp_sec?: string; resp_skip?: string } | null {
   if (v == null || String(v).trim() === '') return null;
   let a: any = null;
   try { a = JSON.parse(v); } catch { a = null; }
+  const hasNum = (x: any) => String(x ?? '').trim() !== '' && Number.isFinite(Number(x));
   if (Array.isArray(a)) {
     const sec = Number(a[0]), min = Number(a[1]), mm = Number(a[2]);
     if (Number.isFinite(mm) && mm > 0) return { resp: String(mm) };              // mm → ×6
     if (Number.isFinite(sec) && sec > 0) return { resp_sec: String(sec) };        // 초 직접
     if (Number.isFinite(min) && min > 0) return { resp_sec: String(min * 60) };   // 분 → 초
+    // 숫자 없이 '-' 만 있으면 시약식(잔류염소) → 응답시간 건너뜀(미완성 아님)
+    if (a.some((x: any) => String(x ?? '').trim() === '-') && !a.some(hasNum)) return { resp_skip: 'true' };
     return null;
   }
+  // 시약식: '-' 로 입력 → 응답시간 스킵
+  if (String(v).trim() === '-') return { resp_skip: 'true' };
   // JSON 아니면 단일 숫자를 mm로 간주(먹는물 응답은 mm 측정)
-  const n = String(v).match(/-?\d+(?:\.\d+)?/)?.[0];
+  const n = String(v).match(/\d+(?:\.\d+)?/)?.[0];
   return n != null && Number(n) > 0 ? { resp: n } : null;
 }
 /** P4 먹는물 ocrData → 계산기 fields. which='TU'는 value, 'CL'은 valueTP. 응답=mm길이→resp(×6). */
@@ -341,6 +346,7 @@ export function drinkingWaterToFields(ocrData: any[] | null | undefined, which: 
       const r = parseResponseFields(val);
       if (r?.resp != null) fields.resp = r.resp;
       if (r?.resp_sec != null) fields.resp_sec = r.resp_sec;
+      if (r?.resp_skip) fields.resp_skip = 'true';   // 시약식(잔류염소) → 응답시간 스킵
       continue;
     }
     const key = dwIdToKey(id);
@@ -373,7 +379,8 @@ export function parseRangeValue(text: string | null | undefined): string | null 
   const nums = String(text).match(/-?\d+(?:\.\d+)?/g);
   if (!nums || !nums.length) return null;
   const max = Math.max(...nums.map(Number).filter(Number.isFinite));
-  return Number.isFinite(max) ? String(max) : null;
+  // 0 이하는 측정범위가 아님(드리프트 분모=0 방지) → 저장 안 함
+  return Number.isFinite(max) && max > 0 ? String(max) : null;
 }
 
 // P1 mainItemKey/항목코드 → 계산 대상 code(들). MULTI 분리. pH/DO는 범위 고정이라 제외.

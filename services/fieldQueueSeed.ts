@@ -103,6 +103,32 @@ const CODE_TO_CALC: Record<string, string[]> = {
 };
 
 /**
+ * P5(CSV) 전송 시 현장값(현장1/현장2) → 현장계수 수분석 큐(field_queue) seed. **SS 만** (SS만 현장1/2 존재).
+ * aiAnalysisResult 키는 소문자('현장1','현장2'), 값 `.value`. 여러번 전송 시 마지막 non-empty가 덮어씀(upsert).
+ * 계산은 여기서 안 함 — 현장계수 수분석에서 수분석 카톡 오면 계산.
+ */
+export async function seedFieldQueueFromCsv(args: {
+  receiptNumber: string; sensorType: string; aiAnalysisResult: any; userName: string; siteName: string;
+}): Promise<void> {
+  try {
+    if (String(args.sensorType || '').toUpperCase() !== 'SS') return;   // SS만
+    const receipt_no = normalizeReceiptBase(args.receiptNumber);
+    if (!receipt_no) return;
+    const ai = args.aiAnalysisResult || {};
+    const v1 = String(ai['현장1']?.value ?? '').trim();
+    const v2 = String(ai['현장2']?.value ?? '').trim();
+    if (!v1 && !v2) return;
+    await fetch('/api/field-queue', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries: [{
+        receipt_no, item: '부유물질', site_name: args.siteName || '', manager: args.userName || '',
+        site_val1: v1, site_val2: v2, week_key: currentWeekKey(),
+      }] }),
+    });
+  } catch (e) { console.warn('[field-seed:P5] 실패(전송엔 영향 없음):', e); }
+}
+
+/**
  * P2/P3 전송 성공 직후 호출 — 우리 값(전체 OCR)을 계산기 calc_data(:3333)에 자동 저장.
  * P2(수질)=측정값(z/s/m + 현장 ci), P3(현장계수)=현장값만(ci1/ci2). ocrToFields가 식별자에서 해당 필드만 추출.
  * "우리 전송이 정본": 세부번호 슬롯의 항목을 우리 값으로 덮음(saveItemToCalcData). MULTI 외 항목은 대상 아님.
