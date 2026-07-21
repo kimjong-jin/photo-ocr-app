@@ -161,12 +161,24 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
                     <td className="px-2 py-2 text-center text-slate-400">{g.manager}</td>
                     {ITEMS.map(it => {
                       const cell = g.items[it.name];
-                      if (!cell) return <td key={it.short} className="px-2 py-2 text-center text-slate-600">–</td>;
+                      if (!cell) return <td key={it.short} className="px-2 py-2 text-center text-slate-600 align-top">–</td>;
+                      let lab: number[] = [];
+                      try { const p = JSON.parse(cell.lab_data || '[]'); lab = (Array.isArray(p) ? p : (p.labVals || p.vals || [])).map(Number).filter((n: number) => Number.isFinite(n)); } catch {}
+                      const suffix = cell.detail ? (cell.detail.startsWith(cell.receipt_no) ? cell.detail.slice(cell.receipt_no.length) : cell.detail) : '';
                       return (
-                        <td key={it.short} className="px-2 py-1.5 text-center">
-                          {cell.detail && <div className="text-[9px] font-mono text-slate-500 leading-none mb-0.5" title={cell.detail}>{cell.detail.startsWith(cell.receipt_no) ? cell.detail.slice(cell.receipt_no.length) : cell.detail}</div>}
-                          <div className="font-mono font-bold text-slate-100 leading-tight">{cell.site_val1 || '·'}</div>
-                          <div className="font-mono text-slate-400 leading-tight">{cell.site_val2 || '·'}</div>
+                        <td key={it.short} className="px-1.5 py-1.5 text-center align-top">
+                          {suffix && <div className="text-[10px] font-mono font-bold text-sky-400 leading-none mb-1" title={cell.detail}>{suffix}</div>}
+                          {/* 현장값(측정값1/2) */}
+                          <div className="text-[8px] text-slate-500 leading-none">현장</div>
+                          <div className="font-mono text-[11px] text-slate-100 leading-tight">{cell.site_val1 || '·'}<span className="text-slate-600"> / </span>{cell.site_val2 || '·'}</div>
+                          {/* 실험실값(카톡) */}
+                          {lab.length > 0 && (
+                            <>
+                              <div className="text-[8px] text-slate-500 leading-none mt-0.5">실험</div>
+                              <div className="font-mono text-[10px] text-amber-200/90 leading-tight">{lab.slice(0, 2).join(' ')}</div>
+                              {lab.length > 2 && <div className="font-mono text-[10px] text-amber-200/90 leading-tight">{lab.slice(2, 4).join(' ')}</div>}
+                            </>
+                          )}
                           {it.short === 'TOC' && cell.toc_std && <div className="mt-0.5 text-[9px] font-bold text-orange-300 bg-orange-500/15 rounded px-1 inline-block">기준 {cell.toc_std}</div>}
                           {(() => { const v = cellVerdict(cell); return v.ok !== null ? (
                             <div className={`mt-0.5 text-[10px] font-extrabold ${v.ok ? 'text-green-400' : 'text-red-400'}`}>{v.ok ? '✔ 적합' : '✘ 부적합'}</div>
