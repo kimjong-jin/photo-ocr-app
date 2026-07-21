@@ -447,15 +447,18 @@ export async function computeStandardVerdicts(rows: { receipt_no: string; item: 
 // 계산기 calc_data(접수번호)에서 기존 fields 조회 — range 등 이미 입력된 값 재사용용.
 export async function loadCalcFields(receiptNo: string, userName: string, code?: string): Promise<Record<string, any> | null> {
   try {
-    const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(receiptNo)}`);
+    // calc_data는 base 접수번호로 저장됨 → 세부(-N) 떼고 조회. P1이 저장한 range/resp 등을 찾을 수 있게.
+    const { base, detailNo } = splitReceipt(receiptNo);
+    const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(base)}`);
     if (!res.ok) return null;
     const d = await res.json();
     // calc_data.data = { tabs, activeId, fields:{tabId:{...}} }
     const data = d?.data || d;
     if (!data?.tabs?.length || !data?.fields) return null;
-    // code 지정 시 해당 항목 탭, 없으면 activeId/첫 탭
+    // 우선순위: 세부번호(subNo) 슬롯 → 같은 code → activeId → 첫 탭
     const want = code ? String(code).toUpperCase() : null;
-    const tab = (want && data.tabs.find((t: any) => String(t.code).toUpperCase() === want))
+    const tab = (detailNo != null && data.tabs.find((t: any) => tabSubNo(t) === detailNo))
+      || (want && data.tabs.find((t: any) => String(t.code).toUpperCase() === want))
       || data.tabs.find((t: any) => t.id === data.activeId)
       || data.tabs[0];
     return tab ? (data.fields[tab.id] || null) : null;
