@@ -368,23 +368,31 @@ const ITEMKEY_TO_CALC: Record<string, string[]> = {
 };
 
 /**
- * P1(구조검사) "측정범위확인" → calc_data range 저장. range는 계산(드리프트/반복성 %)에 직접 들어감.
- * 해당 접수번호의 각 항목 탭에 range만 병합(측정값 등 기존값 보존). pH/DO는 범위 고정이라 제외.
- * ⚠️ MULTI(TU/CL·TN/TP)는 단일 범위 문자열을 두 항목에 동일 적용(best-effort) — 단위 다르면 계산기에서 정정.
+ * P1(구조검사) → calc_data 저장. 측정범위(range)는 계산(드리프트/반복성 %)에 직접 들어감.
+ * TOC는 응답시간(→resp, 종합 판정에 필요)·배출기준(→fdis, 현장적용용)도 P1에서 옴 → 함께 저장.
+ * 해당 접수번호 각 항목 탭에 병합(측정값 등 기존값 보존). pH/DO는 범위 고정이라 제외.
+ * ⚠️ MULTI(TU/CL·TN/TP)는 단일 범위 문자열을 두 항목에 동일 적용(best-effort).
  */
 export async function saveRangeToCalcData(p: {
-  receiptNo: string; userName: string; siteName?: string; itemKey: string; rangeText: string;
+  receiptNo: string; userName: string; siteName?: string; itemKey: string;
+  rangeText: string; respText?: string; dischargeText?: string;   // respText·dischargeText = TOC 전용
 }): Promise<void> {
   const range = parseRangeValue(p.rangeText);
-  if (!range) return;
+  const num = (t?: string) => { const m = String(t || '').match(/-?\d+(?:\.\d+)?/); return m ? m[0] : ''; };
+  const resp = num(p.respText), fdis = num(p.dischargeText);
+  if (!range && !resp && !fdis) return;
   const key = String(p.itemKey || '').toUpperCase().replace(/\s/g, '');
   const codes = ITEMKEY_TO_CALC[key];
   if (!codes) return;   // PH/DO 등 제외
   // MULTI는 base로 code매칭(별도 탭), 단일은 세부 슬롯 그대로.
   const rcpt = codes.length > 1 ? splitReceipt(p.receiptNo).base : p.receiptNo;
   for (const code of codes) {
+    const fields: Record<string, any> = {};
+    if (range) fields.range = range;
+    if (code === 'TOC') { if (resp) fields.resp = resp; if (fdis) fields.fdis = fdis; }   // TOC 종합엔 응답시간 필요
+    if (!Object.keys(fields).length) continue;
     try {
-      await saveItemToCalcData({ receiptNo: rcpt, userName: p.userName, siteName: p.siteName || '', code, fields: { range } });
+      await saveItemToCalcData({ receiptNo: rcpt, userName: p.userName, siteName: p.siteName || '', code, fields });
     } catch { /* best-effort */ }
   }
 }

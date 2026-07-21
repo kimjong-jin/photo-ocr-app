@@ -1511,11 +1511,14 @@ Required output:
 
       if (result && result.success) {
         updateActiveJob(job => ({...job, submissionStatus: 'success', submissionMessage: result.message}));
-        // 전송 성공 → P1 측정범위확인 값을 계산기 calc_data(range)에 저장(계산에 직접 들어감). best-effort.
-        const rangeText = activeJob.checklistData?.['측정범위확인']?.notes || '';
-        if (rangeText) saveRangeToCalcData({
+        // 전송 성공 → P1 측정범위·(TOC)응답시간·배출기준을 계산기 calc_data에 저장(계산에 직접 들어감). best-effort.
+        const cd0 = activeJob.checklistData;
+        const rangeText = cd0?.['측정범위확인']?.notes || '';
+        if (rangeText || cd0?.[RESPONSE_TIME_ITEM_NAME]?.notes || cd0?.[EMISSION_STANDARD_ITEM_NAME]?.notes) saveRangeToCalcData({
           receiptNo: activeJob.receiptNumber, userName, siteName,
           itemKey: activeJob.mainItemKey, rangeText,
+          respText: cd0?.[RESPONSE_TIME_ITEM_NAME]?.notes || '',
+          dischargeText: cd0?.[EMISSION_STANDARD_ITEM_NAME]?.notes || '',
         }).catch(() => {});
       } else {
         updateActiveJob(job => ({...job, submissionStatus: 'error', submissionMessage: result ? result.message : '알 수 없는 오류가 발생했습니다.'}));
@@ -1707,13 +1710,16 @@ Required output:
                     ? { ...j, submissionStatus: result.success ? 'success' : 'error', submissionMessage: result.message }
                     : j
                 ));
-                // 전송 성공한 작업의 측정범위확인 → calc_data range 저장. best-effort.
+                // 전송 성공 작업의 측정범위·(TOC)응답시간·배출기준 → calc_data 저장. best-effort.
                 if (result.success) {
                     const j = jobsWithAppData.find((x: any) => x.receiptNumber === result.receiptNo
                         && (MAIN_STRUCTURAL_ITEMS.find(it => it.key === x.mainItemKey)?.name || x.mainItemKey) === result.mainItem);
-                    const rangeText = j?.checklistData?.['측정범위확인']?.notes || '';
-                    if (j && rangeText) saveRangeToCalcData({
+                    const cdj = j?.checklistData;
+                    const rangeText = cdj?.['측정범위확인']?.notes || '';
+                    if (j && (rangeText || cdj?.[RESPONSE_TIME_ITEM_NAME]?.notes || cdj?.[EMISSION_STANDARD_ITEM_NAME]?.notes)) saveRangeToCalcData({
                         receiptNo: j.receiptNumber, userName, siteName, itemKey: j.mainItemKey, rangeText,
+                        respText: cdj?.[RESPONSE_TIME_ITEM_NAME]?.notes || '',
+                        dischargeText: cdj?.[EMISSION_STANDARD_ITEM_NAME]?.notes || '',
                     }).catch(() => {});
                 }
             });

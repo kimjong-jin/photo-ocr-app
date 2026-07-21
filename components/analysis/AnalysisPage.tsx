@@ -1888,7 +1888,13 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
   
       {jobs.length > 0 && (
       <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
-          <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
+            {/* 보내기 전에 활성 작업 정도검사 적합/부적합 계산(계산기). 자동 칩도 여기 표시됨. */}
+            {activeJob && pageType === 'PhotoLog' && (
+              <VerdictButton ocrData={activeJob.processedOcrData} selectedItem={activeJob.selectedItem} receiptNumber={activeJob.receiptNumber} userName={userName} />
+            )}
+          </div>
           <p className="text-sm text-slate-400">
               이 페이지의 모든 작업을 KTL로 전송합니다. 각 작업에 사진과 추출된 데이터가 있어야 합니다.
           </p>
