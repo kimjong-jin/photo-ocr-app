@@ -51,6 +51,47 @@ export async function callVerdict(code: string, fields: Record<string, any>): Pr
   return data as VerdictResult;
 }
 
+// 항목명(한글) → 계산기 code
+const ITEM_NAME_TO_CODE: Record<string, string> = {
+  '총유기탄소': 'TOC', '총질소': 'TN', '총인': 'TP', '부유물질': 'SS', '화학적산소요구량': 'COD',
+};
+
+export interface FieldQueueRowLite {
+  receipt_no: string; item: string; site_val1: string; site_val2: string; lab_data: string; toc_std: string;
+}
+
+/**
+ * 현장계수 수분석 행들의 현장적용계수 판정을 계산기 API로 배치 계산.
+ * (parser는 계산 안 함 — 현장값+실험실값을 계산기 API에 넘겨 field 결과만 받음)
+ * @returns Map<`${receipt_no}|${item}`, {pass, labMean, siteMean, fi, useRate, limit, ...}|null>
+ */
+export async function computeFieldVerdicts(rows: FieldQueueRowLite[]): Promise<Map<string, any>> {
+  const map = new Map<string, any>();
+  const items = rows.map(r => {
+    const code = ITEM_NAME_TO_CODE[r.item];
+    let lab: number[] = [];
+    try { const p = JSON.parse(r.lab_data || '[]'); lab = (Array.isArray(p) ? p : (p.labVals || p.vals || [])).map(Number); } catch {}
+    if (!code || !lab.length) return null;
+    const fields: Record<string, any> = {
+      ci1: r.site_val1 || '', ci2: r.site_val2 || '',
+      ai1: lab[0] ?? '', ai2: lab[1] ?? '', ai3: lab[2] ?? '', ai4: lab[3] ?? '',
+      fdis: r.toc_std || '',
+    };
+    return { code, fields, _key: `${r.receipt_no}|${r.item}` };
+  });
+  const valid = items.filter(Boolean) as any[];
+  if (!valid.length) return map;
+  try {
+    const res = await fetch(VERDICT_API, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: valid.map(v => ({ code: v.code, fields: v.fields })) }),
+    });
+    const data = await res.json();
+    if (data?.results) valid.forEach((v, i) => map.set(v._key, data.results[i]?.field ?? null));
+  } catch { /* 실패 시 빈 맵 → 판정 미표시 */ }
+  return map;
+}
+
 // 계산기 calc_data(접수번호)에서 기존 fields 조회 — range 등 이미 입력된 값 재사용용.
 export async function loadCalcFields(receiptNo: string, userName: string): Promise<Record<string, any> | null> {
   try {

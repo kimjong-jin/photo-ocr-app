@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { fieldApplication, ITEM_TO_PARAM, verdictLabel } from '../services/fieldApplication';
+import { computeFieldVerdicts } from '../services/verdictApi';
 import { exportFieldExcel } from '../services/fieldExcel';
 
 /**
@@ -38,25 +38,22 @@ const STATUS_STYLE: Record<string, string> = {
 const STATUS_CYCLE = ['대기', '분석중', '분석완료', '재검사'];
 
 // 실험실값(lab_data JSON) + 현장값으로 적합/부적합 계산
-function cellVerdict(cell: Row): { text: string; ok: boolean | null } {
-  const param = ITEM_TO_PARAM[cell.item];
-  if (!param) return { text: '—', ok: null };
-  let labVals: any[] = [];
-  try { const p = JSON.parse(cell.lab_data || '{}'); labVals = Array.isArray(p) ? p : (p.labVals || p.vals || []); }
-  catch { labVals = []; }
-  if (!labVals.length) return { text: '—', ok: null };
-  const r = fieldApplication(param, labVals, [cell.site_val1, cell.site_val2], { discharge: cell.toc_std });
-  return verdictLabel(r);
-}
-
 interface Props { isOpen: boolean; onClose: () => void; }
 
 export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [monday, setMonday] = useState(() => mondayOf(new Date()));
   const [rows, setRows] = useState<Row[]>([]);
+  // 현장적용 판정 = 계산기 API 결과 맵 (parser는 계산 안 함). key = `${receipt_no}|${item}`
+  const [verdicts, setVerdicts] = useState<Map<string, any>>(new Map());
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const weekKey = useMemo(() => weekKeyOf(monday), [monday]);
+
+  // cell → { ok } (계산기 API 결과에서)
+  const cellVerdict = useCallback((cell: Row): { ok: boolean | null } => {
+    const v = verdicts.get(`${cell.receipt_no}|${cell.item}`);
+    return { ok: v ? (v.pass === null || v.pass === undefined ? null : !!v.pass) : null };
+  }, [verdicts]);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -64,8 +61,13 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
       const r = await fetch(`/api/field-queue?week=${encodeURIComponent(weekKey)}`);
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || '조회 실패');
-      setRows(d.rows || []);
-    } catch (e: any) { setErr(e.message); setRows([]); }
+      const rws: Row[] = d.rows || [];
+      setRows(rws);
+      // 계산기 API로 현장적용 판정 배치 계산
+      const withLab = rws.filter(x => x.lab_data && x.lab_data.trim());
+      if (withLab.length) computeFieldVerdicts(withLab as any).then(setVerdicts).catch(() => {});
+      else setVerdicts(new Map());
+    } catch (e: any) { setErr(e.message); setRows([]); setVerdicts(new Map()); }
     finally { setLoading(false); }
   }, [weekKey]);
 
@@ -112,7 +114,7 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
       <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-800 border-b border-slate-700 shrink-0">
         <h2 className="text-sm sm:text-base font-bold text-slate-100 whitespace-nowrap">🧪 <span className="hidden sm:inline">현장계수 수분석</span></h2>
         <div className="flex-1" />
-        <button onClick={() => exportFieldExcel(rows, weekKey)} disabled={!rows.length} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-green-600/25 text-green-300 hover:bg-green-600/35 disabled:opacity-40" title="엑셀 다운로드">⬇<span className="hidden sm:inline ml-1">엑셀</span></button>
+        <button onClick={() => exportFieldExcel(rows, weekKey, verdicts)} disabled={!rows.length} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-green-600/25 text-green-300 hover:bg-green-600/35 disabled:opacity-40" title="엑셀 다운로드">⬇<span className="hidden sm:inline ml-1">엑셀</span></button>
         <button onClick={cleanupConfirmed} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600" title="확인건 정리">🧹<span className="hidden sm:inline ml-1">정리</span></button>
         <button onClick={onClose} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-600 text-white hover:bg-slate-500" title="닫기">✕</button>
       </div>

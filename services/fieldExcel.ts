@@ -6,7 +6,6 @@
  *    재현 대상이 아니다. 큐가 가진 것(접수번호·항목·현장값·실험실값·담당자·판정)으로 만든다.
  */
 import * as XLSX from 'xlsx';
-import { fieldApplication, ITEM_TO_PARAM, verdictLabel } from './fieldApplication';
 
 export interface FieldRow {
   receipt_no: string; item: string; site_name: string; manager: string;
@@ -23,15 +22,16 @@ function labVals(row: FieldRow): number[] {
   catch { return []; }
 }
 
-function calc(row: FieldRow) {
-  const param = ITEM_TO_PARAM[row.item];
-  const lv = labVals(row);
-  if (!param || !lv.length) return null;
-  return fieldApplication(param, lv, [row.site_val1, row.site_val2], { discharge: row.toc_std });
-}
+// 판정 텍스트 — 계산기 API field 결과(pass:boolean|null)에서. 계산은 parser가 안 함(단일 출처).
+const verdictText = (res: any) => res == null ? '—' : res.pass === true ? '✔ 적합' : res.pass === false ? '✘ 부적합' : '—';
 
-/** 큐 rows → 워크북 → 파일 다운로드 */
-export function exportFieldExcel(rows: FieldRow[], weekKey: string): void {
+/**
+ * 큐 rows → 워크북 → 파일 다운로드.
+ * @param verdicts 계산기 API 현장적용 판정 맵 — key=`${receipt_no}|${item}`, value={labMean,fi,rate,useRate,limit,pass}|null
+ *                 (services/verdictApi.computeFieldVerdicts 결과. 미제공 시 판정칸은 '—')
+ */
+export function exportFieldExcel(rows: FieldRow[], weekKey: string, verdicts?: Map<string, any>): void {
+  const calc = (row: FieldRow) => verdicts?.get(`${row.receipt_no}|${row.item}`) ?? null;
   const wb = XLSX.utils.book_new();
   const sorted = [...rows].sort((a, b) =>
     (ITEM_ORDER.indexOf(a.item) - ITEM_ORDER.indexOf(b.item)) || a.receipt_no.localeCompare(b.receipt_no));
@@ -44,11 +44,10 @@ export function exportFieldExcel(rows: FieldRow[], weekKey: string): void {
   ];
   sorted.forEach((r, i) => {
     const res = calc(r);
-    const v = verdictLabel(res);
     allAoa.push([
       i + 1, r.item, r.site_name, fullReceipt(r), r.site_val1, r.site_val2,
       res ? Number(res.labMean.toFixed(4)) : '', res?.fi ?? '',
-      res ? `${res.useRate ? res.limit + '%' : res.limit + 'mg/L'}` : '', v.text,
+      res ? `${res.useRate ? res.limit + '%' : res.limit + 'mg/L'}` : '', verdictText(res),
     ]);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(allAoa), '전체');
@@ -63,12 +62,12 @@ export function exportFieldExcel(rows: FieldRow[], weekKey: string): void {
       ['시료번호', '업체명', '접수번호', '측정값1', '측정값2', '실험실1-1', '1-2', '2-1', '2-2', '실험실평균', '오차(Fi)', '오차율(%)', '기준', '판정'],
     ];
     itemRows.forEach((r, i) => {
-      const res = calc(r); const v = verdictLabel(res); const lv = labVals(r);
+      const res = calc(r); const lv = labVals(r);
       aoa.push([
         i + 1, r.site_name, fullReceipt(r), r.site_val1, r.site_val2,
         lv[0] ?? '', lv[1] ?? '', lv[2] ?? '', lv[3] ?? '',
         res ? Number(res.labMean.toFixed(4)) : '', res?.fi ?? '', res?.rate ?? '',
-        res ? (res.useRate ? res.limit + '%' : res.limit + 'mg/L') : '', v.text,
+        res ? (res.useRate ? res.limit + '%' : res.limit + 'mg/L') : '', verdictText(res),
       ]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), ITEM_SHEET[item]);
