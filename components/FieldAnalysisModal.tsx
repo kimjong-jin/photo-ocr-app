@@ -5,7 +5,7 @@ import { exportFieldExcel } from '../services/fieldExcel';
 
 /**
  * 현장계수 수분석 큐 — 주(週) 단위 한 장 표.
- * 매칭키 = base 접수번호 + 항목명. 상태(대기/분석중/분석완료/재검사), 확인=큐 제거, 4주 자동정리.
+ * 매칭키 = base 접수번호 + 항목명. 상태 2가지(대기/분석완료, lab 유무로 자동), 확인=큐 제거, 4주 자동정리.
  * 데이터: /api/field-queue (→ Mac Studio :3333 field_queue).
  */
 
@@ -29,13 +29,12 @@ const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.ge
 const mondayOf = (d: Date) => { const x = new Date(d); const w = x.getDay(); x.setDate(x.getDate() + (w === 0 ? -6 : 1 - w)); x.setHours(0, 0, 0, 0); return x; };
 const weekKeyOf = (monday: Date) => { const sun = new Date(monday); sun.setDate(sun.getDate() + 6); return `${fmt(monday)}~${fmt(sun)}`; };
 
+// 상태 2가지만: 수분석 카톡(lab) 도착 → 분석완료, 없으면 대기(=분석대기). 자동 도출(수동 변경 없음).
 const STATUS_STYLE: Record<string, string> = {
   '대기': 'text-slate-400 bg-slate-700/40',
-  '분석중': 'text-amber-300 bg-amber-500/15',
   '분석완료': 'text-green-300 bg-green-500/15',
-  '재검사': 'text-red-300 bg-red-500/20',
 };
-const STATUS_CYCLE = ['대기', '분석중', '분석완료', '재검사'];
+const rowStatus = (r: { lab_data?: string }) => (r.lab_data && r.lab_data.trim() ? '분석완료' : '대기');
 
 // 실험실값(lab_data JSON) + 현장값으로 적합/부적합 계산
 interface Props { isOpen: boolean; onClose: () => void; }
@@ -115,15 +114,6 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
     return [...map.values()];
   }, [rows]);
 
-  const setStatus = async (receipt_no: string, item: string, status: string) => {
-    await fetch(`/api/field-queue?op=status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ receipt_no, item, status }) });
-    load();
-  };
-  const bulkStatus = async (status: string) => {
-    if (!window.confirm(`이번 주 전체를 '${status}'(으)로 변경할까요?`)) return;
-    await fetch(`/api/field-queue?op=status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ week_key: weekKey, status }) });
-    load();
-  };
   const confirmReceipt = async (g: { receipt_no: string; items: Record<string, Row> }) => {
     // 확인 = 그 접수번호의 모든 항목 큐에서 제거
     for (const it of Object.values(g.items)) {
@@ -136,7 +126,7 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
     load();
   };
 
-  const doneCount = rows.filter(r => r.status === '분석완료').length;
+  const doneCount = rows.filter(r => rowStatus(r) === '분석완료').length;
 
   if (!isOpen) return null;
 
@@ -161,13 +151,7 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
         <button onClick={() => setMonday(d => { const x = new Date(d); x.setDate(x.getDate() + 7); return x; })} className="w-8 h-8 rounded-lg bg-slate-700 text-slate-200 text-lg">›</button>
       </div>
 
-      {/* 일괄 상태 */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/40 border-b border-slate-700 shrink-0 flex-wrap">
-        <span className="text-[11px] text-slate-400 font-semibold">일괄</span>
-        <button onClick={() => bulkStatus('분석중')} className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-slate-600 text-amber-300">전부 분석중</button>
-        <button onClick={() => bulkStatus('분석완료')} className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-slate-600 text-green-300">전부 분석완료</button>
-        <button onClick={() => bulkStatus('대기')} className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-slate-600 text-slate-300">전부 대기</button>
-      </div>
+      {/* 상태는 자동(카톡 수분석 도착=분석완료, 없으면 대기) — 수동 일괄변경 없음 */}
 
       {/* 표 */}
       <div className="flex-1 overflow-auto p-3">
@@ -236,10 +220,7 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
                               </>
                             );
                           })()}
-                          <button
-                            onClick={() => { const cur = STATUS_CYCLE.indexOf(cell.status); setStatus(cell.receipt_no, cell.item, STATUS_CYCLE[(cur + 1) % STATUS_CYCLE.length]); }}
-                            className={`mt-1 block mx-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${STATUS_STYLE[cell.status] || STATUS_STYLE['대기']}`}
-                          >{cell.status}</button>
+                          <span className={`mt-1 block mx-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${STATUS_STYLE[rowStatus(cell)]}`}>{rowStatus(cell)}</span>
                         </td>
                       );
                     })}
