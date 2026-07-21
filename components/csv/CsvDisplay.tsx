@@ -1732,7 +1732,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
                     const nm = String(ch.name || '').toUpperCase().trim();
                     const matched: SensorType | null =
                       nm.startsWith('TU') || nm.includes('탁도') ? 'TU'
-                      : nm.startsWith('CL') || nm.includes('염소') ? 'Cl'
+                      : nm.startsWith('CL') || nm.startsWith('CI') || nm.includes('염소') ? 'Cl'
                       : nm.startsWith('SS') || nm.includes('부유') ? 'SS'
                       : nm.startsWith('PH') || nm.startsWith('P H') ? 'PH'
                       : nm.startsWith('DO') || nm.includes('용존') ? 'DO' : null;

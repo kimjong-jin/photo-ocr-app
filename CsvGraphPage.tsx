@@ -171,15 +171,23 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
 
         const isNewFile = activeJob.fileName !== fileNames;
 
-        // 채널명에서 sensorType 자동 추론 (채널탭 클릭과 동일한 매칭 로직)
+        // 채널명 + 단위(unit)에서 sensorType 자동 추론
         const inferSensorType = (channels: typeof firstParsed.channels): SensorType | null => {
           for (const ch of channels) {
             const nm = (ch.name || '').toUpperCase();
+            const unit = (ch.unit || '').toUpperCase();
+            // 채널명 우선 매칭
             if (nm.startsWith('TU') || nm.includes('탁도')) return 'TU';
-            if (nm.startsWith('CL') || nm.includes('염소')) return 'Cl';
+            if (nm.startsWith('CL') || nm.startsWith('CI') || nm.includes('염소')) return 'Cl';
             if (nm.startsWith('SS') || nm.includes('부유')) return 'SS';
-            if (nm.startsWith('PH') || nm.startsWith('P H') || nm.includes('수소') || nm.includes('pH')) return 'PH';
+            if (nm.startsWith('PH') || nm.startsWith('P H') || nm.includes('수소') || nm.includes('PH')) return 'PH';
             if (nm.startsWith('DO') || nm.includes('용존')) return 'DO';
+            // 채널명 매칭 실패 시 단위(unit)로 추론
+            if (unit.includes('NTU')) return 'TU';
+            if (unit.includes('MG/L') && (nm.includes('CL') || nm.includes('CI'))) return 'Cl';
+            if (unit === 'MG/L' && nm.startsWith('SS')) return 'SS';
+            if (unit.startsWith('PH') || unit === 'PH') return 'PH';
+            if (unit.includes('MG/L') && nm.startsWith('DO')) return 'DO';
           }
           return null;
         };
