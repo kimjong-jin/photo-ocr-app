@@ -976,6 +976,7 @@ interface CsvDisplayProps {
   sensorType: SensorType;
   SEQUENTIAL_POINT_ORDER: string[];
   onSendToKtl?: (graphBlob: Blob, tableBlob: Blob, results: any[]) => Promise<void>;
+  verdictSlot?: React.ReactNode;   // KTL 전송 옆 계산하기 버튼
 }
 
 export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
@@ -987,7 +988,7 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
     placingAiPointLabel, setPlacingAiPointLabel, handleManualAiPointPlacement,
     isFullScreenGraph, setIsFullScreenGraph,
     sequentialPlacementState, handleToggleSequentialPlacement, handleUndoSequentialPlacement,
-    handleSequentialPointPlacement, SEQUENTIAL_POINT_ORDER, onSendToKtl
+    handleSequentialPointPlacement, SEQUENTIAL_POINT_ORDER, onSendToKtl, verdictSlot
   } = props;
 
   const [unifiedResults, setUnifiedResults] = useState<any[]>([]);
@@ -1764,8 +1765,9 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
           >
             <CameraIcon />
           </button>
+          {verdictSlot}
           {onSendToKtl && (
-            <button 
+            <button
               onClick={handleKtlTransfer}
               disabled={activeJob.submissionStatus === 'sending'}
               className="px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-slate-700 text-white text-xs font-bold rounded-full transition-all flex items-center gap-2 shadow-lg"

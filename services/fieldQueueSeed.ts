@@ -6,7 +6,7 @@
  * 매칭키 = base 접수번호 + 항목명. -N(항목순번)은 안 씀.
  */
 import type { ExtractedEntry } from '../shared/types';
-import { ocrToFields, saveItemToCalcData, splitReceipt } from './verdictApi';
+import { ocrToFields, saveItemToCalcData, splitReceipt, loadCalcFields } from './verdictApi';
 
 // selectedItem 코드 → 큐 항목명(들). PH/DO 등은 대상 아님(매핑에 없으면 skip).
 const CODE_TO_ITEMS: Record<string, string[]> = {
@@ -72,12 +72,18 @@ export async function seedFieldQueueFromSend(args: SeedArgs): Promise<void> {
     const receipt_no = normalizeReceiptBase(args.receiptNumber);
     if (!receipt_no) return; // 접수번호 없으면 그냥 제외
     const week_key = currentWeekKey();
+    // 배출기준(TOC): 이번 세션 P1값 우선 → 없으면 calc_data(P1이 전날 저장한 DB)에서 fdis 로드.
+    // field_queue.toc_std(31일)에 남겨 나중에 현장적용계수 계산에 씀. P1/P2 세션 달라도 이어짐.
+    let tocStd = args.tocStd || '';
+    if (!tocStd && items.includes('총유기탄소')) {
+      try { const cf = await loadCalcFields(args.receiptNumber, args.userName, 'TOC'); if (cf?.fdis) tocStd = String(cf.fdis); } catch { /* best-effort */ }
+    }
     const entries = items.map(item => {
       const { v1, v2 } = siteVals(item, args.ocrData);
       return {
         receipt_no, item, site_name: args.siteName || '', manager: args.userName || '',
         site_val1: v1, site_val2: v2,
-        toc_std: item === '총유기탄소' ? (args.tocStd || '') : '',
+        toc_std: item === '총유기탄소' ? tocStd : '',
         week_key,
       };
     }).filter(e => e.site_val1 || e.site_val2); // 현장값 하나도 없으면 seed 안 함

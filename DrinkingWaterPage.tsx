@@ -877,22 +877,6 @@ return (
                 )}
             </div>
         </div>
-        {/* 먹는물 정도검사 계산하기 — TU·Cl 각각 계산기 API로 적합/부적합. range는 P1 저장분/calc_data에서, 없으면 입력. */}
-        {activeJob.processedOcrData?.length ? (() => {
-          const sel = String(activeJob.selectedItem || '').toUpperCase().replace(/\s/g, '');
-          const sides: Array<'TU' | 'CL'> = sel === 'TU/CL' ? ['TU', 'CL'] : sel === 'TU' ? ['TU'] : sel === 'CL' ? ['CL'] : [];
-          const btns = sides.map(w => ({ w, f: drinkingWaterToFields(activeJob.processedOcrData, w) })).filter(x => Object.keys(x.f).length);
-          if (!btns.length) return null;
-          return (
-            <div className="flex items-center justify-end gap-2 py-1">
-              <span className="text-[11px] text-slate-500">정도검사 판정:</span>
-              {btns.map(b => (
-                <VerdictButton key={b.w} ocrData={null} selectedItem={b.w === 'CL' ? 'Cl' : 'TU'}
-                  receiptNumber={activeJob.receiptNumber || ''} userName={userName} fieldsOverride={b.f} />
-              ))}
-            </div>
-          );
-        })() : null}
         <OcrResultDisplay
             ocrData={activeJob.processedOcrData}
             error={processingError}
@@ -946,7 +930,24 @@ return (
 
   {jobs.length > 0 && (
     <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
-        <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h3 className="text-xl font-bold text-teal-400">KTL 일괄 전송</h3>
+          {/* 보내기 전 활성 작업 정도검사 계산(TU·Cl). 자동 칩도 여기 표시. */}
+          {activeJob?.processedOcrData?.length ? (() => {
+            const sel = String(activeJob.selectedItem || '').toUpperCase().replace(/\s/g, '');
+            const sides: Array<'TU' | 'CL'> = sel === 'TU/CL' ? ['TU', 'CL'] : sel === 'TU' ? ['TU'] : sel === 'CL' ? ['CL'] : [];
+            const btns = sides.map(w => ({ w, f: drinkingWaterToFields(activeJob.processedOcrData, w) })).filter(x => Object.keys(x.f).length);
+            if (!btns.length) return null;
+            return (
+              <span className="flex items-center gap-2 flex-wrap">
+                {btns.map(b => (
+                  <VerdictButton key={b.w} ocrData={null} selectedItem={b.w === 'CL' ? 'Cl' : 'TU'}
+                    receiptNumber={activeJob.receiptNumber || ''} userName={userName} fieldsOverride={b.f} />
+                ))}
+              </span>
+            );
+          })() : null}
+        </div>
         <p className="text-sm text-slate-400">
             이 페이지의 모든 작업을 KTL로 전송합니다. 각 작업에 입력된 데이터가 있어야 합니다.
         </p>

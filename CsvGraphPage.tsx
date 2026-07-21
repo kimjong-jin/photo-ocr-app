@@ -576,19 +576,6 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
       {isLoading && (<div className="flex justify-center items-center py-10"><Spinner /><span className="ml-3 text-slate-300">파일을 분석 중입니다...</span></div>)}
       {error && <p className="text-red-400 text-center p-4 bg-red-900/30 rounded-md">{error}</p>}
 
-      {/* P5 정도검사 계산하기 — SS·TU·Cl 지원(z/s/m 직결). pH/DO 는 라벨 체계 달라 추후. 계산은 계산기 API 단일 출처 */}
-      {activeJob && activeJob.parsedData && activeJob.aiAnalysisResult && (() => {
-        const fields = csvToFields(activeJob.aiAnalysisResult, activeJob.sensorType);
-        if (!fields || !Object.keys(fields).length) return null;
-        // CSV 측정범위 → range (SS/TU/Cl 계산에 필요). pH/DO는 무시됨.
-        if (activeJob.parsedData?.measurementRange != null && !fields.range) fields.range = String(activeJob.parsedData.measurementRange);
-        return (
-          <div className="flex items-center justify-end gap-2 py-1">
-            <span className="text-[11px] text-slate-500">분석점 {Object.keys(fields).length}개 →</span>
-            <VerdictButton ocrData={null} selectedItem={activeJob.sensorType} receiptNumber={activeJob.receiptNumber || ''} userName={userName} fieldsOverride={fields} />
-          </div>
-        );
-      })()}
 
       {activeJob && activeJob.parsedData && (
         <CsvDisplay
@@ -630,6 +617,13 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
           sensorType={activeJob.sensorType}
           SEQUENTIAL_POINT_ORDER={SEQUENTIAL_POINT_ORDER}
           onSendToKtl={handleSendToKtl}
+          verdictSlot={(() => {
+            // KTL 전송 옆 계산하기 — SS·TU·Cl·pH/DO. 자동 칩도 여기 표시. 계산은 계산기 API 단일 출처.
+            const fields = csvToFields(activeJob.aiAnalysisResult, activeJob.sensorType);
+            if (!fields || !Object.keys(fields).length) return null;
+            if (activeJob.parsedData?.measurementRange != null && !fields.range) fields.range = String(activeJob.parsedData.measurementRange);
+            return <VerdictButton ocrData={null} selectedItem={activeJob.sensorType} receiptNumber={activeJob.receiptNumber || ''} userName={userName} fieldsOverride={fields} />;
+          })()}
         />
       )}
     </div>
