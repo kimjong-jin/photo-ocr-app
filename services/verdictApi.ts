@@ -194,7 +194,15 @@ export async function saveItemToCalcData(p: {
   data.fields[tab.id] = merged;
 
   // 4) 판정도 계산해 탭에 저장(단일 출처 API). 실패해도 데이터 저장은 진행.
-  try { const vd = await callVerdict(code, merged); tab.pass = vd.pass; } catch { /* 판정은 나중에 계산기에서 */ }
+  //    표준용액 정도검사 결과(ok/bad)면 현장계수 큐(field_queue, 31일)에도 요약 저장 — calc_data(10일) 만료 후에도 표시.
+  try {
+    const vd = await callVerdict(code, merged);
+    tab.pass = vd.pass;
+    const itemName = CODE_TO_ITEM_NAME[code];
+    if (itemName && (vd.pass === 'ok' || vd.pass === 'bad')) {
+      storeStdVerdict(receiptNo, itemName, stdSummary(vd));   // best-effort, 존재하는 행만 UPDATE
+    }
+  } catch { /* 판정은 나중에 계산기에서 */ }
 
   // 5) 업서트 저장(base 키로 덮어쓰기). 소유자(userName)는 기존 고객 유지, 없으면 담당자(우리) 이름으로 신규.
   try {
@@ -218,10 +226,47 @@ export async function callVerdict(code: string, fields: Record<string, any>): Pr
   return data as VerdictResult;
 }
 
-// 항목명(한글) → 계산기 code
+// 항목명(한글) ↔ 계산기 code
 const ITEM_NAME_TO_CODE: Record<string, string> = {
   '총유기탄소': 'TOC', '총질소': 'TN', '총인': 'TP', '부유물질': 'SS', '화학적산소요구량': 'COD',
 };
+const CODE_TO_ITEM_NAME: Record<string, string> = {
+  TOC: '총유기탄소', TN: '총질소', TP: '총인', SS: '부유물질', COD: '화학적산소요구량',
+};
+
+// 정도검사 체크 라벨 → 짧은 약어(반/제드/스드/직/응/온/포). 현장적용계수는 표준용액 요약에서 제외(null).
+function shortTestName(label: string): string | null {
+  const s = String(label || '');
+  if (s.includes('현장적용')) return null;
+  if (s.includes('반복성')) return '반';
+  if (s.includes('제로드리프트')) return '제드';
+  if (s.includes('스팬드리프트')) return '스드';
+  if (s.includes('드리프트')) return '드';
+  if (s.includes('직선성')) return '직';
+  if (s.includes('응답')) return '응';
+  if (s.includes('온도')) return '온';
+  if (s.includes('포도당')) return '포';
+  return null;
+}
+// 판정 결과 → 표준용액 요약 { pass:'ok'|'bad'|'', failed:[시험명] }. 현장적용 제외한 종합.
+export function stdSummary(v: { pass: 'ok' | 'bad' | ''; checks?: { label: string; pass: boolean | null }[] }): { pass: string; failed: string[] } {
+  const failed: string[] = []; const seen = new Set<string>();
+  for (const c of v.checks || []) {
+    const nm = shortTestName(c.label);
+    if (nm && c.pass === false && !seen.has(nm)) { seen.add(nm); failed.push(nm); }
+  }
+  return { pass: v.pass, failed };
+}
+
+// 표준용액 요약을 field_queue(31일)에 저장 — 존재하는 행만 UPDATE(신규 생성 안 함). best-effort.
+export async function storeStdVerdict(receiptBase: string, itemName: string, summary: { pass: string; failed: string[] }): Promise<void> {
+  try {
+    await fetch('/api/field-queue?op=std', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ receipt_no: receiptBase, item: itemName, std_verdict: JSON.stringify(summary) }),
+    });
+  } catch { /* best-effort */ }
+}
 
 export interface FieldQueueRowLite {
   receipt_no: string; item: string; site_val1: string; site_val2: string; lab_data: string; toc_std: string;
@@ -342,6 +387,53 @@ export async function saveRangeToCalcData(p: {
       await saveItemToCalcData({ receiptNo: rcpt, userName: p.userName, siteName: p.siteName || '', code, fields: { range } });
     } catch { /* best-effort */ }
   }
+}
+
+/**
+ * 현장계수 행들의 표준용액 정도검사 요약을 계산기 calc_data에서 계산(모달 폴백 — 저장분 없을 때).
+ * base 접수번호별로 calc_data 로드→항목 탭 fields→verdict API→ {pass, failed:[약어]}.
+ * @returns Map<`${receipt_no}|${item}`, {pass, failed}|null>
+ */
+export async function computeStandardVerdicts(rows: { receipt_no: string; item: string }[]): Promise<Map<string, { pass: string; failed: string[] }>> {
+  const map = new Map<string, { pass: string; failed: string[] }>();
+  // base별 calc_data 로드(중복 제거)
+  const bases = new Map<string, any>();
+  for (const r of rows) {
+    const base = splitReceipt(r.receipt_no).base;
+    if (!bases.has(base)) bases.set(base, undefined);
+  }
+  await Promise.all([...bases.keys()].map(async base => {
+    try {
+      const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(base)}`);
+      if (res.ok) { const d = await res.json(); bases.set(base, d?.data || null); }
+    } catch { /* skip */ }
+  }));
+  // 항목별 fields 수집
+  const items: { key: string; code: string; fields: Record<string, any> }[] = [];
+  for (const r of rows) {
+    const code = ITEM_NAME_TO_CODE[r.item];
+    if (!code) continue;
+    const data = bases.get(splitReceipt(r.receipt_no).base);
+    if (!data?.tabs?.length) continue;
+    const tab = data.tabs.find((t: any) => String(t.code).toUpperCase() === code);
+    if (!tab) continue;
+    const fields = data.fields?.[tab.id];
+    if (!fields) continue;
+    items.push({ key: `${r.receipt_no}|${r.item}`, code, fields });
+  }
+  if (!items.length) return map;
+  try {
+    const res = await fetch(VERDICT_API, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: items.map(i => ({ code: i.code, fields: i.fields })) }),
+    });
+    const data = await res.json();
+    if (data?.results) items.forEach((it, i) => {
+      const v = data.results[i];
+      if (v && (v.pass === 'ok' || v.pass === 'bad')) map.set(it.key, stdSummary(v));
+    });
+  } catch { /* 실패 시 빈 맵 */ }
+  return map;
 }
 
 // 계산기 calc_data(접수번호)에서 기존 fields 조회 — range 등 이미 입력된 값 재사용용.

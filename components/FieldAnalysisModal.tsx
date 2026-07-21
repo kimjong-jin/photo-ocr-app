@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { computeFieldVerdicts } from '../services/verdictApi';
+import { computeFieldVerdicts, computeStandardVerdicts, storeStdVerdict, splitReceipt } from '../services/verdictApi';
 import { exportFieldExcel } from '../services/fieldExcel';
 
 /**
@@ -20,7 +20,7 @@ const ITEMS = [
 type Row = {
   receipt_no: string; item: string; site_name: string; manager: string;
   site_val1: string; site_val2: string; toc_std: string;
-  lab_data: string; detail: string; verdict: string; week_key: string; status: string;
+  lab_data: string; detail: string; verdict: string; std_verdict: string; week_key: string; status: string;
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -45,15 +45,24 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [rows, setRows] = useState<Row[]>([]);
   // 현장적용 판정 = 계산기 API 결과 맵 (parser는 계산 안 함). key = `${receipt_no}|${item}`
   const [verdicts, setVerdicts] = useState<Map<string, any>>(new Map());
+  // 표준용액 정도검사 요약 { pass:'ok'|'bad'|'', failed:[약어] } — field_queue 저장분 or calc_data 계산.
+  const [stdMap, setStdMap] = useState<Map<string, { pass: string; failed: string[] }>>(new Map());
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const weekKey = useMemo(() => weekKeyOf(monday), [monday]);
 
-  // cell → { ok } (계산기 API 결과에서)
-  const cellVerdict = useCallback((cell: Row): { ok: boolean | null } => {
-    const v = verdicts.get(`${cell.receipt_no}|${cell.item}`);
-    return { ok: v ? (v.pass === null || v.pass === undefined ? null : !!v.pass) : null };
-  }, [verdicts]);
+  // cell → 최종 판정. 표준용액(정도검사) ∧ 현장적용. 하나라도 부적합이면 부적합, 둘 다 적합이어야 적합.
+  const cellVerdict = useCallback((cell: Row): { final: boolean | null; fieldOk: boolean | null; std: { pass: string; failed: string[] } | null } => {
+    const key = `${cell.receipt_no}|${cell.item}`;
+    const fv = verdicts.get(key);
+    const fieldOk: boolean | null = fv ? (fv.pass === null || fv.pass === undefined ? null : !!fv.pass) : null;
+    const std = stdMap.get(key) || null;
+    const stdBad = std?.pass === 'bad', stdOk = std?.pass === 'ok';
+    let final: boolean | null = null;
+    if (stdBad || fieldOk === false) final = false;                 // 하나라도 부적합
+    else if (stdOk && fieldOk === true) final = true;               // 둘 다 적합
+    return { final, fieldOk, std };
+  }, [verdicts, stdMap]);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -75,7 +84,22 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
       if (need.length) computeFieldVerdicts(need as any).then(m => {
         setVerdicts(prev => { const merged = new Map(prev); m.forEach((v, k) => merged.set(k, v)); return merged; });
       }).catch(() => {});
-    } catch (e: any) { setErr(e.message); setRows([]); setVerdicts(new Map()); }
+
+      // 표준용액 요약: field_queue 저장분(31일) 우선 → 없는 행만 calc_data에서 계산+저장.
+      const sMap = new Map<string, { pass: string; failed: string[] }>();
+      const sNeed: Row[] = [];
+      for (const r of rws) {
+        const key = `${r.receipt_no}|${r.item}`;
+        if (r.std_verdict && r.std_verdict.trim()) { try { sMap.set(key, JSON.parse(r.std_verdict)); continue; } catch {} }
+        sNeed.push(r);
+      }
+      setStdMap(sMap);
+      if (sNeed.length) computeStandardVerdicts(sNeed).then(m => {
+        setStdMap(prev => { const merged = new Map(prev); m.forEach((v, k) => merged.set(k, v)); return merged; });
+        // 계산된 요약은 field_queue(31일)에 저장 → calc_data 만료 후에도 표시
+        m.forEach((v, k) => { const [rc, it] = k.split('|'); storeStdVerdict(splitReceipt(rc).base, it, v); });
+      }).catch(() => {});
+    } catch (e: any) { setErr(e.message); setRows([]); setVerdicts(new Map()); setStdMap(new Map()); }
     finally { setLoading(false); }
   }, [weekKey]);
 
@@ -190,9 +214,28 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
                             </>
                           )}
                           {it.short === 'TOC' && cell.toc_std && <div className="mt-0.5 text-[9px] font-bold text-orange-300 bg-orange-500/15 rounded px-1 inline-block">기준 {cell.toc_std}</div>}
-                          {(() => { const v = cellVerdict(cell); return v.ok !== null ? (
-                            <div className={`mt-0.5 text-[10px] font-extrabold ${v.ok ? 'text-green-400' : 'text-red-400'}`}>{v.ok ? '✔ 적합' : '✘ 부적합'}</div>
-                          ) : null; })()}
+                          {(() => {
+                            const v = cellVerdict(cell);
+                            // 부적합 사유: 표준용액 실패 약어 반(부) + 현장(부)
+                            const reasons: string[] = [];
+                            if (v.std?.pass === 'bad') reasons.push(...(v.std.failed || []).map(f => `${f}(부)`));
+                            if (v.fieldOk === false) reasons.push('현장(부)');
+                            return (
+                              <>
+                                {v.final !== null && (
+                                  <div className={`mt-0.5 text-[10px] font-extrabold ${v.final ? 'text-green-400' : 'text-red-400'}`}>
+                                    {v.final ? '✔ 최종 적합' : '✘ 최종 부적합'}
+                                  </div>
+                                )}
+                                {reasons.length > 0 && (
+                                  <div className="text-[9px] font-bold text-red-400 leading-tight">{reasons.join(' ')}</div>
+                                )}
+                                {v.final === null && v.std?.pass === 'ok' && v.fieldOk === null && (
+                                  <div className="text-[9px] text-slate-500 leading-tight">표준 적합·현장대기</div>
+                                )}
+                              </>
+                            );
+                          })()}
                           <button
                             onClick={() => { const cur = STATUS_CYCLE.indexOf(cell.status); setStatus(cell.receipt_no, cell.item, STATUS_CYCLE[(cur + 1) % STATUS_CYCLE.length]); }}
                             className={`mt-1 block mx-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${STATUS_STYLE[cell.status] || STATUS_STYLE['대기']}`}

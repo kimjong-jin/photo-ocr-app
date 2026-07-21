@@ -21,6 +21,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let path = '/api/field-queue';
   if (req.method === 'GET') path += week;
   else if (req.method === 'POST' && op === 'lab') path += '/lab';
+  else if (req.method === 'POST' && op === 'std') path += '/std';
   else if (req.method === 'POST' && op === 'status') path += '/status';
 
   try {
