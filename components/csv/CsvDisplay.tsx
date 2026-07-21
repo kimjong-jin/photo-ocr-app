@@ -298,25 +298,27 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   const getChannelData = useMemo(() => {
     const rawData = fullChannelData;
-      
-    // ✅ 메인 그래프 다운샘플링 (성능 최적화)
-    // 뷰포트 안에 있는 데이터만 필터링한 후, 픽셀 수에 맞춰 샘플링
-    const visibleData = rawData.filter(d => d.timestamp.getTime() >= viewportMin && d.timestamp.getTime() <= viewportMax);
+    const n = rawData.length;
+    if (!n) return rawData;
+
+    // ✅ 뷰포트 경계를 이진탐색으로 찾음(데이터는 시간순 정렬) — 매 이동마다 전체 filter(O(n)) 하던 것 제거 → 팬 부드러움
+    const ts = (i: number) => rawData[i].timestamp.getTime();
+    let lo = 0, hi = n;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (ts(m) < viewportMin) lo = m + 1; else hi = m; }
+    const startIdx = lo;
+    lo = startIdx; hi = n;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (ts(m) <= viewportMax) lo = m + 1; else hi = m; }
+    const visibleData = rawData.slice(startIdx, lo);   // lo = viewportMax 초과 첫 인덱스(exclusive)
+
+    // 픽셀 수에 맞춰 다운샘플링
     if (width > 0 && visibleData.length > width * 3) {
       const sampled = [];
       const step = Math.floor(visibleData.length / width);
-      for (let i = 0; i < visibleData.length; i += step) {
-        sampled.push(visibleData[i]);
-      }
-      // 마지막 점 포함
-      if (sampled[sampled.length - 1] !== visibleData[visibleData.length - 1]) {
-        sampled.push(visibleData[visibleData.length - 1]);
-      }
+      for (let i = 0; i < visibleData.length; i += step) sampled.push(visibleData[i]);
+      if (sampled.length && sampled[sampled.length - 1] !== visibleData[visibleData.length - 1]) sampled.push(visibleData[visibleData.length - 1]);
       return sampled;
     }
-    
-    // 전체 데이터를 반환하되, 실제 그릴 때는 mapX 범위 내인지 확인됨
-    return visibleData.length > 0 ? visibleData : rawData; // 뷰포트 내 데이터가 없으면 일단 원본 반환 (가이드라인 등 처리용)
+    return visibleData.length > 0 ? visibleData : rawData;   // 뷰포트 내 없으면 원본(가이드라인 등)
   }, [fullChannelData, viewportMin, viewportMax, width]);
 
   const getYBounds = useMemo(() => {

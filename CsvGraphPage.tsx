@@ -169,6 +169,23 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
         const firstParsed = parsedResults[0];
         const fileNames = fileArray.map(f => (f as File).name).join(', ');
 
+        const isNewFile = activeJob.fileName !== fileNames;
+
+        // 채널명에서 sensorType 자동 추론 (채널탭 클릭과 동일한 매칭 로직)
+        const inferSensorType = (channels: typeof firstParsed.channels): SensorType | null => {
+          for (const ch of channels) {
+            const nm = (ch.name || '').toUpperCase();
+            if (nm.startsWith('TU') || nm.includes('탁도')) return 'TU';
+            if (nm.startsWith('CL') || nm.includes('염소')) return 'Cl';
+            if (nm.startsWith('SS') || nm.includes('부유')) return 'SS';
+            if (nm.startsWith('PH') || nm.startsWith('P H') || nm.includes('수소') || nm.includes('pH')) return 'PH';
+            if (nm.startsWith('DO') || nm.includes('용존')) return 'DO';
+          }
+          return null;
+        };
+
+        const autoSensorType = isNewFile ? inferSensorType(firstParsed.channels) : null;
+
         updateActiveJob(job => ({
             ...job,
             fileName: fileNames,
@@ -179,10 +196,12 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
                 fileName: fileNames,
                 measurementRange: firstParsed.measurementRange
             },
-            channelAnalysis: job.fileName === fileNames ? job.channelAnalysis : {},
+            channelAnalysis: isNewFile ? {} : job.channelAnalysis,
             autoMinMaxResults: null,
-            selectedChannelId: job.fileName === fileNames ? job.selectedChannelId : (firstParsed.channels[0]?.id || null),
-            timeRangeInMs: job.fileName === fileNames ? job.timeRangeInMs : 'all',
+            selectedChannelId: isNewFile ? (firstParsed.channels[0]?.id || null) : job.selectedChannelId,
+            timeRangeInMs: isNewFile ? 'all' : job.timeRangeInMs,
+            // 새 파일이고 채널명에서 sensorType 추론 가능하면 자동 설정
+            ...(isNewFile && autoSensorType ? { sensorType: autoSensorType } : {}),
             viewEndTimestamp: null,
             isRangeSelecting: false,
             isMaxMinMode: false,
