@@ -758,6 +758,20 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     }
   }, [receiptNumber, locationList, newItemKey]);
 
+  // 위치 도우미: 저장된 주소 자동 복원.
+  // 접수번호칸(locReceiptInput, 또는 메인 receiptNumber)에 저장된 위치가 있고 주소칸이 비어 있으면 채움.
+  // → 저장 후 주소가 클리어돼도 재저장 가능(버튼 활성화). 주소가 이미 있으면(GPS/역검색/직접입력) 안 건드림.
+  useEffect(() => {
+    const rid = (locReceiptInput.trim() || receiptNumber || '').trim();
+    if (!rid || currentGpsAddress.trim()) return;
+    const base = rid.split('-').slice(0, 3).join('-');
+    const matched = locationList.find(l => l.id === rid) || locationList.find(l => l.id === base);
+    if (matched?.address) {
+      setCurrentGpsAddress(matched.address);
+      if (matched.lat && matched.lng) setCoords({ lat: matched.lat, lng: matched.lng });
+    }
+  }, [locReceiptInput, receiptNumber, locationList, currentGpsAddress]);
+
   const getReceiptNumberForSaveLoad = useCallback(() => {
     let rn: string | null = receiptNumber;
     if (activePage === 'photoLog' && activePhotoLogJobId) {
