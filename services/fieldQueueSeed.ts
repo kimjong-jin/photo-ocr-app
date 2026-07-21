@@ -6,7 +6,7 @@
  * 매칭키 = base 접수번호 + 항목명. -N(항목순번)은 안 씀.
  */
 import type { ExtractedEntry } from '../shared/types';
-import { ocrToFields, saveItemToCalcData } from './verdictApi';
+import { ocrToFields, saveItemToCalcData, splitReceipt } from './verdictApi';
 
 // selectedItem 코드 → 큐 항목명(들). PH/DO 등은 대상 아님(매핑에 없으면 skip).
 const CODE_TO_ITEMS: Record<string, string[]> = {
@@ -107,12 +107,14 @@ export async function saveCalcDataFromSend(args: SeedArgs): Promise<void> {
     if (!codes) return;
     const receipt_no = normalizeReceiptBase(args.receiptNumber);
     if (!receipt_no) return;
+    // MULTI(TN/TP)는 세부 슬롯 하나에 두 항목이 못 들어가니 base로 code매칭(별도 탭). 단일은 세부번호 슬롯 그대로.
+    const rcpt = codes.length > 1 ? splitReceipt(receipt_no).base : receipt_no;
     for (const code of codes) {
       const fields: Record<string, any> = ocrToFields(args.ocrData as any, code);
       if (code === 'TOC' && args.tocStd) fields.fdis = args.tocStd;   // 배출기준 → 현장적용계수 판정용
       if (!Object.keys(fields).length) continue;                      // 매핑되는 측정값 없으면 skip
       await saveItemToCalcData({
-        receiptNo: receipt_no, userName: args.userName || '', siteName: args.siteName || '', code, fields,
+        receiptNo: rcpt, userName: args.userName || '', siteName: args.siteName || '', code, fields,
       });
     }
   } catch (e) {

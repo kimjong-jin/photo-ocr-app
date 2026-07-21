@@ -112,27 +112,41 @@ export function csvToFields(aiAnalysisResult: Record<string, any> | null | undef
   return null;   // 그 외 미지원
 }
 
-/**
- * 전송(P2/P5) 시 우리 측정값을 계산기 calc_data(:3333, 접수번호)에 자동 저장.
- * 같은 접수번호의 해당 항목(code) 탭에 우리 값을 덮어씀(우리 분석 우선). 다른 항목 탭·range 등은 보존.
- * @returns 저장 성공 여부
- */
-// 접수번호 정규화(전각→반각·하이픈 통일·공백 제거) — P1/P2/P5 저장 키를 동일하게 맞춤.
+// 접수번호 정규화(전각→반각·하이픈 통일·공백 제거) — P1/P2/P4/P5 저장 키를 동일하게 맞춤.
 export function normReceipt(s: string): string {
   return String(s || '')
     .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
     .replace(/[－—–−]/g, '-').replace(/[\s　]/g, '').trim();
 }
+// 접수번호 → base(앞3파트) + 세부번호(4번째, 없으면 null). 25-000000-01-1 → base '25-000000-01', 세부 1.
+export function splitReceipt(receipt: string): { base: string; detailNo: number | null } {
+  const norm = normReceipt(receipt);
+  const parts = norm.split('-');
+  if (parts.length >= 4) {
+    const n = parseInt(parts[3], 10);
+    return { base: parts.slice(0, 3).join('-'), detailNo: Number.isFinite(n) ? n : null };
+  }
+  return { base: norm, detailNo: null };
+}
+// 탭의 세부번호(계산기 subNoOf와 동일): subNo 또는 label 끝번호(CODE-N).
+const tabSubNo = (t: any) => Number(t?.subNo) || parseInt(String(t?.label || '').split('-').pop() || '', 10) || 0;
 
+/**
+ * 전송 시 우리 측정값을 계산기 calc_data(:3333)에 저장. **우리 전송이 정본** — 고객 계산은 중간 테스트일 뿐.
+ * 저장은 항상 base 접수번호(고객 레코드와 병합). 접수번호에 세부번호(-N)가 있으면 그 **슬롯(subNo)**에
+ * 우리 항목을 배치 — 고객이 그 슬롯에 다른 항목을 뒀어도 우리 항목으로 **교체**(값·code·label 덮음).
+ * 세부번호 없으면 항목코드로 매칭(폴백). range·fdis 등은 항목이 같을 때만 보존.
+ * @returns 저장 성공 여부
+ */
 export async function saveItemToCalcData(p: {
   receiptNo: string; userName: string; siteName?: string;
   code: string; fields: Record<string, any>;
 }): Promise<boolean> {
-  const receiptNo = normReceipt(p.receiptNo);
+  const { base: receiptNo, detailNo } = splitReceipt(p.receiptNo);
   if (!receiptNo || !p.userName) return false;
   const code = String(p.code).toUpperCase();
 
-  // 1) 기존 calc_data 로드(있으면 병합 대상)
+  // 1) 기존 calc_data 로드(base 키 — 고객 입력과 병합)
   let data: any = { tabs: [], activeId: '', fields: {}, maxSubNo: 0 };
   try {
     const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(receiptNo)}`);
@@ -141,25 +155,47 @@ export async function saveItemToCalcData(p: {
   if (!Array.isArray(data.tabs)) data.tabs = [];
   if (!data.fields || typeof data.fields !== 'object') data.fields = {};
 
-  // 2) 같은 code 탭 찾기 / 없으면 생성
-  let tab = data.tabs.find((t: any) => String(t.code).toUpperCase() === code);
-  if (!tab) {
-    const subNo = (Number(data.maxSubNo) || data.tabs.length) + 1;
-    const id = `tab_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
-    tab = { id, code, label: `${code}-${subNo}`, pass: '', subNo };
-    data.tabs.push(tab); data.maxSubNo = subNo; data.fields[id] = {};
-    if (!data.activeId) data.activeId = id;
+  // 2) 탭 선택
+  let tab: any;
+  let codeChanged = false;
+  if (detailNo != null) {
+    // 세부번호 슬롯으로 키잉 — 우리 전송이 슬롯의 항목을 정함
+    tab = data.tabs.find((t: any) => tabSubNo(t) === detailNo);
+    if (tab) {
+      if (String(tab.code).toUpperCase() !== code) {   // 고객이 다른 항목을 뒀으면 교체
+        tab.code = code; tab.label = `${code}-${detailNo}`; tab.pass = '';
+        data.fields[tab.id] = {};                       // 항목 바뀌면 이전(고객) 값 폐기
+        codeChanged = true;
+      }
+    } else {
+      const id = `tab_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+      tab = { id, code, label: `${code}-${detailNo}`, pass: '', subNo: detailNo };
+      data.tabs.push(tab); data.fields[id] = {};
+      data.maxSubNo = Math.max(Number(data.maxSubNo) || 0, detailNo);
+    }
+    data.tabs.sort((a: any, b: any) => tabSubNo(a) - tabSubNo(b));   // 세부번호 오름차순 표시
+    data.activeId = tab.id;
+  } else {
+    // 세부번호 없음 → 항목코드 매칭(폴백)
+    tab = data.tabs.find((t: any) => String(t.code).toUpperCase() === code);
+    if (!tab) {
+      const subNo = (Number(data.maxSubNo) || data.tabs.length) + 1;
+      const id = `tab_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+      tab = { id, code, label: `${code}-${subNo}`, pass: '', subNo };
+      data.tabs.push(tab); data.maxSubNo = subNo; data.fields[id] = {};
+      if (!data.activeId) data.activeId = id;
+    }
   }
 
-  // 3) 우리 값으로 덮기(빈 값은 안 덮음 → 기존 range/fdis 보존)
-  const merged: Record<string, any> = { ...(data.fields[tab.id] || {}) };
+  // 3) 우리 값으로 덮기(빈 값은 안 덮음). 항목 교체 시엔 fields가 이미 비워져 순수 우리 값만.
+  const merged: Record<string, any> = codeChanged ? {} : { ...(data.fields[tab.id] || {}) };
   for (const [k, v] of Object.entries(p.fields)) if (v != null && String(v).trim() !== '') merged[k] = String(v);
   data.fields[tab.id] = merged;
 
   // 4) 판정도 계산해 탭에 저장(단일 출처 API). 실패해도 데이터 저장은 진행.
   try { const vd = await callVerdict(code, merged); tab.pass = vd.pass; } catch { /* 판정은 나중에 계산기에서 */ }
 
-  // 5) 업서트 저장(덮어쓰기)
+  // 5) 업서트 저장(base 키로 덮어쓰기)
   try {
     const res = await fetch(CALC_API, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -261,10 +297,12 @@ export async function saveDrinkingWaterToCalcData(p: {
 }): Promise<void> {
   const sel = String(p.selectedItem || '').toUpperCase().replace(/\s/g, '');
   const sides: Array<'TU' | 'CL'> = sel === 'TU/CL' ? ['TU', 'CL'] : sel === 'TU' ? ['TU'] : sel === 'CL' ? ['CL'] : [];
+  // MULTI(TU/CL)는 세부 한 개에 두 항목이 못 들어가니 base로 code매칭(별도 탭). 단일은 세부 슬롯 그대로.
+  const rcpt = sides.length > 1 ? splitReceipt(p.receiptNo).base : p.receiptNo;
   for (const which of sides) {
     const fields = drinkingWaterToFields(p.ocrData, which);
     if (!Object.keys(fields).length) continue;
-    try { await saveItemToCalcData({ receiptNo: p.receiptNo, userName: p.userName, siteName: p.siteName || '', code: which, fields }); } catch { /* best-effort */ }
+    try { await saveItemToCalcData({ receiptNo: rcpt, userName: p.userName, siteName: p.siteName || '', code: which, fields }); } catch { /* best-effort */ }
   }
 }
 
@@ -296,9 +334,11 @@ export async function saveRangeToCalcData(p: {
   const key = String(p.itemKey || '').toUpperCase().replace(/\s/g, '');
   const codes = ITEMKEY_TO_CALC[key];
   if (!codes) return;   // PH/DO 등 제외
+  // MULTI는 base로 code매칭(별도 탭), 단일은 세부 슬롯 그대로.
+  const rcpt = codes.length > 1 ? splitReceipt(p.receiptNo).base : p.receiptNo;
   for (const code of codes) {
     try {
-      await saveItemToCalcData({ receiptNo: p.receiptNo, userName: p.userName, siteName: p.siteName || '', code, fields: { range } });
+      await saveItemToCalcData({ receiptNo: rcpt, userName: p.userName, siteName: p.siteName || '', code, fields: { range } });
     } catch { /* best-effort */ }
   }
 }
