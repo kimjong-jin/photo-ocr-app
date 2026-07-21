@@ -42,10 +42,10 @@ export const VerdictButton: React.FC<Props> = ({ ocrData, selectedItem, receiptN
           fields.range = r.trim();
         }
       }
-      // pH/DO 응답시간은 P5 그래프에 없음 → 선택 입력(건너뛰면 종합은 '미완성', 개별 시험은 표시).
+      // pH/DO 응답시간은 보통 ST→EN(CSV 지정)에서 자동 계산됨. ST/EN 미지정 등으로 비었을 때만 수동 입력(폴백).
       if ((code === 'PH' || code === 'DO') && (fields.resp == null || fields.resp === '')) {
         const lim = code === 'PH' ? '30초' : '120초';
-        const rr = window.prompt(`응답시간(초)을 입력하세요 — ${code} 판정 기준 ≤${lim}. 모르면 비워두고 확인.`, '');
+        const rr = window.prompt(`응답시간(초) — ${code} 기준 ≤${lim}. (ST·EN이 지정돼 있으면 자동 계산됩니다. 없으면 입력, 모르면 비워두고 확인)`, '');
         if (rr && rr.trim()) fields.resp = rr.trim();
       }
       const v = await callVerdict(code, fields);

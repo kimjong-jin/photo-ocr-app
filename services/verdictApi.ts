@@ -47,7 +47,7 @@ export function ocrToFields(ocrData: any[] | null | undefined, selectedItem: str
  *  · pH: (A)=직선성(pH4·7·10 ×3) / (B)=반복성(7,4,7,4,7,4) / (C)=드리프트(7블록=제로, 4블록=스팬) / 4_T=온도보상
  *  · DO: (A)_S=반복성 / Z_=제로드리프트 / S_=스팬드리프트 / 20_S·30_S=온도보상
  *    ※ 드리프트 초기/최종: P5 관례상 "앞3=최종(2h)·뒤3=초기" (현장 확인). 판정은 |최종−초기|라 순서 무관하나 라벨은 정확히.
- *    pH·DO 응답시간은 P5 그래프에 없어 별도 입력(VerdictButton) → 미입력 시 종합은 '미완성', 개별 시험은 표시됨.
+ *    응답시간 = ST→EN 시간차(초, CSV에 지정). pH/DO→resp, TU/Cl→resp_sec. ST/EN 없으면 VerdictButton에서 수동 입력(폴백).
  */
 export function csvToFields(aiAnalysisResult: Record<string, any> | null | undefined, sensorType: string): Record<string, string> | null {
   const type = String(sensorType).toUpperCase();
@@ -58,9 +58,21 @@ export function csvToFields(aiAnalysisResult: Record<string, any> | null | undef
     if (v != null && String(v).trim() !== '') fields[key] = String(v);
   };
 
+  // 응답시간 = ST→EN 시간차(초). CsvDisplay와 동일 계산(realTimestamp 우선). ST/EN 미지정 시 null.
+  const respSec = (() => {
+    const st = ai['st'], en = ai['en'];
+    if (!st || !en) return null;
+    const stT = new Date(st.realTimestamp || st.timestamp).getTime();
+    const enT = new Date(en.realTimestamp || en.timestamp).getTime();
+    if (!Number.isFinite(stT) || !Number.isFinite(enT)) return null;
+    return Math.round((enT - stT) / 1000);
+  })();
+
   if (type === 'SS' || type === 'TU' || type === 'CL') {
     for (const k of ['z1','z2','z3','z4','z5','z6','z7','s1','s2','s3','s4','s5','s6','s7','m1','m2','m3']) put(k, k);
     put('ci1', '현장1'); put('ci2', '현장2');
+    // 먹는물(TU/Cl) 응답시간: 계산기 resp_sec(초 직접). SS는 응답시간 검사 없음.
+    if ((type === 'TU' || type === 'CL') && respSec != null) fields.resp_sec = String(respSec);
     return fields;
   }
 
@@ -79,6 +91,7 @@ export function csvToFields(aiAnalysisResult: Record<string, any> | null | undef
     put('phsi1', '(C)_4_4'); put('phsi2', '(C)_4_5'); put('phsi3', '(C)_4_6');
     // 온도보상 — pH4 버퍼 10~30℃
     put('pht10', '4_10'); put('pht15', '4_15'); put('pht20', '4_20'); put('pht25', '4_25'); put('pht30', '4_30');
+    if (respSec != null) fields.resp = String(respSec);   // 응답시간(초, ≤30) = ST→EN
     return fields;
   }
 
@@ -92,6 +105,7 @@ export function csvToFields(aiAnalysisResult: Record<string, any> | null | undef
     // 온도보상 20℃·30℃ 각 3회
     put('dot20a', '20_S_1'); put('dot20b', '20_S_2'); put('dot20c', '20_S_3');
     put('dot30a', '30_S_1'); put('dot30b', '30_S_2'); put('dot30c', '30_S_3');
+    if (respSec != null) fields.resp = String(respSec);   // 응답시간(초, ≤120) = ST→EN
     return fields;
   }
 
