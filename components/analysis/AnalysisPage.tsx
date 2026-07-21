@@ -1401,7 +1401,8 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
           userName, siteName, tocStd: emissionStandards?.[normalizeReceiptBase(activeJob.receiptNumber)],
         });
         // P2(정도검사)만 → 우리 측정값을 계산기 calc_data에 자동 저장(우리 분석 우선). P3(현장 only)는 제외.
-        if (pageType === 'PhotoLog') {
+        // P2(수질) → 측정값 전체, P3(현장계수) → 현장값(ci1/ci2). 둘 다 calc_data 세부 슬롯에 저장.
+        if (pageType === 'PhotoLog' || pageType === 'FieldCount') {
           saveCalcDataFromSend({
             receiptNumber: activeJob.receiptNumber, selectedItem: activeJob.selectedItem,
             ocrData: activeJob.processedOcrData, userName, siteName,
@@ -1493,8 +1494,8 @@ Return ONLY the JSON array. No extra text/markdown. If nothing valid, return [].
               ocrData: [ ...(job.processedOcrData || []), ...(pageType === 'PhotoLog' && job.fieldCountData ? job.fieldCountData : []) ],
               userName, siteName, tocStd: emissionStandards?.[normalizeReceiptBase(job.receiptNumber)],
             });
-            // P2만 → 우리 측정값 계산기 calc_data 자동 저장(우리 분석 우선)
-            if (pageType === 'PhotoLog') {
+            // P2(수질)=측정값, P3(현장계수)=현장값(ci1/ci2). 둘 다 calc_data 세부 슬롯 저장.
+            if (pageType === 'PhotoLog' || pageType === 'FieldCount') {
               saveCalcDataFromSend({
                 receiptNumber: job.receiptNumber, selectedItem: job.selectedItem,
                 ocrData: job.processedOcrData, userName, siteName,

@@ -148,9 +148,10 @@ export async function saveItemToCalcData(p: {
 
   // 1) 기존 calc_data 로드(base 키 — 고객 입력과 병합)
   let data: any = { tabs: [], activeId: '', fields: {}, maxSubNo: 0 };
+  let ownerUser = '', ownerSite = '';   // 기존 레코드 소유자(고객) — 있으면 유지(담당자가 항목 추가해도 소유자 안 바뀜)
   try {
     const res = await fetch(`${CALC_API}?receiptNo=${encodeURIComponent(receiptNo)}`);
-    if (res.ok) { const d = await res.json(); if (d?.data?.tabs) data = d.data; }
+    if (res.ok) { const d = await res.json(); if (d?.data?.tabs) data = d.data; ownerUser = d?.userName || ''; ownerSite = d?.siteName || ''; }
   } catch { /* 없으면 신규 */ }
   if (!Array.isArray(data.tabs)) data.tabs = [];
   if (!data.fields || typeof data.fields !== 'object') data.fields = {};
@@ -195,11 +196,11 @@ export async function saveItemToCalcData(p: {
   // 4) 판정도 계산해 탭에 저장(단일 출처 API). 실패해도 데이터 저장은 진행.
   try { const vd = await callVerdict(code, merged); tab.pass = vd.pass; } catch { /* 판정은 나중에 계산기에서 */ }
 
-  // 5) 업서트 저장(base 키로 덮어쓰기)
+  // 5) 업서트 저장(base 키로 덮어쓰기). 소유자(userName)는 기존 고객 유지, 없으면 담당자(우리) 이름으로 신규.
   try {
     const res = await fetch(CALC_API, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ receiptNo, userName: p.userName, siteName: p.siteName || '', data, ttlDays: 10 }),
+      body: JSON.stringify({ receiptNo, userName: ownerUser || p.userName, siteName: ownerSite || p.siteName || '', data, ttlDays: 10 }),
     });
     return res.ok;
   } catch { return false; }

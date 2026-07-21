@@ -97,9 +97,9 @@ const CODE_TO_CALC: Record<string, string[]> = {
 };
 
 /**
- * P2 전송 성공 직후 호출 — 우리 측정값(전체 OCR)을 계산기 calc_data(:3333, 접수번호)에 자동 저장.
- * "우리 분석 우선": 해당 항목 탭을 우리 값으로 덮음. 다른 항목·range 등 기존값은 보존.
- * P3(현장 only)·PH/DO·MULTI 외 항목은 대상 아님. 전송엔 영향 없도록 조용히 삼킴.
+ * P2/P3 전송 성공 직후 호출 — 우리 값(전체 OCR)을 계산기 calc_data(:3333)에 자동 저장.
+ * P2(수질)=측정값(z/s/m + 현장 ci), P3(현장계수)=현장값만(ci1/ci2). ocrToFields가 식별자에서 해당 필드만 추출.
+ * "우리 전송이 정본": 세부번호 슬롯의 항목을 우리 값으로 덮음(saveItemToCalcData). MULTI 외 항목은 대상 아님.
  */
 export async function saveCalcDataFromSend(args: SeedArgs): Promise<void> {
   try {
