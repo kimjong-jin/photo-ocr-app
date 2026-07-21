@@ -1849,9 +1849,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     {
       const _rp = receiptNumber.trim().split('-');
       if (_rp.length === 4) {
-        deleteLocation(_rp.slice(0, 3).join('-'))
-          .then(() => getAllLocations().then(setLocationList)) // 삭제를 위치 도우미 화면에 즉시 반영
-          .catch(() => {});
+        // 먹는물(TU, Cl) 항목일 때만 베이스 위치를 삭제 (수질은 베이스 주소를 공유하므로 유지)
+        const fld = fieldFromItem(newItemKey);
+        if (fld === '먹는물') {
+          deleteLocation(_rp.slice(0, 3).join('-'))
+            .then(() => getAllLocations().then(setLocationList)) // 삭제를 위치 도우미 화면에 즉시 반영
+            .catch(() => {});
+        }
       }
     }
 
