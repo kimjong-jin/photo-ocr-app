@@ -39,6 +39,24 @@ export function ocrToFields(ocrData: any[] | null | undefined, selectedItem: str
   return fields;
 }
 
+/**
+ * P5(CsvGraphPage) aiAnalysisResult → 계산기 fields.
+ * aiAnalysisResult 키는 소문자 라벨(z1..z7, s1..s7, m1..m3, 현장1, 현장2), 값 = {value}.
+ * SS 는 기본형(z/s/m 직결) — 현장1→ci1, 현장2→ci2. (pH/DO 는 라벨 체계가 달라 추후 대응)
+ */
+export function csvToFields(aiAnalysisResult: Record<string, any> | null | undefined, sensorType: string): Record<string, string> | null {
+  if (String(sensorType).toUpperCase() !== 'SS') return null;   // SS 외(PH/DO/TU/CL)는 미지원 → null
+  const ai = aiAnalysisResult || {};
+  const fields: Record<string, string> = {};
+  const put = (key: string, label: string) => {
+    const v = ai[label]?.value;
+    if (v != null && String(v).trim() !== '') fields[key] = String(v);
+  };
+  for (const k of ['z1','z2','z3','z4','z5','z6','z7','s1','s2','s3','s4','s5','s6','s7','m1','m2','m3']) put(k, k);
+  put('ci1', '현장1'); put('ci2', '현장2');
+  return fields;
+}
+
 // 판정 API 호출 (단건)
 export async function callVerdict(code: string, fields: Record<string, any>): Promise<VerdictResult> {
   const res = await fetch(VERDICT_API, {

@@ -2,6 +2,8 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { ActionButton } from './components/ActionButton';
 import { Spinner } from './components/Spinner';
 import { CsvDisplay } from './components/csv/CsvDisplay';
+import { VerdictButton } from './components/VerdictButton';
+import { csvToFields } from './services/verdictApi';
 import { parseGraphtecCsv } from './utils/parseGraphtecCsv';
 import { sendCsvGraphToKtlApi } from './services/claydoxApiService';
 import * as XLSX from 'xlsx';
@@ -563,6 +565,18 @@ const CsvGraphPage: React.FC<CsvGraphPageProps> = ({ userName, jobs, setJobs, ac
       
       {isLoading && (<div className="flex justify-center items-center py-10"><Spinner /><span className="ml-3 text-slate-300">파일을 분석 중입니다...</span></div>)}
       {error && <p className="text-red-400 text-center p-4 bg-red-900/30 rounded-md">{error}</p>}
+
+      {/* P5 정도검사 계산하기 — SS 만 지원(z/s/m 직결). pH/DO/TU/Cl 은 라벨 체계 달라 추후. 계산은 계산기 API 단일 출처 */}
+      {activeJob && activeJob.parsedData && activeJob.sensorType === 'SS' && activeJob.aiAnalysisResult && (() => {
+        const fields = csvToFields(activeJob.aiAnalysisResult, activeJob.sensorType);
+        if (!fields || !Object.keys(fields).length) return null;
+        return (
+          <div className="flex items-center justify-end gap-2 py-1">
+            <span className="text-[11px] text-slate-500">분석점 {Object.keys(fields).length}개 →</span>
+            <VerdictButton ocrData={null} selectedItem="SS" receiptNumber={activeJob.receiptNumber || ''} userName={userName} fieldsOverride={fields} />
+          </div>
+        );
+      })()}
 
       {activeJob && activeJob.parsedData && (
         <CsvDisplay
