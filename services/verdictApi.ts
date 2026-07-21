@@ -58,14 +58,14 @@ export function csvToFields(aiAnalysisResult: Record<string, any> | null | undef
     if (v != null && String(v).trim() !== '') fields[key] = String(v);
   };
 
-  // 응답시간 = ST→EN 시간차(초). CsvDisplay와 동일 계산(realTimestamp 우선). ST/EN 미지정 시 null.
+  // 응답시간 = ST→EN 시간차(초, 소수 2자리 유지 — 30초 경계 판정 정확도). CsvDisplay와 동일 계산.
   const respSec = (() => {
     const st = ai['st'], en = ai['en'];
     if (!st || !en) return null;
     const stT = new Date(st.realTimestamp || st.timestamp).getTime();
     const enT = new Date(en.realTimestamp || en.timestamp).getTime();
     if (!Number.isFinite(stT) || !Number.isFinite(enT)) return null;
-    return Math.round((enT - stT) / 1000);
+    return Math.round((enT - stT) / 10) / 100;   // 반올림 없이 소수 2자리(초)
   })();
 
   if (type === 'SS' || type === 'TU' || type === 'CL') {

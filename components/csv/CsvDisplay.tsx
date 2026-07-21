@@ -1018,11 +1018,11 @@ export const CsvDisplay: React.FC<CsvDisplayProps> = (props) => {
       const st = (activeJob.aiAnalysisResult as any)?.st;
       const en = (activeJob.aiAnalysisResult as any)?.en;
       if (st && en) {
-        // ✅ 응답시간은 실제 초 단위 그대로 계산하고, 반올림/분 보정은 하지 않음
+        // ✅ 응답시간은 실제 초 단위 그대로 계산(소수 2자리 유지, 분 보정 없음 — 경계 판정 정확도)
         const stTs = st.realTimestamp ? new Date(st.realTimestamp) : new Date(st.timestamp);
         const enTs = en.realTimestamp ? new Date(en.realTimestamp) : new Date(en.timestamp);
         const diffSecRaw = (enTs.getTime() - stTs.getTime()) / 1000;
-        const diffSec = Math.round(diffSecRaw);
+        const diffSec = Math.round(diffSecRaw * 100) / 100;
         
         results.push({ id: `pt-response-time`, type: '응답', name: 'ST → EN', startTime: stTs, endTime: enTs, diff: diffSec });
       }
