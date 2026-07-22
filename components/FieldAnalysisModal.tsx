@@ -118,7 +118,8 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }, [rows]);
 
   const confirmReceipt = async (g: { receipt_no: string; items: Record<string, Row> }) => {
-    // 확인 = 그 접수번호의 모든 항목 큐에서 제거
+    // 확인 = 그 접수번호의 모든 항목 큐에서 제거 — 실수 방지 확인창
+    if (!window.confirm(`"${g.receipt_no}" 를 현장계수 수분석에서 삭제할까요?\n\n※ 31일까지 자동 보관되는 항목입니다.\n지금 지우면 되돌릴 수 없습니다.`)) return;
     for (const it of Object.values(g.items)) {
       await fetch(`/api/field-queue`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ receipt_no: it.receipt_no, item: it.item }) });
     }
