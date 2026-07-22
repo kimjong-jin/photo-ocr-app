@@ -820,14 +820,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     const raw = (locReceiptInput.trim() || receiptNumber || '').trim();
     const parts = raw.split('-');
     const base = parts.slice(0, 3).join('-');
-    // 먹는물이면 위치도우미 접수번호가 세부(4파트)로 들어오거나 항목이 TU·Cl → 숨김.
-    // 수질은 base(3파트)만 있으므로 항목 없이도 표시(작업 매칭 없어도 뜨게).
-    const isDrinking = parts.length >= 4
-      || fieldFromItem(newItemKey) === '먹는물'
-      || fieldFromItem(itemForReceipt(raw)) === '먹는물';
+    // 먹는물 = 접수번호가 세부(4파트)이거나 그 접수번호 항목이 TU·Cl → 숨김.
+    // 수질 = base(3파트). 목록에서 클릭한 접수번호 기준(활성 작업 newItemKey에 의존 안 함 →
+    //   먹는물 작업 중에 수질 위치 클릭해도 메모칸 뜨게).
+    const isDrinking = parts.length >= 4 || fieldFromItem(itemForReceipt(raw)) === '먹는물';
     const show = /^\d{2}-\d{6}-\d{2}$/.test(base) && !isDrinking;
     return { show, base };
-  }, [newItemKey, receiptNumber, locReceiptInput]);
+  }, [receiptNumber, locReceiptInput]);
 
   useEffect(() => {
     if (!commentTarget.show) { setFieldComment(''); setFieldCommentSaved(true); return; }
