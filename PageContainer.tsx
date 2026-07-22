@@ -817,9 +817,15 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
   // 현장계수 수분석 메모: 수질 base 접수번호일 때만 (먹는물은 수분석 없음). base 접수번호 단위로 로드.
   const commentTarget = React.useMemo(() => {
-    const fld = fieldFromItem(newItemKey) || fieldFromItem(itemForReceipt(receiptNumber || locReceiptInput || ''));
-    const base = (locReceiptInput.trim() || receiptNumber || '').split('-').slice(0, 3).join('-');
-    const show = !!fld && fld !== '먹는물' && /^\d{2}-\d{6}-\d{2}$/.test(base);
+    const raw = (locReceiptInput.trim() || receiptNumber || '').trim();
+    const parts = raw.split('-');
+    const base = parts.slice(0, 3).join('-');
+    // 먹는물이면 위치도우미 접수번호가 세부(4파트)로 들어오거나 항목이 TU·Cl → 숨김.
+    // 수질은 base(3파트)만 있으므로 항목 없이도 표시(작업 매칭 없어도 뜨게).
+    const isDrinking = parts.length >= 4
+      || fieldFromItem(newItemKey) === '먹는물'
+      || fieldFromItem(itemForReceipt(raw)) === '먹는물';
+    const show = /^\d{2}-\d{6}-\d{2}$/.test(base) && !isDrinking;
     return { show, base };
   }, [newItemKey, receiptNumber, locReceiptInput]);
 
