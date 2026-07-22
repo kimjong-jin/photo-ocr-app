@@ -437,15 +437,18 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
         });
 
         // ✅ Claydox 전송 성공 시 주소도 자동 저장 (currentGpsAddress 있을 때만)
+        //    수질(TU·Cl 외)=base(-01)+category'수질', 먹는물(TU·Cl)=세부(-N)+category'먹는물'. (미정 방지)
         if (currentGpsAddress.trim()) {
-          const baseId = rn.replace(/-\d+$/, '') || rn;
+          const _fld = fieldFromItem(itemForReceipt(rn));
+          const saveId = _fld === '먹는물' ? rn : rn.split('-').slice(0, 3).join('-');
           saveLocation({
-            id: baseId,
+            id: saveId,
             address: currentGpsAddress.trim(),
             lat: coords?.lat ?? 0,
             lng: coords?.lng ?? 0,
             savedAt: Date.now(),
-            siteName: jobSiteName || undefined,
+            siteName: (jobSiteName || siteName || '').trim() || undefined,
+            category: _fld || undefined,
           }).catch(() => {});
         }
       });
@@ -1012,14 +1015,16 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
       // ✅ GPS 주소 자동 저장 (사진 0장이어도 무조건 저장)
       if (currentGpsAddress.trim() && userName) {
-        const baseId = receiptToSave.replace(/-\d+$/, '') || receiptToSave;
+        const _fld = fieldFromItem(itemForReceipt(receiptToSave));
+        const saveId = _fld === '먹는물' ? receiptToSave : receiptToSave.split('-').slice(0, 3).join('-');
         saveLocation({
-          id: baseId,
+          id: saveId,
           address: currentGpsAddress.trim(),
           lat: coords?.lat ?? 0,
           lng: coords?.lng ?? 0,
           savedAt: Date.now(),
           siteName: siteName.trim() || undefined,
+          category: _fld || undefined,
         }).catch(() => {});
       }
 
@@ -1166,14 +1171,16 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
         // ✅ GPS 주소 자동 저장 (사진 0장이어도 무조건 저장)
         if (currentGpsAddress.trim() && userName) {
-          const baseId = receipt.replace(/-\d+$/, '') || receipt;
+          const _fld = fieldFromItem(itemForReceipt(receipt));
+          const saveId = _fld === '먹는물' ? receipt : receipt.split('-').slice(0, 3).join('-');
           saveLocation({
-            id: baseId,
+            id: saveId,
             address: currentGpsAddress.trim(),
             lat: coords?.lat ?? 0,
             lng: coords?.lng ?? 0,
             savedAt: Date.now(),
             siteName: siteName.trim() || undefined,
+            category: _fld || undefined,
           }).catch(() => {});
         }
 
