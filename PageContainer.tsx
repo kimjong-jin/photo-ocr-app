@@ -222,6 +222,8 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locReceiptInput, setLocReceiptInput] = useState('');
   const [locDetailInput, setLocDetailInput] = useState('');
+  const [fieldComment, setFieldComment] = useState('');          // 현장계수 수분석 메모(수질 base 접수번호 단위)
+  const [fieldCommentSaved, setFieldCommentSaved] = useState(true);
   // 세부별 입력 폼: 각 세부에 현장_세부(배수지) 명칭을 다르게 저장 (null=폼 닫힘)
   const [multiRows, setMultiRows] = useState<{ id: string; label: string }[] | null>(null);
   const [isLocSaving, setIsLocSaving] = useState(false);
@@ -809,6 +811,34 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
       if (matched.lat && matched.lng) setCoords({ lat: matched.lat, lng: matched.lng });
     }
   }, [locReceiptInput, receiptNumber, locationList, currentGpsAddress]);
+
+  // 현장계수 수분석 메모: 수질 base 접수번호일 때만 (먹는물은 수분석 없음). base 접수번호 단위로 로드.
+  const commentTarget = React.useMemo(() => {
+    const fld = fieldFromItem(newItemKey) || fieldFromItem(itemForReceipt(receiptNumber || locReceiptInput || ''));
+    const base = (locReceiptInput.trim() || receiptNumber || '').split('-').slice(0, 3).join('-');
+    const show = !!fld && fld !== '먹는물' && /^\d{2}-\d{6}-\d{2}$/.test(base);
+    return { show, base };
+  }, [newItemKey, receiptNumber, locReceiptInput]);
+
+  useEffect(() => {
+    if (!commentTarget.show) { setFieldComment(''); setFieldCommentSaved(true); return; }
+    let cancelled = false;
+    fetch(`/api/field-comment?receipt_no=${encodeURIComponent(commentTarget.base)}`)
+      .then(r => r.json()).then(d => { if (!cancelled) { setFieldComment(d?.comment || ''); setFieldCommentSaved(true); } })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [commentTarget.show, commentTarget.base]);
+
+  const saveFieldComment = useCallback(async () => {
+    if (!commentTarget.show) return;
+    try {
+      await fetch('/api/field-comment', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receipt_no: commentTarget.base, comment: fieldComment, manager: userName, site_name: siteName }),
+      });
+      setFieldCommentSaved(true);
+    } catch { /* best-effort */ }
+  }, [commentTarget, fieldComment, userName, siteName]);
 
   const getReceiptNumberForSaveLoad = useCallback(() => {
     let rn: string | null = receiptNumber;
@@ -3422,6 +3452,21 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                     </button>
                   </div>
                 </div>
+
+                {commentTarget.show && (
+                  <div className="mt-2">
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">🧪 수분석 메모 <span className="text-slate-500 font-normal">(선택 · {commentTarget.base})</span></label>
+                    <textarea
+                      value={fieldComment}
+                      onChange={(e) => { setFieldComment(e.target.value); setFieldCommentSaved(false); }}
+                      onBlur={saveFieldComment}
+                      rows={2}
+                      placeholder="예: 염분 많다 / SS 500mg/L + 희석수 500mg/L"
+                      className="block w-full p-2 bg-slate-800 border border-slate-600 rounded-md text-slate-200 text-xs placeholder-slate-500 resize-none"
+                    />
+                    <div className="text-[10px] text-right mt-0.5">{fieldCommentSaved ? <span className="text-green-400">저장됨 · 현장계수 수분석에 표시</span> : <span className="text-amber-400">수정 중… (칸 밖 누르면 저장)</span>}</div>
+                  </div>
+                )}
 
                 {coords && (
                   <div className="h-[280px] rounded-lg overflow-hidden border border-slate-600">

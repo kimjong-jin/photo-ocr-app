@@ -21,6 +21,7 @@ type Row = {
   receipt_no: string; item: string; site_name: string; manager: string;
   site_val1: string; site_val2: string; toc_std: string;
   lab_data: string; detail: string; verdict: string; std_verdict: string; week_key: string; status: string;
+  comment?: string;   // base 접수번호 수분석 메모(위치도우미 입력, GET에서 병합)
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -106,10 +107,12 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   // 접수번호별 그룹 (행 = 접수번호, 열 = 항목)
   const grouped = useMemo(() => {
-    const map = new Map<string, { receipt_no: string; site_name: string; manager: string; items: Record<string, Row> }>();
+    const map = new Map<string, { receipt_no: string; site_name: string; manager: string; comment: string; items: Record<string, Row> }>();
     for (const r of rows) {
-      if (!map.has(r.receipt_no)) map.set(r.receipt_no, { receipt_no: r.receipt_no, site_name: r.site_name, manager: r.manager, items: {} });
-      map.get(r.receipt_no)!.items[r.item] = r;
+      if (!map.has(r.receipt_no)) map.set(r.receipt_no, { receipt_no: r.receipt_no, site_name: r.site_name, manager: r.manager, comment: (r as any).comment || '', items: {} });
+      const grp = map.get(r.receipt_no)!;
+      grp.items[r.item] = r;
+      if ((r as any).comment && !grp.comment) grp.comment = (r as any).comment;
     }
     return [...map.values()];
   }, [rows]);
@@ -121,12 +124,36 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
     }
     load();
   };
-  const cleanupConfirmed = async () => {
-    await fetch(`/api/field-queue`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ week_key: weekKey, confirmedOnly: true }) });
-    load();
-  };
 
   const doneCount = rows.filter(r => rowStatus(r) === '분석완료').length;
+
+  // 한 항목 셀 내용(현장값·실험값·배출기준·판정·상태) — 표/카드 공용
+  const cellInner = (cell: Row, it: { short: string; name: string }) => {
+    let lab: number[] = [];
+    try { const p = JSON.parse(cell.lab_data || '[]'); lab = (Array.isArray(p) ? p : (p.labVals || p.vals || [])).map(Number).filter((n: number) => Number.isFinite(n)); } catch {}
+    const suffix = cell.detail ? (cell.detail.startsWith(cell.receipt_no) ? cell.detail.slice(cell.receipt_no.length) : cell.detail) : '';
+    const v = cellVerdict(cell);
+    const reasons: string[] = [];
+    if (v.std?.pass === 'bad') reasons.push(...(v.std.failed || []).map((f: string) => `${f}(부)`));
+    if (v.fieldOk === false) reasons.push('현장(부)');
+    return (
+      <>
+        {suffix && <div className="text-[10px] font-mono font-bold text-sky-400 leading-none mb-1" title={cell.detail}>{suffix}</div>}
+        <div className="text-[8px] text-slate-500 leading-none">현장</div>
+        <div className="font-mono text-[11px] text-slate-100 leading-tight">{cell.site_val1 || '·'}<span className="text-slate-600"> / </span>{cell.site_val2 || '·'}</div>
+        {lab.length > 0 && (<>
+          <div className="text-[8px] text-slate-500 leading-none mt-0.5">실험</div>
+          <div className="font-mono text-[10px] text-amber-200/90 leading-tight">{lab.slice(0, 2).join(' ')}</div>
+          {lab.length > 2 && <div className="font-mono text-[10px] text-amber-200/90 leading-tight">{lab.slice(2, 4).join(' ')}</div>}
+        </>)}
+        {it.short === 'TOC' && cell.toc_std && <div className="mt-0.5 text-[9px] font-bold text-orange-300 bg-orange-500/15 rounded px-1 inline-block">기준 {cell.toc_std}</div>}
+        {v.final !== null && (<div className={`mt-0.5 text-[10px] font-extrabold ${v.final ? 'text-green-400' : 'text-red-400'}`}>{v.final ? '✔ 최종 적합' : '✘ 최종 부적합'}</div>)}
+        {reasons.length > 0 && (<div className="text-[9px] font-bold text-red-400 leading-tight">{reasons.join(' ')}</div>)}
+        {v.final === null && v.std?.pass === 'ok' && v.fieldOk === null && (<div className="text-[9px] text-slate-500 leading-tight">표준 적합·현장대기</div>)}
+        <span className={`mt-1 block mx-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${STATUS_STYLE[rowStatus(cell)]}`}>{rowStatus(cell)}</span>
+      </>
+    );
+  };
 
   if (!isOpen) return null;
 
@@ -137,7 +164,6 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
         <h2 className="text-sm sm:text-base font-bold text-slate-100 whitespace-nowrap">🧪 <span className="hidden sm:inline">현장계수 수분석</span></h2>
         <div className="flex-1" />
         <button onClick={() => exportFieldExcel(rows, weekKey, verdicts)} disabled={!rows.length} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-green-600/25 text-green-300 hover:bg-green-600/35 disabled:opacity-40" title="엑셀 다운로드">⬇<span className="hidden sm:inline ml-1">엑셀</span></button>
-        <button onClick={cleanupConfirmed} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600" title="확인건 정리">🧹<span className="hidden sm:inline ml-1">정리</span></button>
         <button onClick={onClose} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-600 text-white hover:bg-slate-500" title="닫기">✕</button>
       </div>
 
@@ -153,85 +179,79 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
       {/* 상태는 자동(카톡 수분석 도착=분석완료, 없으면 대기) — 수동 일괄변경 없음 */}
 
-      {/* 표 */}
-      <div className="flex-1 overflow-auto p-3">
+      {/* 표(데스크탑) · 카드(모바일 세로) */}
+      <div className="flex-1 overflow-auto">
         {loading && <p className="text-center text-slate-400 text-sm py-8">불러오는 중…</p>}
         {err && <p className="text-center text-red-400 text-sm py-8">오류: {err}</p>}
         {!loading && !err && grouped.length === 0 && <p className="text-center text-slate-500 text-sm py-8">이번 주 항목이 없습니다.</p>}
+
+        {/* 데스크탑: 한 장 표 */}
         {!loading && grouped.length > 0 && (
-          <table className="w-full min-w-[720px] text-xs border-collapse">
-            <thead>
-              <tr className="text-slate-400">
-                <th className="text-left px-2 py-2 sticky top-0 bg-slate-800">접수번호</th>
-                <th className="text-left px-2 py-2 sticky top-0 bg-slate-800">업체명</th>
-                <th className="px-2 py-2 sticky top-0 bg-slate-800">담당</th>
-                {ITEMS.map(it => <th key={it.short} className="px-2 py-2 sticky top-0 bg-slate-800">{it.short}</th>)}
-                <th className="px-2 py-2 sticky top-0 bg-slate-800">확인</th>
-              </tr>
-            </thead>
-            <tbody>
-              {grouped.map(g => {
-                const anyRow = Object.values(g.items)[0];
-                return (
-                  <tr key={g.receipt_no} className="border-t border-slate-700/60 hover:bg-slate-800/40">
-                    <td className="px-2 py-2 font-mono font-bold text-slate-200 whitespace-nowrap">{g.receipt_no}</td>
-                    <td className="px-2 py-2 font-semibold text-slate-100">{g.site_name}</td>
-                    <td className="px-2 py-2 text-center text-slate-400">{g.manager}</td>
-                    {ITEMS.map(it => {
-                      const cell = g.items[it.name];
-                      if (!cell) return <td key={it.short} className="px-2 py-2 text-center text-slate-600 align-top">–</td>;
-                      let lab: number[] = [];
-                      try { const p = JSON.parse(cell.lab_data || '[]'); lab = (Array.isArray(p) ? p : (p.labVals || p.vals || [])).map(Number).filter((n: number) => Number.isFinite(n)); } catch {}
-                      const suffix = cell.detail ? (cell.detail.startsWith(cell.receipt_no) ? cell.detail.slice(cell.receipt_no.length) : cell.detail) : '';
-                      return (
-                        <td key={it.short} className="px-1.5 py-1.5 text-center align-top">
-                          {suffix && <div className="text-[10px] font-mono font-bold text-sky-400 leading-none mb-1" title={cell.detail}>{suffix}</div>}
-                          {/* 현장값(측정값1/2) */}
-                          <div className="text-[8px] text-slate-500 leading-none">현장</div>
-                          <div className="font-mono text-[11px] text-slate-100 leading-tight">{cell.site_val1 || '·'}<span className="text-slate-600"> / </span>{cell.site_val2 || '·'}</div>
-                          {/* 실험실값(카톡) */}
-                          {lab.length > 0 && (
-                            <>
-                              <div className="text-[8px] text-slate-500 leading-none mt-0.5">실험</div>
-                              <div className="font-mono text-[10px] text-amber-200/90 leading-tight">{lab.slice(0, 2).join(' ')}</div>
-                              {lab.length > 2 && <div className="font-mono text-[10px] text-amber-200/90 leading-tight">{lab.slice(2, 4).join(' ')}</div>}
-                            </>
-                          )}
-                          {it.short === 'TOC' && cell.toc_std && <div className="mt-0.5 text-[9px] font-bold text-orange-300 bg-orange-500/15 rounded px-1 inline-block">기준 {cell.toc_std}</div>}
-                          {(() => {
-                            const v = cellVerdict(cell);
-                            // 부적합 사유: 표준용액 실패 약어 반(부) + 현장(부)
-                            const reasons: string[] = [];
-                            if (v.std?.pass === 'bad') reasons.push(...(v.std.failed || []).map(f => `${f}(부)`));
-                            if (v.fieldOk === false) reasons.push('현장(부)');
-                            return (
-                              <>
-                                {v.final !== null && (
-                                  <div className={`mt-0.5 text-[10px] font-extrabold ${v.final ? 'text-green-400' : 'text-red-400'}`}>
-                                    {v.final ? '✔ 최종 적합' : '✘ 최종 부적합'}
-                                  </div>
-                                )}
-                                {reasons.length > 0 && (
-                                  <div className="text-[9px] font-bold text-red-400 leading-tight">{reasons.join(' ')}</div>
-                                )}
-                                {v.final === null && v.std?.pass === 'ok' && v.fieldOk === null && (
-                                  <div className="text-[9px] text-slate-500 leading-tight">표준 적합·현장대기</div>
-                                )}
-                              </>
-                            );
-                          })()}
-                          <span className={`mt-1 block mx-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${STATUS_STYLE[rowStatus(cell)]}`}>{rowStatus(cell)}</span>
-                        </td>
-                      );
-                    })}
-                    <td className="px-2 py-2 text-center">
-                      <button onClick={() => confirmReceipt(g)} className="text-[10px] font-bold px-2 py-1 rounded-lg bg-green-500/15 text-green-300 hover:bg-green-500/25">✓ 확인</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="hidden sm:block p-3">
+            <table className="w-full min-w-[720px] text-xs border-collapse table-fixed">
+              <thead>
+                <tr className="text-slate-400 text-[11px]">
+                  <th className="text-left px-1.5 py-2 sticky top-0 bg-slate-800 w-[86px]">접수번호</th>
+                  <th className="text-left px-1.5 py-2 sticky top-0 bg-slate-800 w-[92px]">업체명</th>
+                  <th className="px-1 py-2 sticky top-0 bg-slate-800 w-[46px]">담당자</th>
+                  {ITEMS.map(it => <th key={it.short} className="px-1 py-2 sticky top-0 bg-slate-800 w-[70px]">{it.short}</th>)}
+                  <th className="px-1 py-2 sticky top-0 bg-slate-800 w-[52px]">확인</th>
+                </tr>
+              </thead>
+              <tbody>
+                {grouped.map(g => (
+                  <React.Fragment key={g.receipt_no}>
+                    <tr className="border-t border-slate-700/60 hover:bg-slate-800/40">
+                      <td className="px-1.5 py-2 font-mono font-bold text-[10px] text-slate-200 whitespace-nowrap align-top">{g.receipt_no}</td>
+                      <td className="px-1.5 py-2 font-semibold text-[10px] text-slate-100 leading-tight break-words align-top">{g.site_name}</td>
+                      <td className="px-1 py-2 text-center text-[11px] text-slate-300 whitespace-nowrap align-top">{g.manager}</td>
+                      {ITEMS.map(it => {
+                        const cell = g.items[it.name];
+                        if (!cell) return <td key={it.short} className="px-1 py-2 text-center text-slate-600 align-top">–</td>;
+                        return <td key={it.short} className="px-1 py-1.5 text-center align-top">{cellInner(cell, it)}</td>;
+                      })}
+                      <td className="px-1 py-2 text-center align-top">
+                        <button onClick={() => confirmReceipt(g)} className="text-[10px] font-bold px-2 py-1 rounded-lg bg-green-500/15 text-green-300 hover:bg-green-500/25">✓ 확인</button>
+                      </td>
+                    </tr>
+                    <tr className="border-b border-slate-700/40">
+                      <td colSpan={3 + ITEMS.length + 1} className="px-2 pb-2 pt-0 text-[10px]">
+                        <span className="text-slate-500">📝 수분석:</span> {g.comment?.trim() ? <span className="text-amber-200 whitespace-pre-wrap">{g.comment}</span> : <span className="text-slate-600">-</span>}
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* 모바일 세로: 카드 */}
+        {!loading && grouped.length > 0 && (
+          <div className="sm:hidden p-2.5 space-y-2.5">
+            {grouped.map(g => (
+              <div key={g.receipt_no} className="rounded-xl bg-slate-800/70 border border-slate-700 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-mono font-bold text-[13px] text-slate-100 leading-tight">{g.receipt_no}</div>
+                    <div className="text-[12px] text-slate-300 leading-tight mt-0.5 break-words">{g.site_name} <span className="text-slate-500">· {g.manager}</span></div>
+                  </div>
+                  <button onClick={() => confirmReceipt(g)} className="shrink-0 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-green-500/15 text-green-300">✓ 확인</button>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 mt-2.5">
+                  {ITEMS.filter(it => g.items[it.name]).map(it => (
+                    <div key={it.short} className="rounded-lg bg-slate-900/60 border border-slate-700/60 px-1 py-1.5 text-center">
+                      <div className="text-[10px] font-bold text-slate-400 mb-0.5">{it.short}</div>
+                      {cellInner(g.items[it.name], it)}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 text-[11px] border-t border-slate-700/50 pt-1.5">
+                  <span className="text-slate-500">📝 수분석:</span> {g.comment?.trim() ? <span className="text-amber-200 whitespace-pre-wrap">{g.comment}</span> : <span className="text-slate-600">-</span>}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>,
