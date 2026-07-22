@@ -42,7 +42,25 @@ import { supabase } from './supabaseClient';
 import type { CsvGraphJob } from '../types/csvGraph';
 
 // --- Global Constants & Helpers ---
-const KTL_API_BASE_URL = 'https://mobile.ktl.re.kr/labview/api';
+// ⚠️ KTL이 브라우저(Origin 붙는 요청)를 403 + CORS헤더제거로 막음(2026-07-22~, 네이티브/exe만 허용 추정).
+//    브라우저는 Origin/응답CORS헤더를 못 바꿔 직접 전송 불가 → 서버 경유로만 통과.
+//    1순위: Mac Studio(:3333) 무제한 relay를 cloudflared https 터널로(CORS 우회 + 대용량 무제한).
+//    폴백: /api/ktl-relay(Vercel 함수, CORS 우회는 되나 ~4.5MB 한도) — 터널 조회 실패 시.
+//    ensureKtlBase()가 전송 직전 /api/ktl-base 로 현재 터널 URL을 조회해 이 값을 갱신(1회 캐시).
+//    전송 로직/엔드포인트/헤더/body는 그대로 — 출구 base URL만 프록시로.
+let KTL_API_BASE_URL = '/api/ktl-relay';
+let _ktlBaseResolved = false;
+export async function ensureKtlBase(): Promise<void> {
+  if (_ktlBaseResolved) return;
+  try {
+    const r = await fetch('/api/ktl-base', { cache: 'no-store' });
+    const j = await r.json();
+    if (j && typeof j.base === 'string' && j.base) {
+      KTL_API_BASE_URL = `${j.base.replace(/\/+$/, '')}/ktl-relay`;
+    }
+  } catch { /* 실패 시 Vercel 폴백(/api/ktl-relay) 유지 */ }
+  _ktlBaseResolved = true;
+}
 const UPLOAD_FILES_ENDPOINT = '/uploadfiles';
 const KTL_JSON_ENV_ENDPOINT = '/env';
 const KTL_KAKAO_API_ENDPOINT = '/kakaotalkmsg';
@@ -454,6 +472,7 @@ export const sendToClaydoxApi = async (
   actualKtlFileNamesOnServer: string[],
   p_key?: string
 ): Promise<{ message: string; data?: KtlApiResponseData }> => {
+  await ensureKtlBase();
   const formData = new FormData();
   filesToUploadWithOriginalNames.forEach((file) => {
     formData.append('files', file, file.name);
@@ -877,6 +896,7 @@ export const sendSingleStructuralCheckToKtlApi = async (
     maintenance_company?: string;
   }
 ): Promise<{ success: boolean; message: string }> => {
+  await ensureKtlBase();
   const filesToUpload: File[] = [];
   let compositeFileNamesOnServer: string[] = [];
   let zipFileNameOnServer: string | undefined;
@@ -1043,6 +1063,7 @@ export const sendBatchStructuralChecksToKtlApi = async (
   p_key?: string,
   gpsAddressByReceipt?: Record<string, string>   // 접수번호별 주소(있으면 우선, 없으면 global)
 ): Promise<{ receiptNo: string; mainItem: string; success: boolean; message: string }[]> => {
+  await ensureKtlBase();
   const results: { receiptNo: string; mainItem: string; success: boolean; message: string }[] = [];
   const filesToUploadDirectly: File[] = [];
   const receiptToCompositeFileNamesMap: Map<string, string[]> = new Map();
@@ -1524,6 +1545,7 @@ export const sendCsvGraphToKtlApi = async (
   csvRawContent?: string, // 추가: 원본 CSV 내용
   p_key?: string
 ): Promise<{ success: boolean; message: string }> => {
+  await ensureKtlBase();
   const logIdentifier = `[ClaydoxAPI - P6 CSV 그래프]`;
   const formData = new FormData();
 
@@ -1717,6 +1739,7 @@ export const sendExtraPhotosToClaydox = async (
   siteLocation: string,
   onProgress?: (msg: string) => void
 ): Promise<{ message: string }> => {
+  await ensureKtlBase();
   const log = '[ClaydoxAPI - 추가사진자료]';
   if (photos.length === 0) throw new Error('전송할 사진이 없습니다.');
   const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
