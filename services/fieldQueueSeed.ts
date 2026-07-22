@@ -42,14 +42,14 @@ function siteVals(item: string, ocrData: ExtractedEntry[] | null | undefined): {
   let v1 = '', v2 = '';
   for (const e of ocrData || []) {
     if (isTP) {
-      // 총인: MULTI(TN/TP)면 현장값이 identifierTP='현장1P'/valueTP, 단독 TP면 identifier='현장1'/value.
-      // TP 전용값(valueTP)을 우선하되 없으면 일반값(value)도 취한다. (단독 TP가 안 잡혀 큐에 안 들어오던 버그)
-      const tp1 = e.identifierTP === '현장1P' ? (e.valueTP ?? '').trim() : '';
-      const tp2 = e.identifierTP === '현장2P' ? (e.valueTP ?? '').trim() : '';
-      const g1 = e.identifier === '현장1' ? (e.value ?? '').trim() : '';
-      const g2 = e.identifier === '현장2' ? (e.value ?? '').trim() : '';
-      if (tp1) v1 = tp1; else if (g1) v1 = g1;
-      if (tp2) v2 = tp2; else if (g2) v2 = g2;
+      // 총인 현장값(Claydox 전송 기준):
+      //  · MULTI(TN/TP): identifierTP='현장1P'(P붙음) → valueTP. 이 행의 일반 value는 TN값이므로 절대 안 가져옴.
+      //  · 단독 TP: identifierTP 없음, identifier='현장1' → value(여기에 TP값이 들어옴).
+      // 판별은 identifierTP '존재 여부'로 (valueTP가 비어도 MULTI면 TN값으로 폴백 금지).
+      if (e.identifierTP === '현장1P') { const t = (e.valueTP ?? '').trim(); if (t) v1 = t; }
+      else if (!e.identifierTP && e.identifier === '현장1') { const t = (e.value ?? '').trim(); if (t) v1 = t; }
+      if (e.identifierTP === '현장2P') { const t = (e.valueTP ?? '').trim(); if (t) v2 = t; }
+      else if (!e.identifierTP && e.identifier === '현장2') { const t = (e.value ?? '').trim(); if (t) v2 = t; }
     } else {
       if (e.identifier === '현장1') v1 = (e.value ?? '').trim();
       if (e.identifier === '현장2') v2 = (e.value ?? '').trim();
