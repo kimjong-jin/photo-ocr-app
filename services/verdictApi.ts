@@ -31,8 +31,14 @@ export function ocrToFields(ocrData: any[] | null | undefined, selectedItem: str
   const fields: Record<string, string> = {};
   const isTP = selectedItem === 'TP';
   for (const e of ocrData || []) {
-    const id = isTP ? e.identifierTP : e.identifier;
-    const val = isTP ? e.valueTP : e.value;
+    // 총인(TP): MULTI(TN/TP)면 identifierTP/valueTP, 단독 TP면 그냥 identifier/value로 옴.
+    // TP 전용값 우선, 없으면 일반값으로 폴백. (단독 TP가 빈 필드→계산 안 되던 버그. idToKey가 P접미사 처리)
+    let id: any, val: any;
+    if (isTP && e.identifierTP != null && String(e.valueTP ?? '').trim() !== '') {
+      id = e.identifierTP; val = e.valueTP;
+    } else {
+      id = e.identifier; val = e.value;
+    }
     const key = idToKey(id);
     if (key && val != null && String(val).trim() !== '') fields[key] = String(val).trim();
   }
