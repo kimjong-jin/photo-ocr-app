@@ -75,8 +75,12 @@ export async function seedFieldQueueFromSend(args: SeedArgs): Promise<void> {
   try {
     const items = CODE_TO_ITEMS[args.selectedItem];
     if (!items) return; // PH/DO 등 대상 아님
-    const receipt_no = normalizeReceiptBase(args.receiptNumber);
-    if (!receipt_no) return; // 접수번호 없으면 그냥 제외
+    const full = normalizeReceiptBase(args.receiptNumber);
+    if (!full) return; // 접수번호 없으면 그냥 제외
+    // 큐는 base 접수번호로 묶는다(26-047538-01 아래 TOC/TN/TP 한 줄). 세부번호(-1/-2/-3)는 detail에 보존.
+    const _p = full.split('-');
+    const receipt_no = _p.length >= 4 ? _p.slice(0, 3).join('-') : full;
+    const detail = full;
     const week_key = currentWeekKey();
     // 배출기준(TOC): 이번 세션 P1값 우선 → 없으면 calc_data(P1이 전날 저장한 DB)에서 fdis 로드.
     // field_queue.toc_std(31일)에 남겨 나중에 현장적용계수 계산에 씀. P1/P2 세션 달라도 이어짐.
@@ -87,7 +91,7 @@ export async function seedFieldQueueFromSend(args: SeedArgs): Promise<void> {
     const entries = items.map(item => {
       const { v1, v2 } = siteVals(item, args.ocrData);
       return {
-        receipt_no, item, site_name: args.siteName || '', manager: args.userName || '',
+        receipt_no, item, detail, site_name: args.siteName || '', manager: args.userName || '',
         site_val1: v1, site_val2: v2,
         toc_std: item === '총유기탄소' ? tocStd : '',
         week_key,
@@ -118,8 +122,12 @@ export async function seedFieldQueueFromCsv(args: {
 }): Promise<void> {
   try {
     if (String(args.sensorType || '').toUpperCase() !== 'SS') return;   // SS만
-    const receipt_no = normalizeReceiptBase(args.receiptNumber);
-    if (!receipt_no) return;
+    const full = normalizeReceiptBase(args.receiptNumber);
+    if (!full) return;
+    // base로 묶고 세부는 detail 보존 (seedFieldQueueFromSend와 동일 규칙)
+    const _p = full.split('-');
+    const receipt_no = _p.length >= 4 ? _p.slice(0, 3).join('-') : full;
+    const detail = full;
     const ai = args.aiAnalysisResult || {};
     const v1 = String(ai['현장1']?.value ?? '').trim();
     const v2 = String(ai['현장2']?.value ?? '').trim();
@@ -127,7 +135,7 @@ export async function seedFieldQueueFromCsv(args: {
     await fetch('/api/field-queue', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ entries: [{
-        receipt_no, item: '부유물질', site_name: args.siteName || '', manager: args.userName || '',
+        receipt_no, item: '부유물질', detail, site_name: args.siteName || '', manager: args.userName || '',
         site_val1: v1, site_val2: v2, week_key: currentWeekKey(),
       }] }),
     });
