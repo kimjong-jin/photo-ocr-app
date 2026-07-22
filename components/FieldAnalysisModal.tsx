@@ -117,14 +117,6 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
     return [...map.values()];
   }, [rows]);
 
-  const confirmReceipt = async (g: { receipt_no: string; items: Record<string, Row> }) => {
-    // 확인 = 그 접수번호의 모든 항목 큐에서 제거 — 실수 방지 확인창
-    if (!window.confirm(`"${g.receipt_no}" 를 현장계수 수분석에서 삭제할까요?\n\n※ 31일까지 자동 보관되는 항목입니다.\n지금 지우면 되돌릴 수 없습니다.`)) return;
-    for (const it of Object.values(g.items)) {
-      await fetch(`/api/field-queue`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ receipt_no: it.receipt_no, item: it.item }) });
-    }
-    load();
-  };
 
   const doneCount = rows.filter(r => rowStatus(r) === '분석완료').length;
 
@@ -196,7 +188,6 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   <th className="text-left px-1.5 py-2 sticky top-0 bg-slate-800 w-[92px]">업체명</th>
                   <th className="px-1 py-2 sticky top-0 bg-slate-800 w-[46px]">담당자</th>
                   {ITEMS.map(it => <th key={it.short} className="px-1 py-2 sticky top-0 bg-slate-800 w-[70px]">{it.short}</th>)}
-                  <th className="px-1 py-2 sticky top-0 bg-slate-800 w-[52px]">확인</th>
                 </tr>
               </thead>
               <tbody>
@@ -211,12 +202,9 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
                         if (!cell) return <td key={it.short} className="px-1 py-2 text-center text-slate-600 align-top">–</td>;
                         return <td key={it.short} className="px-1 py-1.5 text-center align-top">{cellInner(cell, it)}</td>;
                       })}
-                      <td className="px-1 py-2 text-center align-top">
-                        <button onClick={() => confirmReceipt(g)} className="text-[10px] font-bold px-2 py-1 rounded-lg bg-green-500/15 text-green-300 hover:bg-green-500/25">✓ 확인</button>
-                      </td>
                     </tr>
                     <tr className="border-b border-slate-700/40">
-                      <td colSpan={3 + ITEMS.length + 1} className="px-2 pb-2 pt-0 text-[10px]">
+                      <td colSpan={3 + ITEMS.length} className="px-2 pb-2 pt-0 text-[10px]">
                         <span className="inline-block rounded bg-amber-100 border border-amber-300 px-2 py-0.5 text-amber-900"><span className="font-semibold text-amber-700">📝 수분석:</span> {g.comment?.trim() ? <span className="whitespace-pre-wrap break-words">{g.comment}</span> : <span className="text-amber-600/70">-</span>}</span>
                       </td>
                     </tr>
@@ -237,7 +225,6 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
                     <div className="font-mono font-bold text-[13px] text-slate-100 leading-tight">{g.receipt_no}</div>
                     <div className="text-[12px] text-slate-300 leading-tight mt-0.5 break-words">{g.site_name} <span className="text-slate-500">· {g.manager}</span></div>
                   </div>
-                  <button onClick={() => confirmReceipt(g)} className="shrink-0 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-green-500/15 text-green-300">✓ 확인</button>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5 mt-2.5">
                   {ITEMS.filter(it => g.items[it.name]).map(it => (
