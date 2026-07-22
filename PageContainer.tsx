@@ -846,7 +846,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     try {
       await fetch('/api/field-comment', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receipt_no: commentTarget.base, comment: fieldComment, manager: userName, site_name: siteName }),
+        body: JSON.stringify({ receipt_no: commentTarget.base, comment: fieldComment, manager: userName, site_name: commentTarget.site || siteName }),
       });
       setFieldCommentSaved(true);
     } catch { /* best-effort */ }
@@ -3470,12 +3470,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 </div>
 
                 {commentTarget.show && (
-                  <div className="mt-2 rounded-lg bg-amber-200/15 border border-amber-400/40 p-2">
+                  <div className="mt-2 rounded-lg bg-amber-100 border border-amber-300 p-2 shadow-sm">
                     <div className="mb-1">
-                      <span className="text-[11px] font-semibold text-amber-300">🧪 수분석 메모 <span className="text-amber-400/70 font-normal">(선택)</span></span>
+                      <span className="text-[11px] font-bold text-amber-900">🧪 수분석 메모 <span className="text-amber-700 font-normal">(선택)</span></span>
                       <div className="text-[10px] mt-0.5 leading-tight">
-                        <span className="font-mono font-bold text-amber-200">{commentTarget.base}</span>
-                        {commentTarget.site ? <span className="text-amber-300/90"> · {commentTarget.site}</span> : <span className="text-amber-400/50"> · (현장명 없음)</span>}
+                        <span className="font-mono font-bold text-slate-900">{commentTarget.base}</span>
+                        {commentTarget.site ? <span className="text-amber-800 font-semibold"> · {commentTarget.site}</span> : <span className="text-amber-600/80"> · (현장명 없음)</span>}
                       </div>
                     </div>
                     <textarea
@@ -3484,9 +3484,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       onBlur={saveFieldComment}
                       rows={2}
                       placeholder="예: 염분 많다 / SS 500mg/L + 희석수 500mg/L"
-                      className="block w-full p-2 bg-amber-100 border border-amber-300 rounded-md text-slate-800 text-xs placeholder-amber-700/50 resize-none focus:ring-2 focus:ring-amber-400 focus:outline-none"
+                      className="block w-full p-2 bg-amber-50 border border-amber-300 rounded-md text-slate-900 text-xs placeholder-amber-600/50 resize-none focus:ring-2 focus:ring-amber-400 focus:outline-none"
                     />
-                    <div className="text-[10px] text-right mt-0.5">{fieldCommentSaved ? <span className="text-green-400">저장됨 · 현장계수 수분석에 표시</span> : <span className="text-amber-300">수정 중… (칸 밖 누르면 저장)</span>}</div>
+                    <div className="text-[10px] text-right mt-0.5">{fieldCommentSaved ? <span className="text-green-700 font-semibold">저장됨 · 현장계수 수분석에 표시</span> : <span className="text-amber-700">수정 중… (칸 밖 누르면 저장)</span>}</div>
                   </div>
                 )}
 
