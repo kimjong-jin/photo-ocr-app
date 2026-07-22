@@ -3467,17 +3467,17 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                 </div>
 
                 {commentTarget.show && (
-                  <div className="mt-2">
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">🧪 수분석 메모 <span className="text-slate-500 font-normal">(선택 · {commentTarget.base})</span></label>
+                  <div className="mt-2 rounded-lg bg-amber-200/15 border border-amber-400/40 p-2">
+                    <label className="block text-[11px] font-semibold text-amber-300 mb-1">🧪 수분석 메모 <span className="text-amber-400/70 font-normal">(선택 · {commentTarget.base})</span></label>
                     <textarea
                       value={fieldComment}
                       onChange={(e) => { setFieldComment(e.target.value); setFieldCommentSaved(false); }}
                       onBlur={saveFieldComment}
                       rows={2}
                       placeholder="예: 염분 많다 / SS 500mg/L + 희석수 500mg/L"
-                      className="block w-full p-2 bg-slate-800 border border-slate-600 rounded-md text-slate-200 text-xs placeholder-slate-500 resize-none"
+                      className="block w-full p-2 bg-amber-100 border border-amber-300 rounded-md text-slate-800 text-xs placeholder-amber-700/50 resize-none focus:ring-2 focus:ring-amber-400 focus:outline-none"
                     />
-                    <div className="text-[10px] text-right mt-0.5">{fieldCommentSaved ? <span className="text-green-400">저장됨 · 현장계수 수분석에 표시</span> : <span className="text-amber-400">수정 중… (칸 밖 누르면 저장)</span>}</div>
+                    <div className="text-[10px] text-right mt-0.5">{fieldCommentSaved ? <span className="text-green-400">저장됨 · 현장계수 수분석에 표시</span> : <span className="text-amber-300">수정 중… (칸 밖 누르면 저장)</span>}</div>
                   </div>
                 )}
 
