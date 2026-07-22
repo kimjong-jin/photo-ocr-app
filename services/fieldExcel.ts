@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx';
 export interface FieldRow {
   receipt_no: string; item: string; site_name: string; manager: string;
   site_val1: string; site_val2: string; toc_std: string; lab_data: string; detail: string; status: string;
+  comment?: string;   // 수분석 메모(base 접수번호 단위)
 }
 // 출력용 접수번호: 세부(detail, 전체 접수번호)가 있으면 그걸, 없으면 접수번호
 const fullReceipt = (r: FieldRow) => r.detail && r.detail.trim() ? r.detail.trim() : r.receipt_no;
@@ -40,14 +41,14 @@ export function exportFieldExcel(rows: FieldRow[], weekKey: string, verdicts?: M
   const allAoa: any[][] = [
     ['■ 현장계수 수분석 결과', '', '', '', '', '', '', '', '', ''],
     [`주차: ${weekKey}`, '', '', '', '', '', '', '', '', ''],
-    ['NO', '분석항목', '업체명', '접수번호', '측정값1', '측정값2', '실험실평균', '오차(Fi)', '기준', '판정'],
+    ['NO', '분석항목', '업체명', '담당자', '접수번호', '측정값1', '측정값2', '실험실평균', '오차(Fi)', '기준', '판정', '수분석메모'],
   ];
   sorted.forEach((r, i) => {
     const res = calc(r);
     allAoa.push([
-      i + 1, r.item, r.site_name, fullReceipt(r), r.site_val1, r.site_val2,
+      i + 1, r.item, r.site_name, r.manager, fullReceipt(r), r.site_val1, r.site_val2,
       res ? Number(res.labMean.toFixed(4)) : '', res?.fi ?? '',
-      res ? `${res.useRate ? res.limit + '%' : res.limit + 'mg/L'}` : '', verdictText(res),
+      res ? `${res.useRate ? res.limit + '%' : res.limit + 'mg/L'}` : '', verdictText(res), r.comment || '',
     ]);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(allAoa), '전체');
@@ -59,15 +60,15 @@ export function exportFieldExcel(rows: FieldRow[], weekKey: string, verdicts?: M
     const aoa: any[][] = [
       [`${item} — 현장적용계수 판정`],
       [`주차: ${weekKey}`],
-      ['시료번호', '업체명', '접수번호', '측정값1', '측정값2', '실험실1-1', '1-2', '2-1', '2-2', '실험실평균', '오차(Fi)', '오차율(%)', '기준', '판정'],
+      ['시료번호', '업체명', '담당자', '접수번호', '측정값1', '측정값2', '실험실1-1', '1-2', '2-1', '2-2', '실험실평균', '오차(Fi)', '오차율(%)', '기준', '판정', '수분석메모'],
     ];
     itemRows.forEach((r, i) => {
       const res = calc(r); const lv = labVals(r);
       aoa.push([
-        i + 1, r.site_name, fullReceipt(r), r.site_val1, r.site_val2,
+        i + 1, r.site_name, r.manager, fullReceipt(r), r.site_val1, r.site_val2,
         lv[0] ?? '', lv[1] ?? '', lv[2] ?? '', lv[3] ?? '',
         res ? Number(res.labMean.toFixed(4)) : '', res?.fi ?? '', res?.rate ?? '',
-        res ? (res.useRate ? res.limit + '%' : res.limit + 'mg/L') : '', verdictText(res),
+        res ? (res.useRate ? res.limit + '%' : res.limit + 'mg/L') : '', verdictText(res), r.comment || '',
       ]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), ITEM_SHEET[item]);

@@ -217,7 +217,7 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
                     </tr>
                     <tr className="border-b border-slate-700/40">
                       <td colSpan={3 + ITEMS.length + 1} className="px-2 pb-2 pt-0 text-[10px]">
-                        <span className="text-slate-500">📝 수분석:</span> {g.comment?.trim() ? <span className="text-amber-200 whitespace-pre-wrap">{g.comment}</span> : <span className="text-slate-600">-</span>}
+                        <span className="inline-block rounded bg-amber-100 border border-amber-300 px-2 py-0.5 text-amber-900"><span className="font-semibold text-amber-700">📝 수분석:</span> {g.comment?.trim() ? <span className="whitespace-pre-wrap break-words">{g.comment}</span> : <span className="text-amber-600/70">-</span>}</span>
                       </td>
                     </tr>
                   </React.Fragment>
@@ -231,7 +231,7 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
         {!loading && grouped.length > 0 && (
           <div className="sm:hidden p-2.5 space-y-2.5">
             {grouped.map(g => (
-              <div key={g.receipt_no} className="rounded-xl bg-slate-800/70 border border-slate-700 p-3">
+              <div key={g.receipt_no} className="rounded-xl bg-slate-800/60 border border-slate-700 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-mono font-bold text-[13px] text-slate-100 leading-tight">{g.receipt_no}</div>
