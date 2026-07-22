@@ -141,7 +141,7 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
       <>
         {suffix && <div className="text-[10px] font-mono font-bold text-sky-400 leading-none mb-1" title={cell.detail}>{suffix}</div>}
         <div className="text-[8px] text-slate-500 leading-none">현장</div>
-        <div className="font-mono text-[11px] text-slate-100 leading-tight">{cell.site_val1 || '·'}<span className="text-slate-600"> / </span>{cell.site_val2 || '·'}</div>
+        <div className="font-mono text-[11px] text-slate-100 leading-tight">{cell.site_val1 || '·'} <span className="text-slate-500">/</span><br />{cell.site_val2 || '·'}</div>
         {lab.length > 0 && (<>
           <div className="text-[8px] text-slate-500 leading-none mt-0.5">실험</div>
           <div className="font-mono text-[10px] text-amber-200/90 leading-tight">{lab.slice(0, 2).join(' ')}</div>
