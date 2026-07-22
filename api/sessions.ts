@@ -31,6 +31,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       method,
       headers: {
         'Content-Type': 'application/json',
+        'x-studio-secret': process.env.STUDIO_SECRET || '',  // :3333 requireProxyOrLocal 통과용
         'X-Real-IP': realIp,              // 실제 사용자 IP 전달
         'X-Real-UA': realUa,              // 실제 사용자 UA 전달
         'X-Forwarded-For': realIp,
