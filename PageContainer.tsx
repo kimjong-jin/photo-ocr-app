@@ -3316,7 +3316,7 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       }`}>
                         <button
                           className="flex-1 text-left min-w-0"
-                          onClick={async () => {
+                          onClick={() => {
                             // 이미 작업중인 항목을 재클릭 → 해제(토글)
                             if (locReceiptInput === loc.id) {
                               setLocReceiptInput('');
@@ -3324,25 +3324,9 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                             }
                             setLocReceiptInput(loc.id);
                             setCurrentGpsAddress(loc.address);
-                            // 주소로 카카오 재검색해서 정확한 좌표로 지도 이동
-                            // (저장된 lat/lng이 부정확하거나 동일한 경우에도 올바르게 이동)
-                            setIsFetchingAddress(true);
-                            try {
-                              const results = await searchAddressByKeyword(loc.address);
-                              if (results?.length > 0) {
-                                const r = results[0];
-                                const lat = parseFloat(r.y), lng = parseFloat(r.x);
-                                if (!isNaN(lat) && !isNaN(lng)) setCoords({ lat, lng });
-                              } else if (loc.lat && loc.lng) {
-                                setCoords({ lat: loc.lat, lng: loc.lng });
-                              }
-                            } catch {
-                              if (loc.lat && loc.lng) setCoords({ lat: loc.lat, lng: loc.lng });
-                            } finally {
-                              setIsFetchingAddress(false);
-                            }
+                            setCoords(null);   // 지도는 자동으로 안 열림 — '열기'를 눌러야 지도 표시
                           }}
-                          title="클릭 → 접수번호·주소 모두 적용"
+                          title="클릭 → 접수번호·주소 적용 (지도는 '열기')"
                         >
                           {/* 접수번호 + 현장명: 현재 작업중인 항목은 공통 정보 siteName을 실시간 반영 */}
                           <p className="text-[11px] font-bold text-sky-400 truncate">
@@ -3486,7 +3470,10 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
                       placeholder="예: 염분 많다 / SS 500mg/L + 희석수 500mg/L"
                       className="block w-full p-2 bg-amber-50 border border-amber-300 rounded-md text-slate-900 text-xs placeholder-amber-600/50 resize-none focus:ring-2 focus:ring-amber-400 focus:outline-none"
                     />
-                    <div className="text-[10px] text-right mt-0.5">{fieldCommentSaved ? <span className="text-green-700 font-semibold">저장됨 · 현장계수 수분석에 표시</span> : <span className="text-amber-700">수정 중… (칸 밖 누르면 저장)</span>}</div>
+                    <div className="flex items-center justify-between mt-1 gap-2">
+                      <span className="text-[10px] leading-tight">{fieldCommentSaved ? <span className="text-green-700 font-semibold">✓ 저장됨 · 현장계수 수분석에 표시</span> : <span className="text-amber-700 font-semibold">● 미저장</span>}</span>
+                      <button type="button" onClick={saveFieldComment} className="shrink-0 text-[11px] font-bold px-3 py-1 rounded-md bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white shadow-sm">💾 저장</button>
+                    </div>
                   </div>
                 )}
 
