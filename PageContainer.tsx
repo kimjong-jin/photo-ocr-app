@@ -825,8 +825,12 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
     //   먹는물 작업 중에 수질 위치 클릭해도 메모칸 뜨게).
     const isDrinking = parts.length >= 4 || fieldFromItem(itemForReceipt(raw)) === '먹는물';
     const show = /^\d{2}-\d{6}-\d{2}$/.test(base) && !isDrinking;
-    return { show, base };
-  }, [receiptNumber, locReceiptInput]);
+    // 현장명(업체명): 위치목록 → 신청서 순으로 조회 (어느 현장 메모인지 표시)
+    const loc = locationList.find(l => l.id === base);
+    const app = applications.find(a => a.receipt_no === base);
+    const site = (loc?.siteName || app?.site_name || '').trim();
+    return { show, base, site };
+  }, [receiptNumber, locReceiptInput, locationList, applications]);
 
   useEffect(() => {
     if (!commentTarget.show) { setFieldComment(''); setFieldCommentSaved(true); return; }
@@ -3467,7 +3471,13 @@ const PageContainer: React.FC<PageContainerProps> = ({ userName, userRole, userC
 
                 {commentTarget.show && (
                   <div className="mt-2 rounded-lg bg-amber-200/15 border border-amber-400/40 p-2">
-                    <label className="block text-[11px] font-semibold text-amber-300 mb-1">🧪 수분석 메모 <span className="text-amber-400/70 font-normal">(선택 · {commentTarget.base})</span></label>
+                    <div className="mb-1">
+                      <span className="text-[11px] font-semibold text-amber-300">🧪 수분석 메모 <span className="text-amber-400/70 font-normal">(선택)</span></span>
+                      <div className="text-[10px] mt-0.5 leading-tight">
+                        <span className="font-mono font-bold text-amber-200">{commentTarget.base}</span>
+                        {commentTarget.site ? <span className="text-amber-300/90"> · {commentTarget.site}</span> : <span className="text-amber-400/50"> · (현장명 없음)</span>}
+                      </div>
+                    </div>
                     <textarea
                       value={fieldComment}
                       onChange={(e) => { setFieldComment(e.target.value); setFieldCommentSaved(false); }}
