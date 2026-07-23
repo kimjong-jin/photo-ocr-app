@@ -58,15 +58,19 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const fv = verdicts.get(key);
     const fieldOk: boolean | null = fv ? (fv.pass === null || fv.pass === undefined ? null : !!fv.pass) : null;
     const std = stdMap.get(key) || null;
-    // 수동 override(manual_verdict) 우선 — 구축 단계 등 측정범위 미입력으로 인한 가짜 부적합을 강제 지정.
-    // '적합'→true, '부적합'→false, '대기'→null. 대시보드에서 지정하며 계산값보다 우선한다.
+    // 수동 override(manual_verdict)는 '표준용액(정도검사)' 판정만 강제한다 — 현장적용은 실제 상태 유지.
+    // 측정범위 미입력으로 인한 가짜 부적합을 걷어내되, 카톡 lab 미도착이면 여전히 '표준 적합·현장대기'로 표시.
+    // '적합'→표준 ok, '부적합'→표준 bad, '대기'→표준 미판정(null).
     const manual = (cell.manual_verdict || '').trim();
-    if (manual) return { final: manual === '적합' ? true : manual === '부적합' ? false : null, fieldOk, std, manual };
-    const stdBad = std?.pass === 'bad', stdOk = std?.pass === 'ok';
+    let stdEff = std;
+    if (manual === '적합') stdEff = { pass: 'ok', failed: [] };
+    else if (manual === '부적합') stdEff = { pass: 'bad', failed: (std && std.failed) || [] };
+    else if (manual === '대기') stdEff = null;
+    const stdBad = stdEff?.pass === 'bad', stdOk = stdEff?.pass === 'ok';
     let final: boolean | null = null;
     if (stdBad || fieldOk === false) final = false;                 // 하나라도 부적합
     else if (stdOk && fieldOk === true) final = true;               // 둘 다 적합
-    return { final, fieldOk, std, manual: '' };
+    return { final, fieldOk, std: stdEff, manual };
   }, [verdicts, stdMap]);
 
   const load = useCallback(async () => {
