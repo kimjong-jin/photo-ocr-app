@@ -21,6 +21,7 @@ type Row = {
   receipt_no: string; item: string; site_name: string; manager: string;
   site_val1: string; site_val2: string; toc_std: string;
   lab_data: string; detail: string; verdict: string; std_verdict: string; week_key: string; status: string;
+  manual_verdict?: string;   // 판정 수동 override('적합'/'부적합'/'대기'/''=자동) — 대시보드에서 지정, 계산값보다 우선
   comment?: string;   // base 접수번호 수분석 메모(위치도우미 입력, GET에서 병합)
 };
 
@@ -52,16 +53,20 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const weekKey = useMemo(() => weekKeyOf(monday), [monday]);
 
   // cell → 최종 판정. 표준용액(정도검사) ∧ 현장적용. 하나라도 부적합이면 부적합, 둘 다 적합이어야 적합.
-  const cellVerdict = useCallback((cell: Row): { final: boolean | null; fieldOk: boolean | null; std: { pass: string; failed: string[] } | null } => {
+  const cellVerdict = useCallback((cell: Row): { final: boolean | null; fieldOk: boolean | null; std: { pass: string; failed: string[] } | null; manual: string } => {
     const key = `${cell.receipt_no}|${cell.item}`;
     const fv = verdicts.get(key);
     const fieldOk: boolean | null = fv ? (fv.pass === null || fv.pass === undefined ? null : !!fv.pass) : null;
     const std = stdMap.get(key) || null;
+    // 수동 override(manual_verdict) 우선 — 구축 단계 등 측정범위 미입력으로 인한 가짜 부적합을 강제 지정.
+    // '적합'→true, '부적합'→false, '대기'→null. 대시보드에서 지정하며 계산값보다 우선한다.
+    const manual = (cell.manual_verdict || '').trim();
+    if (manual) return { final: manual === '적합' ? true : manual === '부적합' ? false : null, fieldOk, std, manual };
     const stdBad = std?.pass === 'bad', stdOk = std?.pass === 'ok';
     let final: boolean | null = null;
     if (stdBad || fieldOk === false) final = false;                 // 하나라도 부적합
     else if (stdOk && fieldOk === true) final = true;               // 둘 다 적합
-    return { final, fieldOk, std };
+    return { final, fieldOk, std, manual: '' };
   }, [verdicts, stdMap]);
 
   const load = useCallback(async () => {
@@ -127,8 +132,9 @@ export const FieldAnalysisModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const suffix = cell.detail ? (cell.detail.startsWith(cell.receipt_no) ? cell.detail.slice(cell.receipt_no.length) : cell.detail) : '';
     const v = cellVerdict(cell);
     const reasons: string[] = [];
-    if (v.std?.pass === 'bad') reasons.push(...(v.std.failed || []).map((f: string) => `${f}(부)`));
-    if (v.fieldOk === false) reasons.push('현장(부)');
+    // 수동 override가 있으면 계산 기반 부적합 사유(칩)는 감춤 — 지정한 판정만 깔끔히 표시.
+    if (!v.manual && v.std?.pass === 'bad') reasons.push(...(v.std.failed || []).map((f: string) => `${f}(부)`));
+    if (!v.manual && v.fieldOk === false) reasons.push('현장(부)');
     return (
       <>
         {suffix && <div className="text-[10px] font-mono font-bold text-sky-400 leading-none mb-1" title={cell.detail}>{suffix}</div>}
