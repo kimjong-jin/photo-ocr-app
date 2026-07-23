@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ocrToFields, callVerdict, loadCalcFields, type VerdictResult } from '../services/verdictApi';
+import { ocrToFields, callVerdict, loadCalcFields, saveItemToCalcData, type VerdictResult } from '../services/verdictApi';
 
 // 정도검사 체크 라벨 → 짧은 약어(반/제드/스드/직/응/온/포/현장)
 const checkAbbr = (label: string): string => {
@@ -91,6 +91,12 @@ export const VerdictButton: React.FC<Props> = ({ ocrData, selectedItem, receiptN
           const r = window.prompt(`측정범위(range)를 입력하세요 — ${code} 정도검사 계산에 필요합니다.`, '');
           if (r == null || r.trim() === '') { setBusy(false); return; }
           fields.range = r.trim();
+          // P1에서 측정범위가 안 왔을 때 직접 입력한 값 → calc_data(DB)에 저장.
+          // 다음부턴 loadCalcFields가 같은 접수번호·항목으로 찾아 재질문 안 함(P2~P5 공통). best-effort.
+          if (receiptNumber) {
+            saveItemToCalcData({ receiptNo: receiptNumber, userName, code, fields: { range: fields.range } })
+              .catch(() => { /* 저장 실패해도 이번 계산은 진행 */ });
+          }
         }
       }
       // pH/DO 응답시간은 보통 ST→EN(CSV 지정)에서 자동 계산됨. ST/EN 미지정 등으로 비었을 때만 수동 입력(폴백).
